@@ -1,0 +1,14 @@
+node_modules
+npm-debug.log
+data
+*.corrupt.*
+.git
+.github
+.env
+.env.*
+!.env.example
+Deployment notes
+*.zip
+Dockerfile
+.dockerignore
+docker-compose.yml

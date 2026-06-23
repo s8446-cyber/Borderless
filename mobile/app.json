@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Borderless Pay",
+    "slug": "borderless-pay",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "borderlesspay",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0b1020"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.borderlesspay.app",
+      "infoPlist": { "NSFaceIDUsageDescription": "Authenticate to authorize your payment." }
+    },
+    "android": {
+      "package": "com.borderlesspay.app",
+      "adaptiveIcon": { "foregroundImage": "./assets/adaptive-icon.png", "backgroundColor": "#0b1020" }
+    },
+    "web": { "favicon": "./assets/favicon.png" },
+    "plugins": ["expo-local-authentication", "expo-secure-store"]
+  }
+}

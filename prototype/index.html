@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Borderless Pay — Prototype</title>
+<style>
+  :root{
+    --bg:#0b1020; --ink:#0e1525; --muted:#6b7488; --line:#e7e9f0;
+    --brand:#3b5bff; --brand2:#7b8cff; --accent:#12b886; --warn:#f59f00; --danger:#e8590c;
+    --card:#ffffff; --soft:#f4f6fb; --soft2:#eef1f8;
+    --grad:linear-gradient(135deg,#3b5bff 0%,#6a3bff 55%,#9b3bff 100%);
+    --shadow:0 12px 40px rgba(20,28,60,.16);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    background:radial-gradient(1200px 700px at 15% -10%,#1c2a55 0%,#0b1020 55%,#070a16 100%);
+    color:var(--ink);min-height:100%;display:flex;align-items:center;justify-content:center;
+    padding:28px 14px;
+  }
+  .stage{display:flex;flex-direction:column;align-items:center;gap:18px;width:100%}
+  .titlebar{color:#dfe4f5;text-align:center}
+  .titlebar h1{margin:0;font-size:20px;letter-spacing:.3px}
+  .titlebar p{margin:4px 0 0;color:#9aa3c7;font-size:13px}
+
+  /* phone */
+  .phone{
+    width:390px;max-width:96vw;height:800px;max-height:88vh;background:var(--card);
+    border-radius:46px;position:relative;overflow:hidden;box-shadow:var(--shadow),0 0 0 11px #0e1326,0 0 0 13px #232a45;
+    display:flex;flex-direction:column;
+  }
+  .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:150px;height:26px;background:#0e1326;border-bottom-left-radius:16px;border-bottom-right-radius:16px;z-index:50}
+  .statusbar{height:44px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 26px 6px;font-size:12px;font-weight:600;color:var(--ink);flex:0 0 auto}
+  .statusbar .r{display:flex;gap:6px;align-items:center}
+
+  .screen{flex:1;overflow-y:auto;overflow-x:hidden;position:relative}
+  .screen::-webkit-scrollbar{width:0}
+  .view{display:none;flex-direction:column;min-height:100%;animation:fade .35s ease}
+  .view.active{display:flex}
+  @keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .pad{padding:8px 22px 26px}
+
+  /* generic */
+  h2{font-size:24px;margin:6px 0 4px;letter-spacing:-.3px}
+  .sub{color:var(--muted);font-size:14px;line-height:1.5;margin:0 0 18px}
+  .btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border:0;cursor:pointer;
+    font-size:16px;font-weight:700;padding:16px;border-radius:16px;color:#fff;background:var(--grad);box-shadow:0 8px 22px rgba(59,91,255,.35);transition:transform .12s ease,opacity .2s}
+  .btn:active{transform:scale(.98)}
+  .btn.secondary{background:var(--soft);color:var(--ink);box-shadow:none}
+  .btn.ghost{background:transparent;color:var(--brand);box-shadow:none;font-weight:700}
+  .btn[disabled]{opacity:.45;pointer-events:none}
+  .link{color:var(--brand);font-weight:600;text-decoration:none;cursor:pointer}
+  .center{text-align:center}
+  .spacer{flex:1}
+
+  /* hero / onboarding */
+  .hero{background:var(--grad);color:#fff;padding:54px 26px 40px;border-bottom-left-radius:34px;border-bottom-right-radius:34px;position:relative;overflow:hidden}
+  .hero:after{content:"";position:absolute;width:260px;height:260px;background:rgba(255,255,255,.12);border-radius:50%;top:-120px;right:-80px}
+  .hero .logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;letter-spacing:.4px}
+  .globe{width:34px;height:34px;border-radius:11px;background:rgba(255,255,255,.2);display:grid;place-items:center;font-size:18px}
+  .hero h2{font-size:30px;line-height:1.15;margin:26px 0 10px;color:#fff}
+  .hero p{color:rgba(255,255,255,.9);font-size:15px;margin:0;line-height:1.55}
+  .pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+  .pill{background:rgba(255,255,255,.16);color:#fff;font-size:12px;font-weight:600;padding:8px 12px;border-radius:999px;backdrop-filter:blur(4px)}
+
+  .feat{display:flex;gap:14px;align-items:flex-start;padding:14px 0;border-bottom:1px solid var(--line)}
+  .feat:last-child{border-bottom:0}
+  .feat .ic{width:42px;height:42px;border-radius:13px;background:var(--soft);display:grid;place-items:center;font-size:20px;flex:0 0 auto}
+  .feat h4{margin:0 0 3px;font-size:15px}
+  .feat p{margin:0;color:var(--muted);font-size:13px;line-height:1.45}
+
+  /* bank list */
+  .bank{display:flex;align-items:center;gap:14px;padding:15px;border:1.5px solid var(--line);border-radius:16px;margin-bottom:12px;cursor:pointer;transition:.15s;background:#fff}
+  .bank:hover{border-color:var(--brand2);background:#fbfcff}
+  .bank.sel{border-color:var(--brand);background:#f4f6ff;box-shadow:0 0 0 3px rgba(59,91,255,.12)}
+  .bank .bl{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-weight:800;color:#fff;font-size:15px}
+  .bank h4{margin:0;font-size:15px}
+  .bank p{margin:2px 0 0;color:var(--muted);font-size:12px}
+  .bank .chk{margin-left:auto;width:22px;height:22px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;color:#fff;font-size:13px}
+  .bank.sel .chk{background:var(--brand);border-color:var(--brand)}
+  .field{width:100%;border:1.5px solid var(--line);border-radius:14px;padding:14px;font-size:15px;font-family:inherit;color:var(--ink);background:#fff;margin-bottom:12px;outline:none}
+  .field:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(59,91,255,.12)}
+  .amtin{font-size:30px;font-weight:800;text-align:center;border:0;width:100%;outline:none;font-family:inherit;color:var(--ink);background:transparent}
+  .chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 12px}
+  .chips::-webkit-scrollbar{height:0}
+  .chip2{flex:0 0 auto;border:1.5px solid var(--line);border-radius:14px;padding:10px 13px;cursor:pointer;font-size:13px;background:#fff;white-space:nowrap;transition:.15s}
+  .chip2.sel{border-color:var(--brand);background:#f4f6ff;box-shadow:0 0 0 3px rgba(59,91,255,.12)}
+  .label{font-size:12px;color:var(--muted);margin:6px 0 7px;font-weight:700;letter-spacing:.2px}
+  .raterow{display:flex;align-items:center;justify-content:space-between;padding:15px 0;border-bottom:1px solid var(--line)}
+  .raterow:last-child{border-bottom:0}
+  .setrow{display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--line)}
+  .setrow:last-child{border-bottom:0}
+  .toggle{margin-left:auto;width:42px;height:25px;border-radius:999px;background:var(--accent);position:relative;flex:0 0 auto}
+  .toggle:after{content:"";position:absolute;width:19px;height:19px;border-radius:50%;background:#fff;top:3px;right:3px}
+
+  /* home */
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:6px 4px 16px}
+  .topbar .hi{font-size:13px;color:var(--muted)}
+  .topbar .nm{font-size:18px;font-weight:800}
+  .avatar{width:42px;height:42px;border-radius:50%;background:var(--grad);display:grid;place-items:center;color:#fff;font-weight:800}
+  .balcard{background:var(--ink);color:#fff;border-radius:22px;padding:20px;position:relative;overflow:hidden}
+  .balcard:after{content:"";position:absolute;width:180px;height:180px;border-radius:50%;background:rgba(123,140,255,.25);right:-60px;top:-70px}
+  .balcard .lab{font-size:12px;color:#aeb6da;display:flex;align-items:center;gap:7px}
+  .balcard .amt{font-size:30px;font-weight:800;margin-top:6px;letter-spacing:-.5px}
+  .balcard .src{margin-top:14px;display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.1);padding:10px 12px;border-radius:13px;font-size:13px}
+  .balcard .src .d{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px rgba(18,184,134,.25)}
+  .quick{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}
+  .quick .q{background:var(--soft);border:0;border-radius:16px;padding:14px 6px;display:flex;flex-direction:column;align-items:center;gap:7px;cursor:pointer;font-size:11px;font-weight:600;color:var(--ink);transition:.15s}
+  .quick .q:active{transform:scale(.96)}
+  .quick .q .qi{font-size:20px}
+  .paybtn{background:var(--grad);color:#fff;border:0;border-radius:20px;padding:18px;display:flex;align-items:center;justify-content:center;gap:12px;width:100%;font-size:17px;font-weight:800;cursor:pointer;box-shadow:0 10px 26px rgba(59,91,255,.4)}
+  .sech{display:flex;align-items:center;justify-content:space-between;margin:24px 0 8px}
+  .sech h3{margin:0;font-size:15px}
+  .tx{display:flex;align-items:center;gap:13px;padding:12px 0;border-bottom:1px solid var(--line)}
+  .tx:last-child{border-bottom:0}
+  .tx .ti{width:42px;height:42px;border-radius:13px;background:var(--soft);display:grid;place-items:center;font-size:19px;flex:0 0 auto}
+  .tx h4{margin:0;font-size:14px}
+  .tx p{margin:2px 0 0;font-size:12px;color:var(--muted)}
+  .tx .v{margin-left:auto;text-align:right}
+  .tx .v b{font-size:14px}
+  .tx .v span{display:block;font-size:11px;color:var(--muted)}
+
+  /* scanner */
+  .scanwrap{flex:1;background:#0a0d18;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff}
+  .scanwrap .hint{position:absolute;top:24px;left:0;right:0;text-align:center;color:#cfd6f5;font-size:13px}
+  .frame{width:240px;height:240px;border-radius:28px;position:relative;background:rgba(255,255,255,.03)}
+  .corner{position:absolute;width:40px;height:40px;border:4px solid var(--brand2)}
+  .corner.tl{top:-2px;left:-2px;border-right:0;border-bottom:0;border-top-left-radius:18px}
+  .corner.tr{top:-2px;right:-2px;border-left:0;border-bottom:0;border-top-right-radius:18px}
+  .corner.bl{bottom:-2px;left:-2px;border-right:0;border-top:0;border-bottom-left-radius:18px}
+  .corner.br{bottom:-2px;right:-2px;border-left:0;border-top:0;border-bottom-right-radius:18px}
+  .laser{position:absolute;left:8px;right:8px;height:3px;background:linear-gradient(90deg,transparent,var(--brand2),transparent);top:10px;border-radius:3px;animation:scan 2.1s ease-in-out infinite}
+  @keyframes scan{0%,100%{top:12px}50%{top:224px}}
+  .qrface{font-size:120px;opacity:.92;filter:drop-shadow(0 6px 20px rgba(0,0,0,.4))}
+  .scanbtns{position:absolute;bottom:26px;left:0;right:0;display:flex;justify-content:center;gap:10px;padding:0 24px}
+
+  /* quote */
+  .merchant{display:flex;align-items:center;gap:13px;background:var(--soft);border-radius:16px;padding:14px;margin-bottom:6px}
+  .merchant .ml{width:48px;height:48px;border-radius:14px;background:var(--grad);display:grid;place-items:center;color:#fff;font-size:22px}
+  .merchant h4{margin:0;font-size:15px}
+  .merchant p{margin:2px 0 0;font-size:12px;color:var(--muted)}
+  .bigamt{text-align:center;padding:22px 0 6px}
+  .bigamt .loc{font-size:13px;color:var(--muted)}
+  .bigamt .n{font-size:40px;font-weight:800;letter-spacing:-1px;margin-top:2px}
+  .bigamt .eq{font-size:13px;color:var(--muted);margin-top:4px}
+  .breakdown{background:#fff;border:1.5px solid var(--line);border-radius:18px;padding:6px 16px;margin-top:14px}
+  .row{display:flex;justify-content:space-between;align-items:center;padding:13px 0;border-bottom:1px solid var(--line);font-size:14px}
+  .row:last-child{border-bottom:0}
+  .row .k{color:var(--muted);display:flex;align-items:center;gap:7px}
+  .row .v{font-weight:700}
+  .row.total{font-size:16px}
+  .row.total .v{font-size:18px}
+  .tag{font-size:10px;font-weight:800;padding:3px 7px;border-radius:7px;background:#e6fcf2;color:#0c8a5b}
+  .tag.mid{background:#eaf0ff;color:#2b46d6}
+  .note{display:flex;gap:9px;background:#f2f8ff;border:1px solid #d7e6ff;border-radius:14px;padding:12px;margin-top:14px;font-size:12px;color:#2b3a66;line-height:1.45}
+
+  /* auth */
+  .authwrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px 26px}
+  .bio{width:96px;height:96px;border-radius:50%;background:var(--soft);display:grid;place-items:center;font-size:46px;cursor:pointer;transition:.2s;border:3px solid var(--line)}
+  .bio.on{background:#eafff5;border-color:var(--accent);transform:scale(1.04)}
+  .pinrow{display:flex;gap:14px;margin:24px 0 8px}
+  .pindot{width:16px;height:16px;border-radius:50%;border:2px solid var(--line)}
+  .pindot.f{background:var(--brand);border-color:var(--brand)}
+  .keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;width:100%;max-width:280px;margin-top:18px}
+  .key{background:var(--soft);border:0;border-radius:50%;width:74px;height:74px;font-size:24px;font-weight:700;cursor:pointer;justify-self:center;transition:.1s;color:var(--ink)}
+  .key:active{transform:scale(.92);background:var(--soft2)}
+  .key.blank{background:transparent;pointer-events:none}
+
+  /* processing */
+  .proc{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px}
+  .ring{width:84px;height:84px;border-radius:50%;border:5px solid var(--soft2);border-top-color:var(--brand);animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .steps{margin-top:30px;width:100%;max-width:300px;text-align:left}
+  .step{display:flex;align-items:center;gap:12px;padding:11px 0;color:var(--muted);font-size:14px;opacity:.4;transition:.3s}
+  .step.done{opacity:1;color:var(--ink)}
+  .step .si{width:26px;height:26px;border-radius:50%;background:var(--soft2);display:grid;place-items:center;font-size:13px;flex:0 0 auto}
+  .step.done .si{background:var(--accent);color:#fff}
+
+  /* receipt */
+  .rcpt{flex:1;padding:30px 22px}
+  .okbadge{width:84px;height:84px;border-radius:50%;background:#eafff5;display:grid;place-items:center;font-size:42px;margin:6px auto 0;animation:pop .4s ease}
+  @keyframes pop{0%{transform:scale(.4);opacity:0}70%{transform:scale(1.12)}100%{transform:scale(1)}}
+  .rcard{background:#fff;border:1.5px solid var(--line);border-radius:20px;margin-top:20px;overflow:hidden}
+  .rcard .rh{background:var(--soft);padding:16px;text-align:center;border-bottom:1px dashed var(--line)}
+  .rcard .rh .n{font-size:28px;font-weight:800}
+  .rcard .rb{padding:6px 16px}
+  .ledger{display:flex;gap:8px;margin-top:16px}
+  .lcard{flex:1;background:var(--soft);border-radius:14px;padding:12px;font-size:11px}
+  .lcard h5{margin:0 0 4px;font-size:11px;display:flex;align-items:center;gap:6px}
+  .lcard code{font-size:10px;color:var(--brand);word-break:break-all}
+  .lcard .vch{color:var(--accent);font-weight:700;margin-top:6px;display:flex;align-items:center;gap:4px}
+
+  /* corridor switcher */
+  .switch{position:absolute;bottom:14px;right:14px;z-index:60}
+  .switch select{font-size:11px;border-radius:10px;border:1px solid #2a3357;background:#141a31;color:#cfd6f5;padding:7px 9px}
+  .badgeY{display:inline-block;font-size:11px;color:#9aa3c7;margin-top:8px}
+  .foottab{display:flex;border-top:1px solid var(--line);background:#fff;padding:8px 0 12px;flex:0 0 auto}
+  .foottab button{flex:1;background:transparent;border:0;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;color:var(--muted);cursor:pointer;font-weight:600}
+  .foottab button.on{color:var(--brand)}
+  .foottab button .fi{font-size:19px}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="titlebar">
+    <h1>🌍 Borderless Pay — Interactive Prototype</h1>
+    <p>Click through the full flow. Switch the travel corridor bottom-right.</p>
+  </div>
+
+  <div class="phone">
+    <div class="notch"></div>
+    <div class="statusbar">
+      <span id="clock">9:41</span>
+      <span class="r">●●●● &nbsp;📶 &nbsp;🔋</span>
+    </div>
+
+    <div class="screen">
+      <!-- WELCOME -->
+      <div class="view active" id="v-welcome">
+        <div class="hero">
+          <div class="logo"><span class="globe">🌍</span> Borderless Pay</div>
+          <h2>Pay like a local,<br/>anywhere on earth.</h2>
+          <p>Scan, pay, done — straight from your home bank account. Real exchange rate, one tiny fee, zero surprises.</p>
+          <div class="pills"><span class="pill">No wallet top-up</span><span class="pill">Mid-market FX</span><span class="pill">0.5% flat</span></div>
+        </div>
+        <div class="pad">
+          <div class="feat"><div class="ic">🏦</div><div><h4>Direct from your bank</h4><p>Money leaves your home account at the moment you pay. Nothing pre-loaded.</p></div></div>
+          <div class="feat"><div class="ic">🔍</div><div><h4>Total transparency</h4><p>See the real rate and the exact fee before you confirm — every time.</p></div></div>
+          <div class="feat"><div class="ic">🛡️</div><div><h4>Triple-secure</h4><p>Biometric + PIN, end-to-end encryption, and a tamper-evident dual ledger.</p></div></div>
+          <div class="spacer"></div>
+          <button class="btn" style="margin-top:18px" onclick="go('link')">Get started →</button>
+          <p class="center badgeY">Already have an account? <span class="link" onclick="go('home')">Log in</span></p>
+        </div>
+      </div>
+
+      <!-- LINK BANK -->
+      <div class="view" id="v-link">
+        <div class="pad">
+          <p class="center" style="margin:6px 0"><span class="link" onclick="go('welcome')">← Back</span></p>
+          <h2>Link your bank</h2>
+          <p class="sub">Choose your home bank. We connect securely via open banking — your login is never stored.</p>
+          <div id="banklist"></div>
+          <div class="note">🔒 We use read + payment-initiation consent only. Credentials are tokenized and never visible to us.</div>
+          <div class="spacer"></div>
+          <button class="btn" id="linkbtn" disabled style="margin-top:18px" onclick="go('home')">Securely connect</button>
+        </div>
+      </div>
+
+      <!-- HOME -->
+      <div class="view" id="v-home">
+        <div class="pad">
+          <div class="topbar">
+            <div><div class="hi">Welcome back 👋</div><div class="nm">Aarav</div></div>
+            <div class="avatar">A</div>
+          </div>
+          <div class="balcard">
+            <div class="lab">💳 Spending from</div>
+            <div class="amt" id="homeBal">₹2,48,500</div>
+            <div class="src"><span class="d"></span> <span id="bankName">HDFC Bank</span> • linked &amp; live</div>
+          </div>
+          <div class="quick">
+            <button class="q" onclick="startScan()"><span class="qi">📷</span>Scan</button>
+            <button class="q" onclick="openSend()"><span class="qi">💸</span>Send</button>
+            <button class="q" onclick="openDomestic()"><span class="qi">⚡</span>Pay UPI</button>
+            <button class="q" onclick="openRequest()"><span class="qi">🧾</span>Request</button>
+          </div>
+          <button class="paybtn" onclick="startScan()">📷 &nbsp;Scan to Pay</button>
+          <div class="sech"><h3>Recent activity</h3><span class="link" onclick="go('history')">See all</span></div>
+          <div id="recentTx">
+            <div class="tx"><div class="ti">🍽️</div><div><h4>Café Local</h4><p>Yesterday · Dubai</p></div><div class="v"><b id="r1">₹1,206.40</b><span>AED 52.00</span></div></div>
+            <div class="tx"><div class="ti">🚕</div><div><h4>City Taxi</h4><p>2 days ago · Dubai</p></div><div class="v"><b>₹742.40</b><span>AED 32.00</span></div></div>
+            <div class="tx"><div class="ti">🛍️</div><div><h4>Souk Market</h4><p>3 days ago · Dubai</p></div><div class="v"><b>₹2,888.40</b><span>AED 124.50</span></div></div>
+          </div>
+        </div>
+        <div class="spacer"></div>
+        <div class="foottab">
+          <button class="on"><span class="fi">🏠</span>Home</button>
+          <button onclick="go('rates')"><span class="fi">📈</span>Rates</button>
+          <button onclick="go('history')"><span class="fi">🧾</span>Activity</button>
+          <button onclick="go('settings')"><span class="fi">⚙️</span>Settings</button>
+        </div>
+      </div>
+
+      <!-- SCAN -->
+      <div class="view" id="v-scan">
+        <div class="scanwrap">
+          <div class="hint" id="scanHint">Point at the merchant's QR code…</div>
+          <div class="frame">
+            <div class="corner tl"></div><div class="corner tr"></div>
+            <div class="corner bl"></div><div class="corner br"></div>
+            <div class="laser" id="laser"></div>
+            <div style="position:absolute;inset:0;display:grid;place-items:center"><span class="qrface" id="qrface">⬛</span></div>
+          </div>
+          <div class="scanbtns">
+            <button class="btn secondary" style="width:auto;padding:12px 18px" onclick="go('home')">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- QUOTE -->
+      <div class="view" id="v-quote">
+        <div class="pad">
+          <p style="margin:6px 0"><span class="link" onclick="go('home')">✕ Cancel</span></p>
+          <div class="merchant"><div class="ml" id="mIcon">🍽️</div><div><h4 id="mName">Al Masa Restaurant</h4><p id="mLoc">Dubai, UAE · verified merchant</p></div></div>
+          <div class="bigamt">
+            <div class="loc">Merchant charges</div>
+            <div class="n" id="qLocal">AED 80.00</div>
+            <div class="eq" id="qEq">≈ you pay in INR below</div>
+          </div>
+          <div class="breakdown">
+            <div class="row"><span class="k">Amount</span><span class="v" id="bAmount">₹1,856.00</span></div>
+            <div class="row"><span class="k">Exchange rate <span class="tag mid">MID-MARKET</span></span><span class="v" id="bRate">1 AED = ₹23.20</span></div>
+            <div class="row"><span class="k">FX markup</span><span class="v" style="color:var(--accent)" >₹0.00 <span class="tag">NONE</span></span></div>
+            <div class="row"><span class="k">App fee (0.5%)</span><span class="v" id="bFee">₹9.28</span></div>
+            <div class="row total"><span class="k"><b>Total</b></span><span class="v" id="bTotal">₹1,865.28</span></div>
+          </div>
+          <div class="note">🔍 No hidden markup. The rate above is the real mid-market rate. A bank or card would typically add ₹55–95 here.</div>
+          <div class="spacer"></div>
+          <button class="btn" style="margin-top:16px" onclick="confirmMerchant()">Slide to confirm · pay <span id="qTotalBtn">₹1,865.28</span></button>
+        </div>
+      </div>
+
+      <!-- AUTH -->
+      <div class="view" id="v-auth">
+        <div class="authwrap">
+          <h2 id="authTitle">Confirm with Face ID</h2>
+          <p class="sub" id="authSub">Tap to authenticate, then enter your PIN.</p>
+          <div class="bio" id="bio" onclick="bioOn()">😊</div>
+          <div class="pinrow" id="pinrow" style="visibility:hidden">
+            <div class="pindot" data-i="0"></div><div class="pindot" data-i="1"></div>
+            <div class="pindot" data-i="2"></div><div class="pindot" data-i="3"></div>
+          </div>
+          <div class="keypad" id="keypad" style="visibility:hidden"></div>
+          <p class="badgeY" style="margin-top:auto">🛡️ End-to-end encrypted · device-bound key</p>
+        </div>
+      </div>
+
+      <!-- PROCESSING -->
+      <div class="view" id="v-proc">
+        <div class="proc">
+          <div class="ring"></div>
+          <h2 style="margin-top:24px" id="procTitle">Settling securely</h2>
+          <div class="steps" id="procSteps"></div>
+        </div>
+      </div>
+
+      <!-- RECEIPT -->
+      <div class="view" id="v-receipt">
+        <div class="rcpt">
+          <div class="okbadge">✅</div>
+          <h2 class="center" style="margin-top:14px" id="rTitle">Payment sent</h2>
+          <p class="sub center" id="rWhen">Just now</p>
+          <div class="rcard">
+            <div class="rh"><div class="n" id="rTotal">₹1,865.28</div><div style="font-size:12px;color:var(--muted);margin-top:4px" id="rSub">to Al Masa Restaurant · Dubai</div></div>
+            <div class="rb" id="rRows"></div>
+          </div>
+          <div class="ledger" id="rLedger">
+            <div class="lcard"><h5>🔐 Settlement ledger</h5><code id="hashA">0x9af3…b21c</code><div class="vch">✓ recorded</div></div>
+            <div class="lcard" id="lcAnchor"><h5>⛓️ Public anchor</h5><code id="hashB">0x41dd…0e77</code><div class="vch">✓ verifiable</div></div>
+          </div>
+          <button class="btn" style="margin-top:20px" onclick="finishToHome()">Done</button>
+          <button class="btn ghost" id="rGhost" onclick="startScan()">Make another payment</button>
+        </div>
+      </div>
+
+      <!-- HISTORY -->
+      <div class="view" id="v-history">
+        <div class="pad">
+          <div class="topbar"><div class="nm">Activity</div><span class="link" onclick="go('home')">Home</span></div>
+          <div class="balcard" style="background:var(--grad)">
+            <div class="lab" style="color:#e6ebff">Spent abroad this trip</div>
+            <div class="amt" id="tripTotal">₹4,837.20</div>
+            <div class="src" style="background:rgba(255,255,255,.18)"><span class="d"></span> <span id="tripSaved">Saved ~₹145 vs bank cards</span></div>
+          </div>
+          <div class="sech"><h3>All transactions</h3></div>
+          <div id="histList"></div>
+        </div>
+      </div>
+
+      <!-- SEND ABROAD (P2P) -->
+      <div class="view" id="v-send">
+        <div class="pad">
+          <p style="margin:6px 0"><span class="link" onclick="go('home')">← Home</span></p>
+          <h2>Send money abroad</h2>
+          <p class="sub">Direct from your home bank. Recipient gets local currency at the real mid-market rate.</p>
+          <div class="label">Recipient</div>
+          <div class="chips" id="sendChips"></div>
+          <div class="label">You send (INR)</div>
+          <div class="rcard" style="padding:16px;margin-bottom:14px"><input class="amtin" id="sendAmt" inputmode="decimal" value="10000" oninput="computeSend()"></div>
+          <div class="breakdown" id="sendBreak"></div>
+          <button class="btn" style="margin-top:16px" onclick="confirmSend()">Continue securely</button>
+        </div>
+      </div>
+
+      <!-- PAY IN INDIA (domestic) -->
+      <div class="view" id="v-domestic">
+        <div class="pad">
+          <p style="margin:6px 0"><span class="link" onclick="go('home')">← Home</span></p>
+          <h2>Pay in India</h2>
+          <p class="sub">Instant UPI payments — always ₹0 fee. Your everyday spending, same app.</p>
+          <div class="label">Pay to</div>
+          <div class="chips" id="domChips"></div>
+          <input class="field" id="domPayee" placeholder="UPI ID or mobile number" value="chaipoint@upi" oninput="computeDomestic()">
+          <div class="label">Amount (INR)</div>
+          <div class="rcard" style="padding:16px;margin-bottom:14px"><input class="amtin" id="domAmt" inputmode="decimal" value="250" oninput="computeDomestic()"></div>
+          <div class="breakdown" id="domBreak"></div>
+          <button class="btn" style="margin-top:16px" onclick="confirmDomestic()">Pay securely</button>
+        </div>
+      </div>
+
+      <!-- REQUEST MONEY -->
+      <div class="view" id="v-request">
+        <div class="pad">
+          <p style="margin:6px 0"><span class="link" onclick="go('home')">← Home</span></p>
+          <h2>Request money</h2>
+          <p class="sub">Create a collect request and share it. They pay you in a tap.</p>
+          <div class="label">From</div>
+          <input class="field" id="reqFrom" placeholder="Name, UPI ID or mobile" value="Rahul Mehta">
+          <div class="label">Amount (INR)</div>
+          <div class="rcard" style="padding:16px;margin-bottom:14px"><input class="amtin" id="reqAmt" inputmode="decimal" value="1500"></div>
+          <div class="label">Note (optional)</div>
+          <input class="field" id="reqNote" placeholder="What's it for?" value="Dinner split">
+          <button class="btn" style="margin-top:8px" onclick="createRequest()">Create request</button>
+        </div>
+      </div>
+
+      <!-- RATES -->
+      <div class="view" id="v-rates">
+        <div class="pad">
+          <p style="margin:6px 0"><span class="link" onclick="go('home')">← Home</span></p>
+          <h2>Live exchange rates</h2>
+          <p class="sub">Real mid-market rates. We never mark them up — you pay a flat 0.5% fee instead.</p>
+          <div id="ratesList"></div>
+          <div class="note" style="margin-top:16px">🔁 Indicative mid-market snapshot · rate is locked for 60s at payment.</div>
+        </div>
+      </div>
+
+      <!-- SETTINGS -->
+      <div class="view" id="v-settings">
+        <div class="pad">
+          <p style="margin:6px 0"><span class="link" onclick="go('home')">← Home</span></p>
+          <h2>Profile &amp; security</h2>
+          <div class="merchant" style="margin-bottom:8px"><div class="ml">A</div><div><h4>Aarav Sharma</h4><p>aarav@email.com · KYC verified ✅</p></div></div>
+          <div class="label">Linked bank</div>
+          <div class="setrow"><span style="font-size:18px">🏦</span><div><h4 style="margin:0;font-size:14px">HDFC Bank</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">••6721 · Savings · live</p></div></div>
+          <div class="label" style="margin-top:14px">Security</div>
+          <div class="setrow"><span style="font-size:18px">😊</span><div><h4 style="margin:0;font-size:14px">Face ID</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Biometric unlock</p></div><div class="toggle"></div></div>
+          <div class="setrow"><span style="font-size:18px">🔑</span><div><h4 style="margin:0;font-size:14px">Transaction PIN</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Required for every payment</p></div><div class="toggle"></div></div>
+          <div class="setrow"><span style="font-size:18px">📱</span><div><h4 style="margin:0;font-size:14px">Device-bound key</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">This device is trusted</p></div><div class="toggle"></div></div>
+          <div class="setrow"><span style="font-size:18px">🛡️</span><div><h4 style="margin:0;font-size:14px">End-to-end encryption</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">TLS + mTLS + signed ledger</p></div><div class="toggle"></div></div>
+          <div class="label" style="margin-top:14px">Limits</div>
+          <div class="setrow"><span style="font-size:18px">🌍</span><div><h4 style="margin:0;font-size:14px">Per international payment</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Up to ₹5,00,000</p></div></div>
+          <div class="setrow"><span style="font-size:18px">🇮🇳</span><div><h4 style="margin:0;font-size:14px">Per domestic payment</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Up to ₹2,00,000</p></div></div>
+          <button class="btn secondary" style="margin-top:18px" onclick="go('welcome')">Sign out</button>
+        </div>
+      </div>
+
+    </div><!-- /screen -->
+  </div><!-- /phone -->
+
+  <div class="titlebar"><p style="color:#7f88ad">Prototype · mock data · demonstrates UX only (no real money moves)</p></div>
+</div>
+
+<div class="switch">
+  <select id="corridor" onchange="setCorridor(this.value)">
+    <option value="uae">🇮🇳 → 🇦🇪 India to UAE (INR/AED)</option>
+    <option value="sg">🇮🇳 → 🇸🇬 India to Singapore (INR/SGD)</option>
+    <option value="fr">🇮🇳 → 🇫🇷 India to France (INR/EUR)</option>
+    <option value="np">🇮🇳 → 🇳🇵 India to Nepal (INR/NPR)</option>
+  </select>
+</div>
+
+<script>
+  // ---- corridor / scenario data ----
+  const corridors = {
+    uae:{cur:'AED',sym:'AED',rate:23.20,merchant:'Al Masa Restaurant',mIcon:'🍽️',loc:'Dubai, UAE',local:80,flag:'🇦🇪'},
+    sg:{cur:'SGD',sym:'S$',rate:64.10,merchant:'Marina Hawker Stall',mIcon:'🍜',loc:'Singapore',local:18.5,flag:'🇸🇬'},
+    fr:{cur:'EUR',sym:'€',rate:90.40,merchant:'Café de Paris',mIcon:'☕',loc:'Paris, France',local:14.5,flag:'🇫🇷'},
+    np:{cur:'NPR',sym:'Rs',rate:0.625,merchant:'Thamel Crafts',mIcon:'🧣',loc:'Kathmandu, Nepal',local:1500,flag:'🇳🇵'}
+  };
+  let C = corridors.uae;
+  const banks = [
+    {n:'HDFC Bank',d:'••6721 · Savings',c:'#004c8f',i:'H'},
+    {n:'ICICI Bank',d:'••3390 · Savings',c:'#b02a30',i:'I'},
+    {n:'State Bank of India',d:'••1145 · Savings',c:'#22409a',i:'S'},
+    {n:'Axis Bank',d:'••8852 · Savings',c:'#97144d',i:'A'}
+  ];
+  let selectedBank = null;
+
+  const fmtINR = n => '₹'+n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const fmtLoc = n => C.sym+' '+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  function calc(){
+    const amount = C.local * C.rate;
+    const fee = amount * 0.005;
+    return {amount, fee, total:amount+fee};
+  }
+
+  function setCorridor(v){
+    C = corridors[v];
+    renderQuote();
+  }
+
+  function renderQuote(){
+    const {amount,fee,total} = calc();
+    document.getElementById('mName').textContent=C.merchant;
+    document.getElementById('mIcon').textContent=C.mIcon;
+    document.getElementById('mLoc').textContent=C.loc+' · verified merchant';
+    document.getElementById('qLocal').textContent=fmtLoc(C.local);
+    document.getElementById('bAmount').textContent=fmtINR(amount);
+    document.getElementById('bRate').textContent='1 '+C.cur+' = ₹'+C.rate.toLocaleString('en-IN',{maximumFractionDigits:3});
+    document.getElementById('bFee').textContent=fmtINR(fee);
+    document.getElementById('bTotal').textContent=fmtINR(total);
+    document.getElementById('qTotalBtn').textContent=fmtINR(total);
+  }
+
+  // ---- navigation ----
+  function go(id){
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    document.getElementById('v-'+id).classList.add('active');
+    document.querySelector('.screen').scrollTop=0;
+    if(id==='link') renderBanks();
+    if(id==='quote') renderQuote();
+    if(id==='auth') resetAuth();
+    if(id==='history') renderHistory();
+    if(id==='rates') renderRates();
+    if(id==='send') renderSend();
+    if(id==='domestic') renderDomestic();
+  }
+
+  function renderBanks(){
+    const wrap=document.getElementById('banklist');
+    wrap.innerHTML='';
+    banks.forEach((b,idx)=>{
+      const el=document.createElement('div');
+      el.className='bank'+(selectedBank===idx?' sel':'');
+      el.innerHTML='<div class="bl" style="background:'+b.c+'">'+b.i+'</div><div><h4>'+b.n+'</h4><p>'+b.d+'</p></div><div class="chk">✓</div>';
+      el.onclick=()=>{selectedBank=idx;document.getElementById('bankName').textContent=b.n;document.getElementById('linkbtn').disabled=false;renderBanks();};
+      wrap.appendChild(el);
+    });
+  }
+
+  // ---- scan ----
+  function startScan(){
+    go('scan');
+    document.getElementById('qrface').textContent='⬛';
+    document.getElementById('scanHint').textContent='Point at the merchant\u2019s QR code…';
+    document.getElementById('laser').style.display='block';
+    setTimeout(()=>{document.getElementById('qrface').textContent='▦';},700);
+    setTimeout(()=>{
+      document.getElementById('scanHint').textContent='✓ '+C.flag+' Merchant detected';
+      document.getElementById('laser').style.display='none';
+      document.getElementById('qrface').textContent='✅';
+    },1500);
+    setTimeout(()=>go('quote'),2100);
+  }
+
+  // ---- auth ----
+  let pin='';
+  function resetAuth(){
+    pin='';document.getElementById('bio').classList.remove('on');
+    document.getElementById('bio').textContent='😊';
+    document.getElementById('authTitle').textContent='Confirm with Face ID';
+    document.getElementById('authSub').textContent='Tap to authenticate, then enter your PIN.';
+    document.getElementById('pinrow').style.visibility='hidden';
+    document.getElementById('keypad').style.visibility='hidden';
+    updateDots();
+  }
+  function bioOn(){
+    const b=document.getElementById('bio');
+    b.classList.add('on');b.textContent='🔓';
+    document.getElementById('authTitle').textContent='Face ID verified';
+    document.getElementById('authSub').textContent='Now enter your 4-digit transaction PIN.';
+    setTimeout(()=>{
+      document.getElementById('pinrow').style.visibility='visible';
+      document.getElementById('keypad').style.visibility='visible';
+    },350);
+  }
+  function buildKeypad(){
+    const kp=document.getElementById('keypad');kp.innerHTML='';
+    ['1','2','3','4','5','6','7','8','9','','0','⌫'].forEach(k=>{
+      const btn=document.createElement('button');
+      btn.className='key'+(k===''?' blank':'');
+      btn.textContent=k;
+      if(k!=='') btn.onclick=()=>press(k);
+      kp.appendChild(btn);
+    });
+  }
+  function press(k){
+    if(k==='⌫'){pin=pin.slice(0,-1);}
+    else if(pin.length<4){pin+=k;}
+    updateDots();
+    if(pin.length===4){setTimeout(processPay,250);}
+  }
+  function updateDots(){
+    document.querySelectorAll('.pindot').forEach((d,i)=>{d.classList.toggle('f',i<pin.length);});
+  }
+
+  // ---- processing ----
+  function processPay(){
+    go('proc');
+    const r=pendingReceipt||{steps:['Processing']};
+    document.getElementById('procTitle').textContent=r.procTitle||'Settling securely';
+    const steps=r.steps||['Processing'];
+    const wrap=document.getElementById('procSteps');wrap.innerHTML='';
+    steps.forEach((label,i)=>{const el=document.createElement('div');el.className='step';el.id='ps'+i;el.innerHTML='<span class="si">'+(i+1)+'</span> '+label;wrap.appendChild(el);});
+    const base=520;
+    steps.forEach((_,i)=>setTimeout(()=>{const e=document.getElementById('ps'+i);if(e)e.classList.add('done');},base*(i+1)));
+    setTimeout(showReceipt,base*(steps.length+1)+150);
+  }
+
+  function rndHex(){return '0x'+Math.random().toString(16).slice(2,6)+'…'+Math.random().toString(16).slice(2,6);}
+  let history=[];
+  function showReceipt(){
+    const r=pendingReceipt;if(!r){go('home');return;}
+    document.getElementById('rTitle').textContent=r.title;
+    document.getElementById('rWhen').textContent=r.when||'Just now';
+    document.getElementById('rTotal').textContent=r.total;
+    document.getElementById('rSub').textContent=r.sub;
+    const rb=document.getElementById('rRows');rb.innerHTML='';
+    r.rows.forEach(pair=>{rb.innerHTML+=row(pair[0],pair[1]);});
+    document.getElementById('rLedger').style.display=r.secure?'grid':'none';
+    document.getElementById('lcAnchor').style.display=(r.anchor===false)?'none':'block';
+    if(r.secure){document.getElementById('hashA').textContent=rndHex();document.getElementById('hashB').textContent=rndHex();}
+    const g=document.getElementById('rGhost');
+    g.textContent=r.ghostLabel||'Make another payment';
+    g.onclick=r.ghostAction||startScan;
+    if(r.hist)history.unshift(r.hist);
+    go('receipt');
+  }
+
+  function finishToHome(){go('home');}
+
+  function renderHistory(){
+    const seed=[
+      {m:'Café Local',i:'🍽️',loc:'Dubai',inr:1206.40,loc2:'AED 52.00',when:'Yesterday'},
+      {m:'City Taxi',i:'🚕',loc:'Dubai',inr:742.40,loc2:'AED 32.00',when:'2 days ago'},
+      {m:'Souk Market',i:'🛍️',loc:'Dubai',inr:2888.40,loc2:'AED 124.50',when:'3 days ago'}
+    ];
+    const all=history.concat(seed);
+    const tripSpend=all.reduce((s,t)=>s+t.inr,0);
+    const tripSaved=tripSpend*0.03; // banks/cards add ~3.5% FX markup; we charge 0% markup + 0.5% fee
+    document.getElementById('tripTotal').textContent=fmtINR(tripSpend);
+    document.getElementById('tripSaved').textContent='Saved ~₹'+Math.round(tripSaved).toLocaleString('en-IN')+' vs bank cards';
+    const wrap=document.getElementById('histList');wrap.innerHTML='';
+    all.forEach(t=>{
+      const el=document.createElement('div');el.className='tx';
+      el.innerHTML='<div class="ti">'+t.i+'</div><div><h4>'+t.m+'</h4><p>'+t.when+' · '+t.loc+'</p></div><div class="v"><b>'+fmtINR(t.inr)+'</b><span>'+t.loc2+'</span></div>';
+      wrap.appendChild(el);
+    });
+  }
+
+  // ===== shared rates & fee policy (matches backend fx.js) =====
+  const RATES={USD:83.40,AED:23.20,EUR:90.40,GBP:105.70,SGD:64.10,NPR:0.625};
+  const CUR_FLAG={USD:'🇺🇸',AED:'🇦🇪',EUR:'🇫🇷',GBP:'🇬🇧',SGD:'🇸🇬',NPR:'🇳🇵'};
+  function feeINR(amtINR){return Math.min(500,Math.max(2,amtINR*0.005));} // 0.5%, ₹2 floor, ₹500 cap
+  function row(k,v){return '<div class="row"><span class="k">'+k+'</span><span class="v">'+v+'</span></div>';}
+  function rowTotal(k,v){return '<div class="row total"><span class="k"><b>'+k+'</b></span><span class="v">'+v+'</span></div>';}
+  function fmt2(n){return n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+  let pendingReceipt=null;
+
+  // ===== Merchant (cross-border scan-to-pay) =====
+  function confirmMerchant(){
+    const {amount,fee,total}=calc();
+    const ref='BP-'+Math.random().toString(36).slice(2,8).toUpperCase();
+    pendingReceipt={
+      title:'Payment sent',sub:'to '+C.merchant+' · '+C.loc.split(',')[0],total:fmtINR(total),
+      rows:[['Merchant received',fmtLoc(C.local)],['Rate used','1 '+C.cur+' = ₹'+C.rate.toLocaleString('en-IN',{maximumFractionDigits:3})],['App fee (0.5%)',fmtINR(fee)],['FX markup','₹0.00 · none'],['Reference',ref]],
+      secure:true,anchor:true,procTitle:'Settling securely',
+      steps:['Debiting home bank (INR)','Recording on settlement ledger','Anchoring proof on public chain','Paying merchant (local currency)'],
+      hist:{m:C.merchant,i:C.mIcon,loc:C.loc.split(',')[0],inr:total,loc2:fmtLoc(C.local),when:'Just now'},
+      ghostLabel:'Make another payment',ghostAction:startScan
+    };
+    go('auth');
+  }
+
+  // ===== Send abroad (P2P) =====
+  const recipients=[
+    {name:'Rahul Mehta',sub:'Dubai, UAE',cur:'AED'},
+    {name:'Priya Nair',sub:'Singapore',cur:'SGD'},
+    {name:'Aarav (Family)',sub:'Kathmandu, Nepal',cur:'NPR'},
+    {name:'Sophie Laurent',sub:'Paris, France',cur:'EUR'}
+  ];
+  let sendIdx=0;
+  function openSend(){sendIdx=0;var a=document.getElementById('sendAmt');if(a)a.value='10000';go('send');}
+  function renderSend(){
+    const chips=document.getElementById('sendChips');chips.innerHTML='';
+    recipients.forEach((r,idx)=>{
+      const el=document.createElement('div');el.className='chip2'+(idx===sendIdx?' sel':'');
+      el.innerHTML=(CUR_FLAG[r.cur]||'')+' <b>'+r.name.split(' ')[0]+'</b> · '+r.cur;
+      el.onclick=()=>{sendIdx=idx;renderSend();};
+      chips.appendChild(el);
+    });
+    computeSend();
+  }
+  function sendQuote(){
+    const r=recipients[sendIdx],rate=RATES[r.cur];
+    const amt=parseFloat(document.getElementById('sendAmt').value)||0;
+    const fee=amt>0?feeINR(amt):0,total=amt+fee,recv=rate?amt/rate:0;
+    return {r,rate,amt,fee,total,recv};
+  }
+  function computeSend(){
+    const {r,rate,fee,total,recv}=sendQuote();
+    document.getElementById('sendBreak').innerHTML=
+      row('Recipient gets',r.cur+' '+fmt2(recv))
+      +row('Exchange rate','1 '+r.cur+' = ₹'+rate.toLocaleString('en-IN',{maximumFractionDigits:3}))
+      +row('FX markup','₹0.00 · none')
+      +row('App fee (0.5%)',fmtINR(fee))
+      +rowTotal('Total to pay',fmtINR(total));
+  }
+  function confirmSend(){
+    const {r,rate,fee,total,recv}=sendQuote();
+    if(!(total>0))return;
+    const ref='BP-'+Math.random().toString(36).slice(2,8).toUpperCase();
+    pendingReceipt={
+      title:'Money sent',sub:'to '+r.name+' · '+r.sub,total:fmtINR(total),
+      rows:[['Recipient gets',r.cur+' '+fmt2(recv)],['Rate used','1 '+r.cur+' = ₹'+rate.toLocaleString('en-IN',{maximumFractionDigits:3})],['App fee (0.5%)',fmtINR(fee)],['FX markup','₹0.00 · none'],['Reference',ref]],
+      secure:true,anchor:true,procTitle:'Sending securely',
+      steps:['Debiting home bank (INR)','Recording on settlement ledger','Anchoring proof on public chain','Crediting '+r.name.split(' ')[0]+' ('+r.cur+')'],
+      hist:{m:r.name,i:'💸',loc:r.sub.split(',')[0],inr:total,loc2:r.cur+' '+fmt2(recv),when:'Just now'},
+      ghostLabel:'Send again',ghostAction:openSend
+    };
+    go('auth');
+  }
+
+  // ===== Pay in India (domestic, ₹0 fee) =====
+  const payees=[{n:'Chai Point',v:'chaipoint@upi'},{n:'BESCOM',v:'bescom@upi'},{n:'Ravi (friend)',v:'9876543210@ybl'}];
+  function openDomestic(){var a=document.getElementById('domAmt');if(a)a.value='250';var p=document.getElementById('domPayee');if(p)p.value='chaipoint@upi';go('domestic');}
+  function renderDomestic(){
+    const chips=document.getElementById('domChips');chips.innerHTML='';
+    payees.forEach(p=>{
+      const el=document.createElement('div');el.className='chip2';el.innerHTML='<b>'+p.n+'</b>';
+      el.onclick=()=>{document.getElementById('domPayee').value=p.v;computeDomestic();};
+      chips.appendChild(el);
+    });
+    computeDomestic();
+  }
+  function computeDomestic(){
+    const amt=parseFloat(document.getElementById('domAmt').value)||0;
+    document.getElementById('domBreak').innerHTML=
+      row('Amount',fmtINR(amt))+row('App fee','₹0.00 · FREE')+row('Mode','UPI · instant')+rowTotal('Total',fmtINR(amt));
+  }
+  function confirmDomestic(){
+    const amt=parseFloat(document.getElementById('domAmt').value)||0;
+    if(!(amt>0))return;
+    const payee=document.getElementById('domPayee').value||'payee';
+    const ref='BP-'+Math.random().toString(36).slice(2,8).toUpperCase();
+    pendingReceipt={
+      title:'Paid',sub:'to '+payee,total:fmtINR(amt),
+      rows:[['Amount',fmtINR(amt)],['App fee','₹0.00 · FREE'],['Mode','UPI · instant'],['Reference',ref]],
+      secure:true,anchor:false,procTitle:'Paying instantly',
+      steps:['Verifying payee (UPI)','Debiting home bank (INR)','Crediting payee instantly'],
+      hist:{m:payee,i:'⚡',loc:'India',inr:amt,loc2:'UPI · ₹0 fee',when:'Just now'},
+      ghostLabel:'Pay again',ghostAction:openDomestic
+    };
+    go('auth');
+  }
+
+  // ===== Request money (collect) =====
+  function openRequest(){go('request');}
+  function createRequest(){
+    const amt=parseFloat(document.getElementById('reqAmt').value)||0;
+    if(!(amt>0))return;
+    const from=document.getElementById('reqFrom').value||'someone';
+    const note=document.getElementById('reqNote').value||'—';
+    const code='BP-REQ-'+Math.random().toString(36).slice(2,7).toUpperCase();
+    pendingReceipt={
+      title:'Request created',sub:'Ask '+from+' to pay',total:fmtINR(amt),
+      rows:[['From',from],['Note',note],['Status','Pending'],['Request code',code]],
+      secure:false,anchor:false,
+      hist:{m:'Request · '+from,i:'🧾',loc:'India',inr:amt,loc2:'Pending',when:'Just now'},
+      ghostLabel:'📋 Copy share link',ghostAction:function(){var g=document.getElementById('rGhost');g.textContent='✓ Link copied';}
+    };
+    go('receipt');
+  }
+
+  // ===== Rates screen =====
+  function curName(c){return {USD:'US Dollar',AED:'UAE Dirham',EUR:'Euro',GBP:'British Pound',SGD:'Singapore Dollar',NPR:'Nepalese Rupee'}[c]||c;}
+  function renderRates(){
+    const list=document.getElementById('ratesList');list.innerHTML='';
+    Object.entries(RATES).forEach(([cur,rate])=>{
+      const el=document.createElement('div');el.className='raterow';
+      el.innerHTML='<div><b>'+(CUR_FLAG[cur]||'')+' '+cur+'</b><div style="font-size:12px;color:var(--muted)">'+curName(cur)+'</div></div><div style="text-align:right"><b>₹'+rate.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:3})+'</b><div style="font-size:11px;color:var(--accent)">MID-MARKET</div></div>';
+      list.appendChild(el);
+    });
+  }
+
+  // clock
+  function tick(){const d=new Date();document.getElementById('clock').textContent=d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}).replace(' ','');}
+  setInterval(tick,1000);tick();
+  buildKeypad();renderQuote();
+</script>
+</body>
+</html>

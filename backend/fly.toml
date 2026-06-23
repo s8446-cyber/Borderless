@@ -1,0 +1,37 @@
+# Fly.io configuration.
+# Deploy:
+#   fly launch --no-deploy        (creates the app)
+#   fly volumes create bp_data --size 1
+#   fly secrets set BP_SIGNING_SECRET=$(openssl rand -hex 48) BP_ENC_KEY=$(openssl rand -hex 32)
+#   fly secrets set BP_CORS_ORIGINS=https://your-frontend.example
+#   fly deploy
+app = "borderless-pay"
+primary_region = "bom"  # Mumbai
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  BP_ENV = "production"
+  NODE_ENV = "production"
+  PORT = "4000"
+  BP_DB = "/app/data/db.json"
+  BP_TRUST_PROXY = "true"
+
+[[mounts]]
+  source = "bp_data"
+  destination = "/app/data"
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "5s"
+    method = "GET"
+    path = "/api/health"

@@ -1,0 +1,31 @@
+# Render.com blueprint. Deploy: push to GitHub, then "New > Blueprint" in Render.
+# Secrets (BP_SIGNING_SECRET, BP_ENC_KEY) are auto-generated here; set
+# BP_CORS_ORIGINS to your real frontend origin(s).
+services:
+  - type: web
+    name: borderless-pay
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    autoDeploy: true
+    disk:
+      name: bp-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: BP_ENV
+        value: production
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: BP_DB
+        value: /app/data/db.json
+      - key: BP_TRUST_PROXY
+        value: "true"
+      - key: BP_SIGNING_SECRET
+        generateValue: true
+      - key: BP_ENC_KEY
+        generateValue: true
+      - key: BP_CORS_ORIGINS
+        sync: false

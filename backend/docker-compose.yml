@@ -1,0 +1,29 @@
+# Local / single-host production-style run.
+# Usage:
+#   1. cp .env.example .env  (then fill in real secrets)
+#   2. docker compose up --build -d
+services:
+  borderless-pay:
+    build: .
+    image: borderless-pay:latest
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - BP_ENV=production
+      - PORT=4000
+      - BP_DB=/app/data/db.json
+    volumes:
+      - bp_data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  bp_data:

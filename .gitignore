@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+BP_*.secret
+
+# Build output
+dist/
+build/
+.expo/
+.expo-shared/
+web-build/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Local data / runtime state
+data/
+*.sqlite
+*.db
+coverage/

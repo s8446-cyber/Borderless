@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Borderless Pay — Pay anywhere, straight from your bank.</title>
+<meta name="description" content="Borderless Pay lets you pay at home and abroad directly from your bank account — instant domestic payments and transparent cross-border payments at the real exchange rate, just 0.5%, no hidden markup." />
+<style>
+  :root{
+    --bg:#0b1020; --bg2:#0e1530; --card:#141c38; --line:#243056;
+    --ink:#eaf0ff; --muted:#9fb0d8; --brand:#5b8cff; --brand2:#22d3a6;
+    --accent:#7c5cff; --good:#22c55e; --warn:#f59e0b; --radius:18px;
+    --grad:linear-gradient(135deg,#5b8cff 0%,#7c5cff 45%,#22d3a6 100%);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.6;-webkit-font-smoothing:antialiased}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:1100px;margin:0 auto;padding:0 22px}
+  /* nav */
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(12px);background:rgba(11,16,32,.72);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;letter-spacing:.2px}
+  .logo .dot{width:30px;height:30px;border-radius:9px;background:var(--grad);display:grid;place-items:center;font-size:16px}
+  .nav-links{display:flex;gap:26px;align-items:center}
+  .nav-links a{color:var(--muted);font-weight:600;font-size:15px}
+  .nav-links a:hover{color:var(--ink)}
+  .btn{display:inline-block;background:var(--grad);color:#fff;font-weight:700;padding:12px 20px;border-radius:12px;border:0;cursor:pointer;font-size:15px;transition:transform .15s,box-shadow .15s;box-shadow:0 8px 24px rgba(91,140,255,.25)}
+  .btn:hover{transform:translateY(-2px);box-shadow:0 12px 30px rgba(124,92,255,.35)}
+  .btn.ghost{background:transparent;border:1px solid var(--line);box-shadow:none;color:var(--ink)}
+  /* hero */
+  header.hero{position:relative;overflow:hidden;padding:84px 0 64px}
+  header.hero::before{content:"";position:absolute;inset:-40% -10% auto -10%;height:600px;background:radial-gradient(60% 60% at 30% 20%,rgba(124,92,255,.30),transparent 70%),radial-gradient(50% 50% at 80% 10%,rgba(34,211,166,.22),transparent 70%);filter:blur(10px);z-index:0}
+  .hero .wrap{position:relative;z-index:1;display:grid;grid-template-columns:1.1fr .9fr;gap:48px;align-items:center}
+  .pill{display:inline-flex;align-items:center;gap:8px;background:rgba(91,140,255,.12);border:1px solid var(--line);color:var(--brand);font-weight:700;font-size:13px;padding:7px 14px;border-radius:999px;margin-bottom:22px}
+  h1{font-size:50px;line-height:1.05;letter-spacing:-1px;font-weight:850;margin-bottom:18px}
+  h1 .g{background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .sub{font-size:19px;color:var(--muted);max-width:540px;margin-bottom:28px}
+  .waitlist{display:flex;gap:10px;flex-wrap:wrap;max-width:520px}
+  .waitlist input{flex:1;min-width:220px;background:var(--card);border:1px solid var(--line);color:var(--ink);padding:14px 16px;border-radius:12px;font-size:15px;outline:none}
+  .waitlist input:focus{border-color:var(--brand)}
+  .note{font-size:13px;color:var(--muted);margin-top:12px}
+  .ok{color:var(--good);font-weight:700}
+  /* phone mock */
+  .phone{justify-self:center;width:280px;height:560px;border-radius:38px;background:linear-gradient(180deg,#0e1530,#0a0f22);border:1px solid var(--line);box-shadow:0 30px 80px rgba(0,0,0,.5);padding:16px;position:relative}
+  .phone .notch{position:absolute;top:14px;left:50%;transform:translateX(-50%);width:120px;height:22px;background:#0a0f22;border-radius:0 0 14px 14px}
+  .screen{height:100%;border-radius:26px;background:radial-gradient(120% 80% at 50% 0%,rgba(124,92,255,.25),transparent 60%),#0c1228;padding:30px 18px 18px;display:flex;flex-direction:column;gap:14px}
+  .balance{background:var(--grad);border-radius:18px;padding:18px;color:#fff}
+  .balance .lbl{font-size:12px;opacity:.85}
+  .balance .amt{font-size:28px;font-weight:800;margin-top:4px}
+  .tile-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 4px;text-align:center;font-size:10px;color:var(--muted)}
+  .tile .ic{font-size:18px;display:block;margin-bottom:4px}
+  .rcpt{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;font-size:12px;margin-top:auto}
+  .rcpt .row{display:flex;justify-content:space-between;color:var(--muted);margin:3px 0}
+  .rcpt .row b{color:var(--ink)}
+  .rcpt .tot{border-top:1px dashed var(--line);margin-top:8px;padding-top:8px}
+  /* stats */
+  .stats{border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--bg2)}
+  .stats .wrap{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;padding:30px 22px;text-align:center}
+  .stat .n{font-size:30px;font-weight:850;background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .stat .l{color:var(--muted);font-size:14px}
+  /* sections */
+  section{padding:74px 0}
+  .eyebrow{color:var(--brand);font-weight:800;letter-spacing:1.5px;font-size:13px;text-transform:uppercase}
+  h2{font-size:34px;font-weight:820;letter-spacing:-.5px;margin:10px 0 14px}
+  .lead{color:var(--muted);font-size:18px;max-width:680px}
+  .grid{display:grid;gap:18px;margin-top:38px}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:26px;transition:transform .15s,border-color .15s}
+  .card:hover{transform:translateY(-4px);border-color:var(--brand)}
+  .card .ic{width:46px;height:46px;border-radius:12px;background:rgba(124,92,255,.15);display:grid;place-items:center;font-size:22px;margin-bottom:14px}
+  .card h3{font-size:18px;margin-bottom:8px}
+  .card p{color:var(--muted);font-size:15px}
+  .step{display:flex;gap:18px;align-items:flex-start;margin-bottom:26px}
+  .step .num{flex:none;width:42px;height:42px;border-radius:12px;background:var(--grad);display:grid;place-items:center;font-weight:800;color:#fff}
+  .step h3{font-size:18px}
+  .step p{color:var(--muted)}
+  /* compare table */
+  .compare{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-top:34px}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:16px 18px;text-align:left;border-bottom:1px solid var(--line);font-size:15px}
+  th{color:var(--muted);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.5px}
+  td.us{color:var(--brand2);font-weight:800}
+  td .x{color:#f87171;font-weight:700}
+  tr:last-child td{border-bottom:0}
+  /* security */
+  .sec-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:34px}
+  .sec{display:flex;gap:14px;align-items:flex-start;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px}
+  .sec .ic{font-size:22px}
+  .sec b{display:block;margin-bottom:2px}
+  .sec span{color:var(--muted);font-size:14px}
+  /* cta */
+  .cta{position:relative;overflow:hidden;background:linear-gradient(135deg,rgba(91,140,255,.16),rgba(34,211,166,.12));border:1px solid var(--line);border-radius:28px;padding:54px;text-align:center;margin:0 22px}
+  .cta h2{font-size:38px}
+  .cta .waitlist{margin:26px auto 0;justify-content:center}
+  footer{border-top:1px solid var(--line);padding:40px 0;color:var(--muted);font-size:14px;margin-top:74px}
+  footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:14px}
+  .disclaimer{font-size:12px;color:#64739c;max-width:760px;margin-top:14px}
+  @media(max-width:880px){
+    .hero .wrap{grid-template-columns:1fr;gap:36px}
+    .phone{order:-1}
+    h1{font-size:38px}
+    .g3,.g2,.sec-grid,.stats .wrap{grid-template-columns:1fr 1fr}
+    .nav-links{display:none}
+  }
+  @media(max-width:540px){
+    .g3,.g2,.sec-grid,.stats .wrap{grid-template-columns:1fr}
+    h1{font-size:32px}.cta{padding:34px 20px}
+  }
+</style>
+</head>
+<body>
+<nav>
+  <div class="wrap">
+    <div class="logo"><span class="dot">🌍</span> Borderless Pay</div>
+    <div class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#fees">Fees</a>
+      <a href="#security">Security</a>
+      <a href="#waitlist" class="btn">Join waitlist</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div>
+      <span class="pill">⚡ Domestic + cross-border, in one app</span>
+      <h1>Pay anywhere,<br><span class="g">straight from your bank.</span></h1>
+      <p class="sub">Free, instant payments at home. Transparent payments abroad at the <b>real exchange rate</b> — just 0.5%, no hidden markup. Your money, your bank, no wallet to load.</p>
+      <form class="waitlist" id="waitlistForm">
+        <input type="email" id="email" placeholder="you@email.com" required aria-label="Email address" />
+        <button type="submit" class="btn">Get early access</button>
+      </form>
+      <p class="note" id="formNote">Join <b id="count">2,847</b> people on the early-access list. No spam, ever.</p>
+    </div>
+    <div class="phone" aria-hidden="true">
+      <div class="notch"></div>
+      <div class="screen">
+        <div class="balance">
+          <div class="lbl">Available balance</div>
+          <div class="amt">₹ 48,250.00</div>
+        </div>
+        <div class="tile-row">
+          <div class="tile"><span class="ic">📱</span>To phone</div>
+          <div class="tile"><span class="ic">🏦</span>To bank</div>
+          <div class="tile"><span class="ic">📷</span>Scan</div>
+          <div class="tile"><span class="ic">🌍</span>Abroad</div>
+        </div>
+        <div class="rcpt">
+          <div style="font-weight:700;margin-bottom:8px">Paying in Dubai 🇦🇪</div>
+          <div class="row"><span>Amount</span><b>AED 100.00</b></div>
+          <div class="row"><span>Rate (mid-market)</span><b>₹23.20</b></div>
+          <div class="row"><span>Fee (0.5%)</span><b>₹11.60</b></div>
+          <div class="row tot"><span>You pay</span><b>₹2,331.60</b></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="stats">
+  <div class="wrap">
+    <div class="stat"><div class="n">0.5%</div><div class="l">Flat fee abroad</div></div>
+    <div class="stat"><div class="n">₹0</div><div class="l">Domestic payments</div></div>
+    <div class="stat"><div class="n">&lt;60s</div><div class="l">Cross-border settlement</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">Hidden FX markup</div></div>
+  </div>
+</div>
+
+<section id="problem">
+  <div class="wrap">
+    <span class="eyebrow">The problem</span>
+    <h2>Banks and cards quietly take 3–5% every time you pay abroad.</h2>
+    <p class="lead">Marked-up exchange rates, surprise conversion fees, and pre-loaded travel wallets sitting idle. You never see the real rate — and you never see what you actually lost. Borderless Pay shows you every number <b>before</b> you confirm, and charges one honest fee.</p>
+  </div>
+</section>
+
+<section id="how" style="background:var(--bg2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+  <div class="wrap">
+    <span class="eyebrow">How it works</span>
+    <h2>Three taps. Real rate. Done.</h2>
+    <div style="margin-top:38px">
+      <div class="step"><div class="num">1</div><div><h3>Scan or pick who to pay</h3><p>A local QR at home, a friend's number, a bill — or a merchant's QR on the other side of the world.</p></div></div>
+      <div class="step"><div class="num">2</div><div><h3>See the real numbers</h3><p>The exact mid-market rate and a clear 0.5% fee line, shown up front. Domestic? It's free. Nothing hidden.</p></div></div>
+      <div class="step"><div class="num">3</div><div><h3>Confirm with your fingerprint</h3><p>Money moves straight from your bank — no wallet to top up — and settles to the recipient in their currency in seconds.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <span class="eyebrow">One app, everything</span>
+    <h2>Your everyday payments app — that also crosses borders.</h2>
+    <div class="grid g3">
+      <div class="card"><div class="ic">📱</div><h3>Pay anyone in India</h3><p>By phone number, UPI ID, bank account, or QR — instant and free, like you already expect.</p></div>
+      <div class="card"><div class="ic">🌍</div><h3>Pay abroad like a local</h3><p>Scan a foreign merchant QR and pay from your home bank at the real exchange rate.</p></div>
+      <div class="card"><div class="ic">💸</div><h3>Send money home or away</h3><p>Cross-border transfers to people — the recipient amount is shown before you send.</p></div>
+      <div class="card"><div class="ic">🧾</div><h3>Bills &amp; recharges</h3><p>Electricity, water, gas, broadband, DTH, and mobile recharges in a couple of taps.</p></div>
+      <div class="card"><div class="ic">🔔</div><h3>Request &amp; collect</h3><p>Split a dinner, request from a friend, and pay incoming requests in one tap.</p></div>
+      <div class="card"><div class="ic">🧮</div><h3>Always-honest receipts</h3><p>Every payment is itemized — amount, rate, fee, total — and verifiable on a tamper-proof ledger.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="fees" style="background:var(--bg2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+  <div class="wrap">
+    <span class="eyebrow">Honest pricing</span>
+    <h2>See exactly what you save.</h2>
+    <p class="lead">On a typical ₹2,300 payment abroad — here's the difference between the old way and Borderless Pay.</p>
+    <div class="compare">
+      <table>
+        <tr><th>What you pay</th><th>Banks / cards</th><th>Borderless Pay</th></tr>
+        <tr><td>Exchange rate</td><td><span class="x">Marked up 3–5%</span></td><td class="us">Real mid-market</td></tr>
+        <tr><td>Conversion fee</td><td><span class="x">Hidden / variable</span></td><td class="us">0.5%, shown up front</td></tr>
+        <tr><td>Pre-load a wallet?</td><td><span class="x">Often required</span></td><td class="us">No — straight from bank</td></tr>
+        <tr><td>Typical total cost</td><td><span class="x">~₹80–115</span></td><td class="us">₹11.60</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="security">
+  <div class="wrap">
+    <span class="eyebrow">Built to be trusted</span>
+    <h2>Bank-grade security, by design.</h2>
+    <p class="lead">A payments app lives and dies on trust. So every layer is hardened — and every transaction is verifiable.</p>
+    <div class="sec-grid">
+      <div class="sec"><div class="ic">🔐</div><div><b>Triple-layer authorization</b><span>Biometric + device key + PIN. No single factor can move your money.</span></div></div>
+      <div class="sec"><div class="ic">🛡️</div><div><b>Encrypted end to end</b><span>Your bank details are encrypted at rest and in transit; raw account numbers are never exposed.</span></div></div>
+      <div class="sec"><div class="ic">⛓️</div><div><b>Tamper-proof ledger</b><span>Every payment is signed and recorded on a dual ledger — independently verifiable, impossible to silently alter.</span></div></div>
+      <div class="sec"><div class="ic">🚫</div><div><b>Fraud &amp; abuse guards</b><span>Rate limiting, lockouts, and per-transaction limits protect your account around the clock.</span></div></div>
+    </div>
+  </div>
+</section>
+
+<section id="waitlist">
+  <div class="cta">
+    <span class="eyebrow">Be first</span>
+    <h2>Get early access.</h2>
+    <p class="lead" style="margin:10px auto 0">Join the early-access list and help shape the way the world pays across borders.</p>
+    <form class="waitlist" id="waitlistForm2">
+      <input type="email" id="email2" placeholder="you@email.com" required aria-label="Email address" />
+      <button type="submit" class="btn">Join the waitlist</button>
+    </form>
+    <p class="note" id="formNote2"></p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <div class="logo" style="font-size:16px"><span class="dot" style="width:24px;height:24px;font-size:13px">🌍</span> Borderless Pay</div>
+      <p class="disclaimer">Borderless Pay is an early-stage product in active development. Figures shown are illustrative. The product does not yet move real money — live payments require regulatory licensing and banking partnerships, which are in progress. Not financial advice.</p>
+    </div>
+    <div>© 2026 Borderless Pay</div>
+  </div>
+</footer>
+
+<script>
+  // --- Waitlist handling (front-end demo) ---
+  // For production, point this at your backend (e.g. POST /api/waitlist) or a
+  // no-code form service (Formspree, Tally, Google Forms). Here we store locally
+  // and show a friendly confirmation so the page works fully standalone.
+  var BASE = 2847;
+  function getList(){ try{ return JSON.parse(localStorage.getItem('bp_waitlist')||'[]'); }catch(e){ return []; } }
+  function saveEmail(em){ var l=getList(); if(l.indexOf(em)===-1){ l.push(em); localStorage.setItem('bp_waitlist',JSON.stringify(l)); } return l.length; }
+  function renderCount(){ var c=document.getElementById('count'); if(c){ c.textContent=(BASE+getList().length).toLocaleString(); } }
+  function validEmail(e){ return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e); }
+  function handle(emailId, noteId){
+    return function(ev){
+      ev.preventDefault();
+      var input=document.getElementById(emailId);
+      var note=document.getElementById(noteId);
+      var em=(input.value||'').trim().toLowerCase();
+      if(!validEmail(em)){ note.innerHTML='Please enter a valid email.'; return; }
+      saveEmail(em); renderCount();
+      input.value='';
+      note.innerHTML='<span class="ok">✓ You\'re on the list!</span> We\'ll be in touch.';
+    };
+  }
+  document.getElementById('waitlistForm').addEventListener('submit', handle('email','formNote'));
+  document.getElementById('waitlistForm2').addEventListener('submit', handle('email2','formNote2'));
+  renderCount();
+</script>
+</body>
+</html>
