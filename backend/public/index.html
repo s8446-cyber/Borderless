@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0" />
 <title>Borderless Pay</title>
-<meta name="description" content="Pay abroad straight from your bank at the real mid-market rate with a flat 0.5% fee." />
+<meta name="description" content="Pay at home and abroad straight from your bank at the real mid-market rate with a flat 0.5% fee." />
 <link rel="manifest" href="/manifest.webmanifest" />
 <meta name="theme-color" content="#0b1020" />
 <meta name="mobile-web-app-capable" content="yes" />
@@ -18,155 +18,10 @@
 <body>
 <div class="phone">
   <div class="notch"></div>
-
-  <section id="screen-welcome" class="screen active">
-    <div class="brand"><div class="logo">🌍</div> Borderless Pay</div>
-    <h1>Pay anywhere, straight from your bank.</h1>
-    <p class="sub">Spend abroad at the real mid-market rate with a flat 0.5% fee. No wallets, no hidden FX markup, no surprises.</p>
-    <div class="card">
-      <div class="row"><span class="lbl">🏦 Direct from your bank</span><span class="val accent">✓</span></div>
-      <div class="row"><span class="lbl">💱 Mid-market FX rate</span><span class="val accent">✓</span></div>
-      <div class="row"><span class="lbl">🔒 Triple-secure ledger</span><span class="val accent">✓</span></div>
-    </div>
-    <label>Your name</label>
-    <input id="kyc-name" placeholder="Aarav Shah" />
-    <button id="btn-start" class="btn">Verify identity (KYC) &rarr;</button>
-    <p class="api-note">Calls real POST /api/kyc/verify</p>
-  </section>
-
-  <section id="screen-link" class="screen">
-    <h2>Link your home bank</h2>
-    <p class="sub">We connect via secure open-banking consent. Your money stays in your bank until you pay.</p>
-    <label>Bank</label>
-    <select id="bank-select">
-      <option>HDFC Bank</option><option>ICICI Bank</option><option>State Bank of India</option><option>Axis Bank</option>
-    </select>
-    <label>Create a 4-digit payment PIN</label>
-    <div id="newpin-display" style="font-size:24px;letter-spacing:8px;text-align:center;margin-bottom:10px">○○○○</div>
-    <div id="newpin-pad" class="pinpad">
-      <button class="key" data-k="1">1</button><button class="key" data-k="2">2</button><button class="key" data-k="3">3</button>
-      <button class="key" data-k="4">4</button><button class="key" data-k="5">5</button><button class="key" data-k="6">6</button>
-      <button class="key" data-k="7">7</button><button class="key" data-k="8">8</button><button class="key" data-k="9">9</button>
-      <button class="key" data-k="del">⌫</button><button class="key" data-k="0">0</button><span></span>
-    </div>
-    <button id="btn-link" class="btn">Link account</button>
-    <p class="api-note">Calls real POST /api/accounts/link • PIN stored as scrypt hash</p>
-  </section>
-
-  <section id="screen-home" class="screen">
-    <div class="brand"><div class="logo">🌍</div> Borderless Pay</div>
-    <div class="card">
-      <span class="muted">Available to spend</span>
-      <div class="balance" id="home-balance">₹0.00</div>
-      <span class="pill" id="home-bank">Bank</span>
-      <div class="badge-secure"><span>🔐 scrypt PIN</span><span>⛓️ dual ledger</span><span>✍️ HMAC signed</span></div>
-    </div>
-    <button id="btn-pay" class="btn">📷 Scan &amp; Pay abroad</button>
-    <button id="btn-verify" class="btn secondary">🔎 Verify ledger integrity</button>
-    <h2 style="margin-top:24px;font-size:16px">Recent</h2>
-    <div id="history-list"></div>
-  </section>
-
-  <section id="screen-scan" class="screen">
-    <h2>Scan to pay</h2>
-    <div class="scanner">
-      <div class="scanline"></div>
-      <div class="qrbox"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-    </div>
-    <div id="scan-spinner" class="spinner"></div>
-    <div id="scan-detected" style="display:none">
-      <div class="card" style="margin-top:16px">
-        <div class="row"><span class="lbl">Merchant</span><span class="val" id="scan-merchant"></span></div>
-        <div class="row"><span class="lbl">Location</span><span class="val" id="scan-country"></span></div>
-        <div class="row"><span class="lbl">Status</span><span class="val accent">✓ Verified merchant</span></div>
-      </div>
-      <button id="btn-scan-continue" class="btn">Continue</button>
-    </div>
-  </section>
-
-  <section id="screen-quote" class="screen">
-    <h2>Confirm payment</h2>
-    <p class="sub" id="q-merchant"></p>
-    <div class="card">
-      <div class="row"><span class="lbl">They charge</span><span class="val" id="q-local"></span></div>
-      <div class="row"><span class="lbl">Exchange rate (mid-market)</span><span class="val accent" id="q-rate"></span></div>
-      <div class="row"><span class="lbl">Converted amount</span><span class="val" id="q-amount"></span></div>
-      <div class="row"><span class="lbl">FX markup</span><span class="val accent">₹0.00</span></div>
-      <div class="row"><span class="lbl">Borderless fee (0.5%)</span><span class="val" id="q-fee"></span></div>
-      <div class="row total"><span>Total from bank</span><span class="accent" id="q-total"></span></div>
-    </div>
-    <p class="api-note accent" id="q-savings"></p>
-    <button id="btn-quote-pay" class="btn">Slide to pay 🔒</button>
-  </section>
-
-  <section id="screen-auth" class="screen">
-    <h2 style="text-align:center">🔒 Authorize</h2>
-    <p class="sub" style="text-align:center">Face ID + enter your PIN</p>
-    <div style="font-size:54px;text-align:center;margin:10px">👤</div>
-    <div id="pindots" class="pindots"><span></span><span></span><span></span><span></span></div>
-    <div id="pinpad" class="pinpad">
-      <button class="key" data-k="1">1</button><button class="key" data-k="2">2</button><button class="key" data-k="3">3</button>
-      <button class="key" data-k="4">4</button><button class="key" data-k="5">5</button><button class="key" data-k="6">6</button>
-      <button class="key" data-k="7">7</button><button class="key" data-k="8">8</button><button class="key" data-k="9">9</button>
-      <button class="key" data-k="del">⌫</button><button class="key" data-k="0">0</button><span></span>
-    </div>
-  </section>
-
-  <section id="screen-settle" class="screen">
-    <h2 style="text-align:center">Settling securely…</h2>
-    <ul class="steps" id="settle-steps">
-      <li><span class="dot">1</span> Debit home bank account</li>
-      <li><span class="dot">2</span> Write to settlement ledger (hash-chained)</li>
-      <li><span class="dot">3</span> Anchor proof to public chain (Merkle)</li>
-      <li><span class="dot">4</span> Sign authorization (HMAC)</li>
-      <li><span class="dot">5</span> Pay merchant in local currency</li>
-    </ul>
-  </section>
-
-  <section id="screen-receipt" class="screen">
-    <div class="receipt-check">✓</div>
-    <h2 style="text-align:center">Paid <span id="r-total"></span></h2>
-    <p class="sub" style="text-align:center">to <span id="r-merchant"></span></p>
-    <div class="card">
-      <div class="row"><span class="lbl">Rate</span><span class="val" id="r-rate"></span></div>
-      <div class="row"><span class="lbl">Fee</span><span class="val" id="r-fee"></span></div>
-      <div class="row"><span class="lbl">Reference</span><span class="val" id="r-ref"></span></div>
-    </div>
-    <div class="card">
-      <span class="muted" style="font-size:12px">Settlement ledger hash</span>
-      <div class="hashrow" id="r-settle-hash"></div>
-      <span class="muted" style="font-size:12px">Public anchor (tx)</span>
-      <div class="hashrow" id="r-anchor"></div>
-      <span class="muted" style="font-size:12px">Authorization signature</span>
-      <div class="hashrow" id="r-sig"></div>
-    </div>
-    <button id="btn-receipt-done" class="btn">Done</button>
-  </section>
-
-  <section id="screen-history" class="screen">
-    <h2>Activity</h2>
-    <div id="history-list"></div>
-  </section>
-
+  <main id="app" class="screen active"></main>
   <div id="toast" class="toast"></div>
-
-  <nav class="tabbar">
-    <button class="active" data-screen="screen-home"><span class="ic">🏠</span>Home</button>
-    <button data-screen="screen-scan"><span class="ic">📷</span>Pay</button>
-    <button data-screen="screen-history"><span class="ic">📜</span>Activity</button>
-  </nav>
+  <nav id="tabbar" class="tabbar" hidden></nav>
 </div>
-
-<div class="corridor">
-  🌐 Corridor:
-  <select id="corridor-select">
-    <option value="AED">🇦🇪 India → UAE</option>
-    <option value="SGD">🇸🇬 India → Singapore</option>
-    <option value="EUR">🇫🇷 India → France</option>
-    <option value="NPR">🇳🇵 India → Nepal</option>
-  </select>
-</div>
-
 <script src="/app.js"></script>
 </body>
 </html>

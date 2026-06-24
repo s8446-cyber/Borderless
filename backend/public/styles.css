@@ -27,12 +27,32 @@ label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
 .bank-opt{display:flex;align-items:center;gap:12px;cursor:pointer}
 .balance{font-size:34px;font-weight:800;letter-spacing:-1px;margin:6px 0}
 .pill{display:inline-block;background:#173a2e;color:var(--accent);font-size:12px;font-weight:700;padding:5px 12px;border-radius:20px}
-.scanner{height:240px;border-radius:18px;background:#04media;background:repeating-linear-gradient(45deg,#0e1730,#0e1730 12px,#101c3a 12px,#101c3a 24px);position:relative;overflow:hidden;border:2px solid #22305c;display:flex;align-items:center;justify-content:center}
+/* chips */
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.chip{background:var(--card2);border:1px solid var(--border,#22305c);border-radius:12px;padding:10px 14px;color:var(--text);font-size:13px;cursor:pointer;transition:.12s}
+.chip.active{background:var(--accent);border-color:var(--accent);color:#04122b;font-weight:700}
+/* action grid */
+.section{font-size:15px;font-weight:700;margin:18px 0 10px}
+.grid{display:flex;flex-wrap:wrap;gap:10px}
+.tile{width:22%;display:flex;flex-direction:column;align-items:center;gap:6px;background:none;border:none;cursor:pointer;padding:0;margin-bottom:6px}
+.tile-ic{width:54px;height:54px;border-radius:16px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:22px}
+.tile.intl .tile-ic{background:#15324d}
+.tile-lbl{color:var(--muted);font-size:11px;text-align:center}
+/* people row */
+.people{display:flex;gap:16px;overflow-x:auto;padding-bottom:6px;margin-bottom:6px}
+.people::-webkit-scrollbar{height:0}
+.person{display:flex;flex-direction:column;align-items:center;gap:6px;width:58px;flex:0 0 auto;background:none;border:none;cursor:pointer;padding:0}
+.avatar{width:50px;height:50px;border-radius:25px;background:var(--accent);color:#04122b;font-weight:800;display:flex;align-items:center;justify-content:center}
+.person-name{color:var(--muted);font-size:12px}
+/* scanner */
+.scanner{height:240px;border-radius:18px;background:repeating-linear-gradient(45deg,#0e1730,#0e1730 12px,#101c3a 12px,#101c3a 24px);position:relative;overflow:hidden;border:2px solid #22305c;display:flex;align-items:center;justify-content:center;margin-bottom:14px}
 .scanline{position:absolute;left:0;right:0;height:3px;background:var(--accent);box-shadow:0 0 14px var(--accent);animation:scan 2s linear infinite}
 @keyframes scan{0%{top:6%}50%{top:92%}100%{top:6%}}
 .qrbox{width:120px;height:120px;border-radius:14px;background:#fff;display:grid;grid-template-columns:repeat(5,1fr);grid-template-rows:repeat(5,1fr);padding:10px;gap:3px}
-.qrbox i{background:#000;border-radius:2px}
-.steps{list-style:none}
+.qrbox i:nth-child(3n){background:#000;border-radius:2px}
+.qrbox i:nth-child(5n){background:#000;border-radius:2px}
+.qrbox i{background:#fff;border-radius:2px}
+.steps{list-style:none;margin-top:10px}
 .steps li{display:flex;align-items:center;gap:12px;padding:12px 0;color:var(--muted);font-size:15px;opacity:.4;transition:.3s}
 .steps li.done{opacity:1;color:var(--text)}
 .steps li .dot{width:22px;height:22px;border-radius:50%;border:2px solid #33406b;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
@@ -46,14 +66,13 @@ label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
 .txn{display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #1b2546}
 .txn .t-ic{width:38px;height:38px;border-radius:10px;background:var(--card2);display:flex;align-items:center;justify-content:center;margin-right:10px}
 .receipt-check{width:80px;height:80px;border-radius:50%;background:var(--accent);color:#04122b;font-size:44px;display:flex;align-items:center;justify-content:center;margin:10px auto 18px}
-.hashrow{font-family:monospace;font-size:11px;color:var(--muted);word-break:break-all;background:#0c1430;padding:8px 10px;border-radius:8px;margin-top:6px}
+.hashrow{font-family:monospace;font-size:11px;color:var(--muted);word-break:break-all;background:#0c1430;padding:8px 10px;border-radius:8px;margin-top:6px;margin-bottom:6px}
 .toast{position:absolute;bottom:96px;left:20px;right:20px;background:var(--danger);color:#fff;padding:12px 16px;border-radius:12px;font-size:14px;text-align:center;z-index:40;display:none}
-.tabbar{position:absolute;bottom:0;left:0;right:0;height:74px;background:#0a1densely;background:#0a1024;border-top:1px solid #1b2546;display:flex;align-items:center;justify-content:space-around;padding-bottom:10px}
+.tabbar{position:absolute;bottom:0;left:0;right:0;height:74px;background:#0a1024;border-top:1px solid #1b2546;display:flex;align-items:center;justify-content:space-around;padding-bottom:10px}
+.tabbar[hidden]{display:none}
 .tabbar button{background:none;border:none;color:var(--muted);font-size:11px;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer}
 .tabbar button.active{color:var(--accent)}
 .tabbar .ic{font-size:20px}
-.corridor{position:fixed;bottom:18px;right:18px;background:var(--card);border:1px solid #2b3a6b;border-radius:14px;padding:10px 12px;font-size:13px;color:var(--text);z-index:100}
-.corridor select{margin:0;padding:8px;font-size:13px}
 .spinner{width:46px;height:46px;border:4px solid #22305c;border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;margin:20px auto}
 @keyframes spin{to{transform:rotate(360deg)}}
 .api-note{font-size:11px;color:var(--muted);text-align:center;margin-top:14px}
