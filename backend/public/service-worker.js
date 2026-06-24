@@ -1,5 +1,5 @@
 // Borderless Pay PWA service worker — app-shell cache, network-first for API.
-const CACHE = "borderless-pay-v1";
+const CACHE = "borderless-pay-v2";
 const SHELL = [
   "/",
   "/index.html",

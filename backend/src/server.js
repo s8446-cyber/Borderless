@@ -26,7 +26,7 @@ import { ApiError, RATES, listCurrencies, FEE_PCT } from "./fx.js";
 import { toMinor, fromMinor, formatINR } from "./money.js";
 import {
   RateLimiter, LoginGuard, securityHeaders, applyCors, clientIp,
-  asString, asPin, asAmount,
+  asString, asPin, asAmount, asEmail,
 } from "./security.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -75,7 +75,7 @@ export function buildApp({ dbPath = DB_PATH } = {}) {
   const paymentLimiter = new RateLimiter({ windowMs: config.rateLimit.windowMs, max: config.rateLimit.paymentMax });
   const limiterFor = (path) => {
     if (/^\/api\/(payments|transfers|upi|bills|recharge)/.test(path) || /^\/api\/requests\/pay$/.test(path)) return paymentLimiter;
-    if (/^\/api\/(kyc|accounts\/link)/.test(path)) return authLimiter;
+    if (/^\/api\/(kyc|accounts\/link|waitlist)/.test(path)) return authLimiter;
     return null;
   };
 
@@ -94,6 +94,19 @@ export function buildApp({ dbPath = DB_PATH } = {}) {
   add("GET", /^\/api\/currencies$/, async () => ({
     homeCurrency: "INR", feePct: FEE_PCT, rates: RATES, currencies: listCurrencies(),
   }));
+
+  // ---- marketing-site early-access waitlist ----
+  add("GET", /^\/api\/waitlist\/count$/, async () => ({ count: store.data.waitlist.length }));
+  add("POST", /^\/api\/waitlist$/, async (req, body) => {
+    const email = asEmail(body.email);
+    store.data.waitlist = store.data.waitlist || [];
+    if (!store.data.waitlist.some((w) => w.email === email)) {
+      store.data.waitlist.push({ email, ts: Date.now() });
+      audit.append("waitlist_signup", { domain: email.split("@")[1] });
+      persist();
+    }
+    return { ok: true, count: store.data.waitlist.length };
+  });
 
   // KYC + create user
   add("POST", /^\/api\/kyc\/verify$/, async (req, body) => {
