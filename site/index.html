@@ -5,185 +5,321 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Borderless Pay — Pay anywhere, straight from your bank.</title>
 <meta name="description" content="Borderless Pay lets you pay at home and abroad directly from your bank account — instant domestic payments and transparent cross-border payments at the real exchange rate, just 0.5%, no hidden markup." />
+<meta name="theme-color" content="#070b16" />
+<meta property="og:title" content="Borderless Pay — Pay anywhere, straight from your bank." />
+<meta property="og:description" content="Free instant payments at home. Transparent payments abroad at the real mid-market rate — just 0.5%, no hidden markup." />
+<meta property="og:type" content="website" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <style>
   :root{
-    --bg:#0b1020; --bg2:#0e1530; --card:#141c38; --line:#243056;
-    --ink:#eaf0ff; --muted:#9fb0d8; --brand:#5b8cff; --brand2:#22d3a6;
-    --accent:#7c5cff; --good:#22c55e; --warn:#f59e0b; --radius:18px;
-    --grad:linear-gradient(135deg,#5b8cff 0%,#7c5cff 45%,#22d3a6 100%);
+    --bg:#070b16; --bg-elev:#0b1124; --surface:#0f1733; --surface-2:#141d3e;
+    --line:rgba(255,255,255,.08); --line-2:rgba(255,255,255,.14);
+    --ink:#eef2ff; --muted:#9aa8cf; --muted-2:#6b7aa3;
+    --brand:#6e8bff; --violet:#8b5cf6; --mint:#2dd4bf; --good:#34d399; --bad:#fb7185;
+    --grad:linear-gradient(135deg,#6e8bff 0%,#8b5cf6 46%,#2dd4bf 100%);
+    --grad-soft:linear-gradient(135deg,rgba(110,139,255,.16),rgba(139,92,246,.12) 45%,rgba(45,212,191,.12));
+    --radius:20px; --radius-sm:14px;
+    --shadow:0 24px 60px -20px rgba(0,0,0,.7);
+    --shadow-glow:0 18px 50px -12px rgba(110,139,255,.45);
+    --max:1140px;
+    --ff:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    --fd:'Sora',var(--ff);
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.6;-webkit-font-smoothing:antialiased}
+  body{font-family:var(--ff);background:var(--bg);color:var(--ink);line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden}
   a{color:inherit;text-decoration:none}
-  .wrap{max-width:1100px;margin:0 auto;padding:0 22px}
-  /* nav */
-  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(12px);background:rgba(11,16,32,.72);border-bottom:1px solid var(--line)}
-  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px}
-  .logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;letter-spacing:.2px}
-  .logo .dot{width:30px;height:30px;border-radius:9px;background:var(--grad);display:grid;place-items:center;font-size:16px}
-  .nav-links{display:flex;gap:26px;align-items:center}
-  .nav-links a{color:var(--muted);font-weight:600;font-size:15px}
-  .nav-links a:hover{color:var(--ink)}
-  .btn{display:inline-block;background:var(--grad);color:#fff;font-weight:700;padding:12px 20px;border-radius:12px;border:0;cursor:pointer;font-size:15px;transition:transform .15s,box-shadow .15s;box-shadow:0 8px 24px rgba(91,140,255,.25)}
-  .btn:hover{transform:translateY(-2px);box-shadow:0 12px 30px rgba(124,92,255,.35)}
-  .btn.ghost{background:transparent;border:1px solid var(--line);box-shadow:none;color:var(--ink)}
-  /* hero */
-  header.hero{position:relative;overflow:hidden;padding:84px 0 64px}
-  header.hero::before{content:"";position:absolute;inset:-40% -10% auto -10%;height:600px;background:radial-gradient(60% 60% at 30% 20%,rgba(124,92,255,.30),transparent 70%),radial-gradient(50% 50% at 80% 10%,rgba(34,211,166,.22),transparent 70%);filter:blur(10px);z-index:0}
-  .hero .wrap{position:relative;z-index:1;display:grid;grid-template-columns:1.1fr .9fr;gap:48px;align-items:center}
-  .pill{display:inline-flex;align-items:center;gap:8px;background:rgba(91,140,255,.12);border:1px solid var(--line);color:var(--brand);font-weight:700;font-size:13px;padding:7px 14px;border-radius:999px;margin-bottom:22px}
-  h1{font-size:50px;line-height:1.05;letter-spacing:-1px;font-weight:850;margin-bottom:18px}
+  ::selection{background:rgba(139,92,246,.4)}
+  :focus-visible{outline:2px solid var(--brand);outline-offset:3px;border-radius:6px}
+  .wrap{max-width:var(--max);margin:0 auto;padding:0 24px}
+  h1,h2,h3,.logo{font-family:var(--fd)}
+
+  /* ---------- buttons ---------- */
+  .btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--grad);color:#06122b;font-weight:700;padding:13px 22px;border-radius:13px;border:0;cursor:pointer;font-size:15px;font-family:var(--ff);transition:transform .18s cubic-bezier(.2,.8,.2,1),box-shadow .18s,filter .18s;box-shadow:var(--shadow-glow)}
+  .btn:hover{transform:translateY(-2px);box-shadow:0 22px 60px -10px rgba(139,92,246,.55);filter:brightness(1.05)}
+  .btn:active{transform:translateY(0)}
+  .btn.ghost{background:transparent;border:1px solid var(--line-2);box-shadow:none;color:var(--ink);font-weight:600}
+  .btn.ghost:hover{background:rgba(255,255,255,.05);filter:none}
+  .btn.lg{padding:16px 28px;font-size:16px}
+
+  /* ---------- nav ---------- */
+  nav{position:sticky;top:0;z-index:80;transition:background .3s,border-color .3s,backdrop-filter .3s;border-bottom:1px solid transparent}
+  nav.scrolled{background:rgba(7,11,22,.72);backdrop-filter:blur(16px) saturate(140%);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:70px}
+  .logo{display:flex;align-items:center;gap:11px;font-weight:800;font-size:19px;letter-spacing:.2px}
+  .logo .dot{width:34px;height:34px;border-radius:11px;background:var(--grad);display:grid;place-items:center;font-size:18px;box-shadow:var(--shadow-glow)}
+  .nav-links{display:flex;gap:30px;align-items:center}
+  .nav-links a:not(.btn){color:var(--muted);font-weight:600;font-size:15px;transition:color .15s}
+  .nav-links a:not(.btn):hover{color:var(--ink)}
+  .hamburger{display:none;background:none;border:1px solid var(--line-2);border-radius:11px;width:44px;height:44px;cursor:pointer;color:var(--ink);font-size:20px}
+  .mobile-menu{position:fixed;inset:70px 0 auto 0;z-index:79;background:rgba(7,11,22,.97);backdrop-filter:blur(16px);border-bottom:1px solid var(--line);padding:18px 24px 26px;display:none;flex-direction:column;gap:6px;transform:translateY(-12px);opacity:0;transition:transform .25s,opacity .25s}
+  .mobile-menu.open{display:flex;transform:none;opacity:1}
+  .mobile-menu a{padding:14px 8px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--line)}
+  .mobile-menu a.btn{color:#06122b;border:0;margin-top:10px;justify-content:center}
+
+  /* ---------- hero ---------- */
+  .hero{position:relative;overflow:hidden;padding:72px 0 80px}
+  .aurora{position:absolute;inset:-30% -20% auto -20%;height:900px;z-index:0;pointer-events:none;filter:blur(36px);opacity:.9}
+  .aurora span{position:absolute;border-radius:50%;mix-blend-mode:screen}
+  .aurora .a1{width:560px;height:560px;left:6%;top:-6%;background:radial-gradient(circle,rgba(110,139,255,.5),transparent 62%);animation:float1 16s ease-in-out infinite}
+  .aurora .a2{width:520px;height:520px;right:4%;top:-12%;background:radial-gradient(circle,rgba(45,212,191,.42),transparent 62%);animation:float2 19s ease-in-out infinite}
+  .aurora .a3{width:480px;height:480px;left:42%;top:18%;background:radial-gradient(circle,rgba(139,92,246,.4),transparent 62%);animation:float3 22s ease-in-out infinite}
+  .grain{position:absolute;inset:0;z-index:0;opacity:.04;pointer-events:none;background-image:radial-gradient(rgba(255,255,255,.7) 1px,transparent 1px);background-size:3px 3px}
+  @keyframes float1{50%{transform:translate(40px,30px) scale(1.08)}}
+  @keyframes float2{50%{transform:translate(-46px,38px) scale(1.1)}}
+  @keyframes float3{50%{transform:translate(24px,-30px) scale(.94)}}
+  .hero .wrap{position:relative;z-index:2;display:grid;grid-template-columns:1.08fr .92fr;gap:54px;align-items:center}
+  .pill{display:inline-flex;align-items:center;gap:8px;background:rgba(110,139,255,.1);border:1px solid var(--line-2);color:#bcd0ff;font-weight:600;font-size:13px;padding:8px 15px;border-radius:999px;margin-bottom:24px;backdrop-filter:blur(6px)}
+  .pill .live{width:8px;height:8px;border-radius:50%;background:var(--mint);box-shadow:0 0 0 0 rgba(45,212,191,.7);animation:pulse 2.2s infinite}
+  @keyframes pulse{70%{box-shadow:0 0 0 9px rgba(45,212,191,0)}100%{box-shadow:0 0 0 0 rgba(45,212,191,0)}}
+  h1{font-size:clamp(38px,6vw,62px);line-height:1.02;letter-spacing:-1.6px;font-weight:800;margin-bottom:20px}
   h1 .g{background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-  .sub{font-size:19px;color:var(--muted);max-width:540px;margin-bottom:28px}
-  .waitlist{display:flex;gap:10px;flex-wrap:wrap;max-width:520px}
-  .waitlist input{flex:1;min-width:220px;background:var(--card);border:1px solid var(--line);color:var(--ink);padding:14px 16px;border-radius:12px;font-size:15px;outline:none}
-  .waitlist input:focus{border-color:var(--brand)}
-  .note{font-size:13px;color:var(--muted);margin-top:12px}
+  .sub{font-size:clamp(16px,2.2vw,20px);color:var(--muted);max-width:560px;margin-bottom:30px}
+  .waitlist{display:flex;gap:10px;flex-wrap:wrap;max-width:540px}
+  .waitlist input{flex:1;min-width:230px;background:rgba(255,255,255,.04);border:1px solid var(--line-2);color:var(--ink);padding:15px 17px;border-radius:13px;font-size:15px;outline:none;font-family:var(--ff);transition:border-color .15s,background .15s}
+  .waitlist input:focus{border-color:var(--brand);background:rgba(110,139,255,.08)}
+  .note{font-size:13px;color:var(--muted);margin-top:14px}
   .ok{color:var(--good);font-weight:700}
-  /* phone mock */
-  .phone{justify-self:center;width:280px;height:560px;border-radius:38px;background:linear-gradient(180deg,#0e1530,#0a0f22);border:1px solid var(--line);box-shadow:0 30px 80px rgba(0,0,0,.5);padding:16px;position:relative}
-  .phone .notch{position:absolute;top:14px;left:50%;transform:translateX(-50%);width:120px;height:22px;background:#0a0f22;border-radius:0 0 14px 14px}
-  .screen{height:100%;border-radius:26px;background:radial-gradient(120% 80% at 50% 0%,rgba(124,92,255,.25),transparent 60%),#0c1228;padding:30px 18px 18px;display:flex;flex-direction:column;gap:14px}
-  .balance{background:var(--grad);border-radius:18px;padding:18px;color:#fff}
-  .balance .lbl{font-size:12px;opacity:.85}
-  .balance .amt{font-size:28px;font-weight:800;margin-top:4px}
+  .err{color:var(--bad);font-weight:600}
+  .trust-row{display:flex;gap:22px;flex-wrap:wrap;margin-top:26px}
+  .trust-row .t{display:flex;align-items:center;gap:9px;color:var(--muted);font-size:13.5px;font-weight:500}
+  .trust-row .t b{color:var(--ink);font-weight:700}
+
+  /* ---------- phone mock ---------- */
+  .device{justify-self:center;position:relative}
+  .device .halo{position:absolute;inset:-30px;background:var(--grad);filter:blur(60px);opacity:.28;border-radius:60px;z-index:0}
+  .phone{position:relative;z-index:1;width:300px;height:610px;border-radius:42px;background:linear-gradient(180deg,#0e1530,#080d1e);border:1px solid var(--line-2);box-shadow:var(--shadow);padding:14px;animation:rise 1s cubic-bezier(.2,.8,.2,1) both}
+  @keyframes rise{from{opacity:0;transform:translateY(26px) rotateX(8deg)}to{opacity:1;transform:none}}
+  .phone .notch{position:absolute;top:16px;left:50%;transform:translateX(-50%);width:120px;height:26px;background:#080d1e;border-radius:0 0 16px 16px;z-index:3}
+  .screen{height:100%;border-radius:30px;background:radial-gradient(130% 80% at 50% 0%,rgba(139,92,246,.22),transparent 58%),#0a1124;padding:34px 16px 18px;display:flex;flex-direction:column;gap:13px;overflow:hidden;position:relative}
+  .scr-head{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--muted)}
+  .scr-head .av{width:30px;height:30px;border-radius:50%;background:var(--grad);display:grid;place-items:center;color:#06122b;font-weight:800;font-size:12px}
+  .balance{background:var(--grad);border-radius:18px;padding:18px;color:#06122b;position:relative;overflow:hidden}
+  .balance:after{content:"";position:absolute;width:140px;height:140px;border-radius:50%;background:rgba(255,255,255,.18);top:-70px;right:-30px}
+  .balance .lbl{font-size:12px;font-weight:700;opacity:.75}
+  .balance .amt{font-size:28px;font-weight:800;margin-top:4px;font-family:var(--fd)}
   .tile-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-  .tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 4px;text-align:center;font-size:10px;color:var(--muted)}
-  .tile .ic{font-size:18px;display:block;margin-bottom:4px}
-  .rcpt{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;font-size:12px;margin-top:auto}
-  .rcpt .row{display:flex;justify-content:space-between;color:var(--muted);margin:3px 0}
+  .tile{background:rgba(255,255,255,.045);border:1px solid var(--line);border-radius:13px;padding:11px 4px;text-align:center;font-size:10px;color:var(--muted);transition:.2s}
+  .tile .ic{font-size:19px;display:block;margin-bottom:5px}
+  .rcpt{background:rgba(255,255,255,.045);border:1px solid var(--line);border-radius:16px;padding:15px;font-size:12px;margin-top:auto}
+  .rcpt .h{display:flex;align-items:center;gap:8px;font-weight:700;margin-bottom:10px;font-size:13px}
+  .rcpt .row{display:flex;justify-content:space-between;color:var(--muted);margin:5px 0}
   .rcpt .row b{color:var(--ink)}
-  .rcpt .tot{border-top:1px dashed var(--line);margin-top:8px;padding-top:8px}
-  /* stats */
-  .stats{border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--bg2)}
-  .stats .wrap{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;padding:30px 22px;text-align:center}
-  .stat .n{font-size:30px;font-weight:850;background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-  .stat .l{color:var(--muted);font-size:14px}
-  /* sections */
-  section{padding:74px 0}
-  .eyebrow{color:var(--brand);font-weight:800;letter-spacing:1.5px;font-size:13px;text-transform:uppercase}
-  h2{font-size:34px;font-weight:820;letter-spacing:-.5px;margin:10px 0 14px}
-  .lead{color:var(--muted);font-size:18px;max-width:680px}
-  .grid{display:grid;gap:18px;margin-top:38px}
+  .rcpt .row.mk b{color:var(--mint)}
+  .rcpt .tot{border-top:1px dashed var(--line-2);margin-top:9px;padding-top:9px;font-size:13px}
+  .rcpt .verify{display:flex;align-items:center;gap:6px;color:var(--mint);font-size:11px;margin-top:10px;font-weight:600}
+  .scr-fade{animation:scrfade .5s ease}
+  @keyframes scrfade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+  /* ---------- FX strip ---------- */
+  .fxstrip{border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--bg-elev),var(--bg));overflow:hidden}
+  .fxstrip .inner{display:flex;align-items:center;gap:14px;padding:16px 24px;max-width:var(--max);margin:0 auto;flex-wrap:wrap}
+  .fxstrip .lab{font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted-2);display:flex;align-items:center;gap:8px;white-space:nowrap}
+  .fxstrip .lab .live{width:7px;height:7px;border-radius:50%;background:var(--mint);animation:pulse 2.2s infinite}
+  .fx-chips{display:flex;gap:10px;flex-wrap:wrap}
+  .fx{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-size:13.5px;font-weight:600}
+  .fx .pair{color:var(--muted)}
+  .fx .rate{color:var(--ink)}
+  .fx .mk{color:var(--mint);font-size:11px;font-weight:700}
+
+  /* ---------- stats ---------- */
+  .stats{background:var(--bg-elev);border-bottom:1px solid var(--line)}
+  .stats .wrap{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;padding:42px 24px;text-align:center}
+  .stat .n{font-size:clamp(28px,4vw,38px);font-weight:800;font-family:var(--fd);background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .stat .l{color:var(--muted);font-size:14px;margin-top:2px}
+
+  /* ---------- sections ---------- */
+  section{padding:84px 0}
+  .eyebrow{color:#9db4ff;font-weight:700;letter-spacing:2px;font-size:12.5px;text-transform:uppercase;font-family:var(--ff)}
+  h2{font-size:clamp(28px,4.4vw,40px);font-weight:800;letter-spacing:-.8px;margin:12px 0 16px;line-height:1.1}
+  .lead{color:var(--muted);font-size:clamp(16px,2vw,18.5px);max-width:700px}
+  .grid{display:grid;gap:18px;margin-top:42px}
   .g3{grid-template-columns:repeat(3,1fr)}
   .g2{grid-template-columns:repeat(2,1fr)}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:26px;transition:transform .15s,border-color .15s}
-  .card:hover{transform:translateY(-4px);border-color:var(--brand)}
-  .card .ic{width:46px;height:46px;border-radius:12px;background:rgba(124,92,255,.15);display:grid;place-items:center;font-size:22px;margin-bottom:14px}
-  .card h3{font-size:18px;margin-bottom:8px}
+  .card{background:linear-gradient(180deg,var(--surface),var(--bg-elev));border:1px solid var(--line);border-radius:var(--radius);padding:28px;transition:transform .2s cubic-bezier(.2,.8,.2,1),border-color .2s,box-shadow .2s;position:relative;overflow:hidden}
+  .card:hover{transform:translateY(-6px);border-color:var(--line-2);box-shadow:var(--shadow)}
+  .card .ic{width:50px;height:50px;border-radius:14px;background:var(--grad-soft);border:1px solid var(--line);display:grid;place-items:center;font-size:24px;margin-bottom:16px}
+  .card h3{font-size:18.5px;margin-bottom:8px}
   .card p{color:var(--muted);font-size:15px}
-  .step{display:flex;gap:18px;align-items:flex-start;margin-bottom:26px}
-  .step .num{flex:none;width:42px;height:42px;border-radius:12px;background:var(--grad);display:grid;place-items:center;font-weight:800;color:#fff}
-  .step h3{font-size:18px}
+  .steps-wrap{margin-top:42px;display:grid;gap:0}
+  .step{display:flex;gap:20px;align-items:flex-start;padding:22px 0;border-bottom:1px solid var(--line)}
+  .step:last-child{border-bottom:0}
+  .step .num{flex:none;width:46px;height:46px;border-radius:14px;background:var(--grad-soft);border:1px solid var(--line-2);display:grid;place-items:center;font-weight:800;font-family:var(--fd);color:#bcd0ff}
+  .step h3{font-size:19px;margin-bottom:4px}
   .step p{color:var(--muted)}
-  /* compare table */
-  .compare{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-top:34px}
+
+  /* ---------- calculator ---------- */
+  .calc{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:42px;align-items:stretch}
+  .calc-panel{background:linear-gradient(180deg,var(--surface),var(--bg-elev));border:1px solid var(--line);border-radius:var(--radius);padding:28px}
+  .calc-panel h3{font-size:16px;margin-bottom:18px;color:var(--muted);font-family:var(--ff);font-weight:600}
+  .ctrl{margin-bottom:20px}
+  .ctrl label{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);margin-bottom:10px;font-weight:500}
+  .ctrl label b{color:var(--ink);font-family:var(--fd)}
+  .cur-chips{display:flex;gap:8px;flex-wrap:wrap}
+  .cur-chip{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:11px;padding:9px 13px;font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer;transition:.15s}
+  .cur-chip.active{background:var(--grad-soft);border-color:var(--brand);color:var(--ink)}
+  input[type=range]{-webkit-appearance:none;width:100%;height:6px;border-radius:999px;background:rgba(255,255,255,.1);outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:var(--grad);cursor:pointer;box-shadow:var(--shadow-glow)}
+  input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radius:50%;background:#6e8bff;cursor:pointer}
+  .calc-out{background:linear-gradient(160deg,rgba(110,139,255,.12),rgba(45,212,191,.08));border:1px solid var(--line-2);border-radius:var(--radius);padding:28px;display:flex;flex-direction:column;justify-content:center}
+  .calc-out .crow{display:flex;justify-content:space-between;align-items:center;padding:11px 0;font-size:15px;color:var(--muted);border-bottom:1px solid var(--line)}
+  .calc-out .crow b{color:var(--ink);font-family:var(--fd);font-weight:700}
+  .calc-out .crow.bank b{color:var(--bad);text-decoration:line-through;opacity:.8}
+  .calc-out .crow.us b{color:var(--mint)}
+  .save-badge{margin-top:18px;text-align:center;background:var(--grad);border-radius:16px;padding:18px;color:#06122b}
+  .save-badge .lbl{font-size:13px;font-weight:700;opacity:.8}
+  .save-badge .amt{font-size:34px;font-weight:800;font-family:var(--fd);line-height:1.1}
+  .save-badge .sub{font-size:12.5px;font-weight:600;opacity:.85}
+
+  /* ---------- compare ---------- */
+  .compare{background:linear-gradient(180deg,var(--surface),var(--bg-elev));border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-top:38px}
   table{width:100%;border-collapse:collapse}
-  th,td{padding:16px 18px;text-align:left;border-bottom:1px solid var(--line);font-size:15px}
-  th{color:var(--muted);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.5px}
-  td.us{color:var(--brand2);font-weight:800}
-  td .x{color:#f87171;font-weight:700}
+  th,td{padding:17px 20px;text-align:left;border-bottom:1px solid var(--line);font-size:15px}
+  th{color:var(--muted);font-weight:700;font-size:12.5px;text-transform:uppercase;letter-spacing:.6px}
+  th:last-child,td:last-child{background:rgba(45,212,191,.05)}
+  td.us{color:var(--mint);font-weight:700}
+  td .x{color:var(--bad);font-weight:600}
   tr:last-child td{border-bottom:0}
-  /* security */
-  .sec-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:34px}
-  .sec{display:flex;gap:14px;align-items:flex-start;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px}
-  .sec .ic{font-size:22px}
-  .sec b{display:block;margin-bottom:2px}
+
+  /* ---------- security ---------- */
+  .sec-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-top:38px}
+  .sec{display:flex;gap:16px;align-items:flex-start;background:linear-gradient(180deg,var(--surface),var(--bg-elev));border:1px solid var(--line);border-radius:16px;padding:22px;transition:border-color .2s,transform .2s}
+  .sec:hover{border-color:var(--line-2);transform:translateY(-3px)}
+  .sec .ic{font-size:24px;width:46px;height:46px;border-radius:12px;background:var(--grad-soft);display:grid;place-items:center;flex:none}
+  .sec b{display:block;margin-bottom:3px;font-family:var(--fd)}
   .sec span{color:var(--muted);font-size:14px}
-  /* cta */
-  .cta{position:relative;overflow:hidden;background:linear-gradient(135deg,rgba(91,140,255,.16),rgba(34,211,166,.12));border:1px solid var(--line);border-radius:28px;padding:54px;text-align:center;margin:0 22px}
-  .cta h2{font-size:38px}
-  .cta .waitlist{margin:26px auto 0;justify-content:center}
-  footer{border-top:1px solid var(--line);padding:40px 0;color:var(--muted);font-size:14px;margin-top:74px}
-  footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:14px}
-  .disclaimer{font-size:12px;color:#64739c;max-width:760px;margin-top:14px}
-  @media(max-width:880px){
-    .hero .wrap{grid-template-columns:1fr;gap:36px}
-    .phone{order:-1}
-    h1{font-size:38px}
-    .g3,.g2,.sec-grid,.stats .wrap{grid-template-columns:1fr 1fr}
+
+  /* ---------- cta ---------- */
+  .cta{position:relative;overflow:hidden;background:var(--grad-soft);border:1px solid var(--line-2);border-radius:30px;padding:60px;text-align:center;margin:0 24px}
+  .cta:before{content:"";position:absolute;inset:auto -10% -60% -10%;height:400px;background:radial-gradient(50% 60% at 50% 100%,rgba(139,92,246,.3),transparent 70%);z-index:0}
+  .cta>*{position:relative;z-index:1}
+  .cta h2{font-size:clamp(30px,5vw,42px)}
+  .cta .waitlist{margin:28px auto 0;justify-content:center}
+
+  /* ---------- footer ---------- */
+  footer{border-top:1px solid var(--line);padding:46px 0 36px;color:var(--muted);font-size:14px;margin-top:90px}
+  footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:18px}
+  .disclaimer{font-size:12px;color:var(--muted-2);max-width:780px;margin-top:14px;line-height:1.6}
+
+  /* ---------- reveal ---------- */
+  .reveal{opacity:0;transform:translateY(22px);transition:opacity .7s cubic-bezier(.2,.8,.2,1),transform .7s cubic-bezier(.2,.8,.2,1)}
+  .reveal.in{opacity:1;transform:none}
+
+  @media(max-width:920px){
+    .hero .wrap{grid-template-columns:1fr;gap:44px}
+    .device{order:-1}
+    .calc{grid-template-columns:1fr}
+    .g3{grid-template-columns:1fr 1fr}
     .nav-links{display:none}
+    .hamburger{display:grid;place-items:center}
   }
-  @media(max-width:540px){
+  @media(max-width:600px){
     .g3,.g2,.sec-grid,.stats .wrap{grid-template-columns:1fr}
-    h1{font-size:32px}.cta{padding:34px 20px}
+    .stats .wrap{gap:30px}
+    .cta{padding:38px 22px}
+    section{padding:64px 0}
+  }
+  @media (prefers-reduced-motion: reduce){
+    *{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+    .reveal{opacity:1;transform:none}
   }
 </style>
 </head>
 <body>
-<nav>
+<nav id="nav">
   <div class="wrap">
     <div class="logo"><span class="dot">🌍</span> Borderless Pay</div>
     <div class="nav-links">
       <a href="#how">How it works</a>
       <a href="#features">Features</a>
-      <a href="#fees">Fees</a>
+      <a href="#calculator">Savings</a>
       <a href="#security">Security</a>
       <a href="#waitlist" class="btn">Join waitlist</a>
     </div>
+    <button class="hamburger" id="hamburger" aria-label="Open menu" aria-expanded="false">☰</button>
   </div>
 </nav>
+<div class="mobile-menu" id="mobileMenu">
+  <a href="#how">How it works</a>
+  <a href="#features">Features</a>
+  <a href="#calculator">Savings</a>
+  <a href="#security">Security</a>
+  <a href="#waitlist" class="btn">Join waitlist</a>
+</div>
 
 <header class="hero">
+  <div class="aurora" aria-hidden="true"><span class="a1"></span><span class="a2"></span><span class="a3"></span></div>
+  <div class="grain" aria-hidden="true"></div>
   <div class="wrap">
     <div>
-      <span class="pill">⚡ Domestic + cross-border, in one app</span>
+      <span class="pill"><span class="live"></span> Domestic + cross-border, in one app</span>
       <h1>Pay anywhere,<br><span class="g">straight from your bank.</span></h1>
       <p class="sub">Free, instant payments at home. Transparent payments abroad at the <b>real exchange rate</b> — just 0.5%, no hidden markup. Your money, your bank, no wallet to load.</p>
-      <form class="waitlist" id="waitlistForm">
-        <input type="email" id="email" placeholder="you@email.com" required aria-label="Email address" />
+      <form class="waitlist" id="waitlistForm" novalidate>
+        <input type="email" id="email" placeholder="you@email.com" required aria-label="Email address" autocomplete="email" />
         <button type="submit" class="btn">Get early access</button>
       </form>
       <p class="note" id="formNote">Join <b id="count">2,847</b> people on the early-access list. No spam, ever.</p>
+      <div class="trust-row">
+        <div class="t">⛓️ <b>Tamper-proof</b> ledger</div>
+        <div class="t">🔐 <b>Triple-layer</b> auth</div>
+        <div class="t">💱 <b>Mid-market</b> FX</div>
+      </div>
     </div>
-    <div class="phone" aria-hidden="true">
-      <div class="notch"></div>
-      <div class="screen">
-        <div class="balance">
-          <div class="lbl">Available balance</div>
-          <div class="amt">₹ 48,250.00</div>
-        </div>
-        <div class="tile-row">
-          <div class="tile"><span class="ic">📱</span>To phone</div>
-          <div class="tile"><span class="ic">🏦</span>To bank</div>
-          <div class="tile"><span class="ic">📷</span>Scan</div>
-          <div class="tile"><span class="ic">🌍</span>Abroad</div>
-        </div>
-        <div class="rcpt">
-          <div style="font-weight:700;margin-bottom:8px">Paying in Dubai 🇦🇪</div>
-          <div class="row"><span>Amount</span><b>AED 100.00</b></div>
-          <div class="row"><span>Rate (mid-market)</span><b>₹23.20</b></div>
-          <div class="row"><span>Fee (0.5%)</span><b>₹11.60</b></div>
-          <div class="row tot"><span>You pay</span><b>₹2,331.60</b></div>
+    <div class="device">
+      <div class="halo" aria-hidden="true"></div>
+      <div class="phone" aria-hidden="true">
+        <div class="notch"></div>
+        <div class="screen">
+          <div class="scr-head"><span>9:41</span><span class="av">AS</span></div>
+          <div class="balance">
+            <div class="lbl">Available balance</div>
+            <div class="amt">₹ 48,250.00</div>
+          </div>
+          <div class="tile-row">
+            <div class="tile"><span class="ic">📱</span>To phone</div>
+            <div class="tile"><span class="ic">🏦</span>To bank</div>
+            <div class="tile"><span class="ic">📷</span>Scan</div>
+            <div class="tile"><span class="ic">🌍</span>Abroad</div>
+          </div>
+          <div class="rcpt" id="mockRcpt"></div>
         </div>
       </div>
     </div>
   </div>
 </header>
 
+<div class="fxstrip">
+  <div class="inner">
+    <span class="lab"><span class="live"></span> Today's mid-market rates</span>
+    <div class="fx-chips" id="fxChips"></div>
+  </div>
+</div>
+
 <div class="stats">
   <div class="wrap">
-    <div class="stat"><div class="n">0.5%</div><div class="l">Flat fee abroad</div></div>
-    <div class="stat"><div class="n">₹0</div><div class="l">Domestic payments</div></div>
-    <div class="stat"><div class="n">&lt;60s</div><div class="l">Cross-border settlement</div></div>
-    <div class="stat"><div class="n">0</div><div class="l">Hidden FX markup</div></div>
+    <div class="stat reveal"><div class="n" data-count="0.5" data-suffix="%">0.5%</div><div class="l">Flat fee abroad</div></div>
+    <div class="stat reveal"><div class="n">₹0</div><div class="l">Domestic payments</div></div>
+    <div class="stat reveal"><div class="n" data-count="60" data-prefix="&lt;" data-suffix="s">&lt;60s</div><div class="l">Cross-border settlement</div></div>
+    <div class="stat reveal"><div class="n">0</div><div class="l">Hidden FX markup</div></div>
   </div>
 </div>
 
 <section id="problem">
-  <div class="wrap">
+  <div class="wrap reveal">
     <span class="eyebrow">The problem</span>
     <h2>Banks and cards quietly take 3–5% every time you pay abroad.</h2>
     <p class="lead">Marked-up exchange rates, surprise conversion fees, and pre-loaded travel wallets sitting idle. You never see the real rate — and you never see what you actually lost. Borderless Pay shows you every number <b>before</b> you confirm, and charges one honest fee.</p>
   </div>
 </section>
 
-<section id="how" style="background:var(--bg2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
-  <div class="wrap">
+<section id="how" style="background:var(--bg-elev);border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+  <div class="wrap reveal">
     <span class="eyebrow">How it works</span>
     <h2>Three taps. Real rate. Done.</h2>
-    <div style="margin-top:38px">
+    <div class="steps-wrap">
       <div class="step"><div class="num">1</div><div><h3>Scan or pick who to pay</h3><p>A local QR at home, a friend's number, a bill — or a merchant's QR on the other side of the world.</p></div></div>
       <div class="step"><div class="num">2</div><div><h3>See the real numbers</h3><p>The exact mid-market rate and a clear 0.5% fee line, shown up front. Domestic? It's free. Nothing hidden.</p></div></div>
       <div class="step"><div class="num">3</div><div><h3>Confirm with your fingerprint</h3><p>Money moves straight from your bank — no wallet to top up — and settles to the recipient in their currency in seconds.</p></div></div>
@@ -192,7 +328,7 @@
 </section>
 
 <section id="features">
-  <div class="wrap">
+  <div class="wrap reveal">
     <span class="eyebrow">One app, everything</span>
     <h2>Your everyday payments app — that also crosses borders.</h2>
     <div class="grid g3">
@@ -206,10 +342,46 @@
   </div>
 </section>
 
-<section id="fees" style="background:var(--bg2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
-  <div class="wrap">
+<section id="calculator" style="background:var(--bg-elev);border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+  <div class="wrap reveal">
+    <span class="eyebrow">See it for yourself</span>
+    <h2>How much do you actually save?</h2>
+    <p class="lead">Slide to a real amount and watch the difference against a typical bank or card. Same math the app uses — mid-market rate, flat 0.5% fee (₹2 floor, ₹500 cap).</p>
+    <div class="calc">
+      <div class="calc-panel">
+        <h3>Your payment abroad</h3>
+        <div class="ctrl">
+          <label>Currency</label>
+          <div class="cur-chips" id="curChips"></div>
+        </div>
+        <div class="ctrl">
+          <label>Amount <b id="amtLabel"></b></label>
+          <input type="range" id="amtRange" min="1" max="2000" value="100" step="1" aria-label="Amount abroad" />
+        </div>
+        <div class="ctrl" style="margin-bottom:0">
+          <label>They charge you</label>
+          <div style="font-size:26px;font-weight:800;font-family:var(--fd)" id="localAmt"></div>
+        </div>
+      </div>
+      <div class="calc-out">
+        <div class="crow"><span>Converted (mid-market)</span><b id="oConv"></b></div>
+        <div class="crow us"><span>Borderless fee (0.5%)</span><b id="oFee"></b></div>
+        <div class="crow us"><span>You pay with Borderless</span><b id="oUs"></b></div>
+        <div class="crow bank"><span>Typical bank / card</span><b id="oBank"></b></div>
+        <div class="save-badge">
+          <div class="lbl">You save</div>
+          <div class="amt" id="oSave"></div>
+          <div class="sub" id="oPct"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="fees">
+  <div class="wrap reveal">
     <span class="eyebrow">Honest pricing</span>
-    <h2>See exactly what you save.</h2>
+    <h2>No asterisks. No fine print.</h2>
     <p class="lead">On a typical ₹2,300 payment abroad — here's the difference between the old way and Borderless Pay.</p>
     <div class="compare">
       <table>
@@ -223,8 +395,8 @@
   </div>
 </section>
 
-<section id="security">
-  <div class="wrap">
+<section id="security" style="background:var(--bg-elev);border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+  <div class="wrap reveal">
     <span class="eyebrow">Built to be trusted</span>
     <h2>Bank-grade security, by design.</h2>
     <p class="lead">A payments app lives and dies on trust. So every layer is hardened — and every transaction is verifiable.</p>
@@ -238,12 +410,12 @@
 </section>
 
 <section id="waitlist">
-  <div class="cta">
+  <div class="cta reveal">
     <span class="eyebrow">Be first</span>
     <h2>Get early access.</h2>
-    <p class="lead" style="margin:10px auto 0">Join the early-access list and help shape the way the world pays across borders.</p>
-    <form class="waitlist" id="waitlistForm2">
-      <input type="email" id="email2" placeholder="you@email.com" required aria-label="Email address" />
+    <p class="lead" style="margin:12px auto 0">Join the early-access list and help shape the way the world pays across borders.</p>
+    <form class="waitlist" id="waitlistForm2" novalidate>
+      <input type="email" id="email2" placeholder="you@email.com" required aria-label="Email address" autocomplete="email" />
       <button type="submit" class="btn">Join the waitlist</button>
     </form>
     <p class="note" id="formNote2"></p>
@@ -253,7 +425,7 @@
 <footer>
   <div class="wrap">
     <div>
-      <div class="logo" style="font-size:16px"><span class="dot" style="width:24px;height:24px;font-size:13px">🌍</span> Borderless Pay</div>
+      <div class="logo" style="font-size:16px"><span class="dot" style="width:26px;height:26px;font-size:13px">🌍</span> Borderless Pay</div>
       <p class="disclaimer">Borderless Pay is an early-stage product in active development. Figures shown are illustrative. The product does not yet move real money — live payments require regulatory licensing and banking partnerships, which are in progress. Not financial advice.</p>
     </div>
     <div>© 2026 Borderless Pay</div>
@@ -261,30 +433,182 @@
 </footer>
 
 <script>
-  // --- Waitlist handling (front-end demo) ---
-  // For production, point this at your backend (e.g. POST /api/waitlist) or a
-  // no-code form service (Formspree, Tally, Google Forms). Here we store locally
-  // and show a friendly confirmation so the page works fully standalone.
+(function(){
+  "use strict";
+  // API base: same-origin by default; override with <html data-api="https://api.host">
+  // or ?api=... . Falls back to a fully standalone experience if unreachable.
+  var API = (document.documentElement.dataset.api
+    || new URLSearchParams(location.search).get("api") || "").replace(/\/$/, "");
+  var reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // Embedded mid-market rates (INR per unit) — mirror backend src/fx.js; replaced
+  // by /api/currencies when a backend is reachable.
+  var RATES = { AED:23.20, USD:83.40, EUR:90.40, GBP:105.70, SGD:64.10, NPR:0.625 };
+  var SYMS  = { AED:"AED", USD:"$", EUR:"€", GBP:"£", SGD:"S$", NPR:"Rs" };
+  var FLAGS = { AED:"🇦🇪", USD:"🇺🇸", EUR:"🇪🇺", GBP:"🇬🇧", SGD:"🇸🇬", NPR:"🇳🇵" };
+
+  function inr(n){ return "₹" + Number(n).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+  function inr0(n){ return "₹" + Math.round(n).toLocaleString("en-IN"); }
+
+  // ---------- nav ----------
+  var nav = document.getElementById("nav");
+  var onScroll = function(){ nav.classList.toggle("scrolled", window.scrollY > 12); };
+  onScroll(); window.addEventListener("scroll", onScroll, {passive:true});
+  var burger = document.getElementById("hamburger"), menu = document.getElementById("mobileMenu");
+  burger.addEventListener("click", function(){
+    var open = menu.classList.toggle("open");
+    burger.setAttribute("aria-expanded", String(open));
+    burger.textContent = open ? "✕" : "☰";
+  });
+  menu.querySelectorAll("a").forEach(function(a){ a.addEventListener("click", function(){
+    menu.classList.remove("open"); burger.setAttribute("aria-expanded","false"); burger.textContent="☰";
+  }); });
+
+  // ---------- reveal on scroll ----------
+  var reveals = document.querySelectorAll(".reveal");
+  if (reduce || !("IntersectionObserver" in window)) {
+    reveals.forEach(function(r){ r.classList.add("in"); });
+  } else {
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add("in"); io.unobserve(e.target); } });
+    }, {threshold:.16});
+    reveals.forEach(function(r){ io.observe(r); });
+  }
+
+  // ---------- count-up stats ----------
+  function countUp(el){
+    var target = parseFloat(el.dataset.count);
+    var pre = (el.dataset.prefix||""), suf = (el.dataset.suffix||"");
+    var dec = (String(target).split(".")[1]||"").length;
+    if (reduce){ el.innerHTML = pre + target + suf; return; }
+    var start = performance.now(), dur = 1100;
+    function tick(now){
+      var p = Math.min((now-start)/dur, 1), eased = 1-Math.pow(1-p,3), v = target*eased;
+      el.innerHTML = pre + v.toFixed(dec) + suf;
+      if (p<1) requestAnimationFrame(tick); else el.innerHTML = pre + target + suf;
+    }
+    requestAnimationFrame(tick);
+  }
+  var statEls = document.querySelectorAll(".stat .n[data-count]");
+  if ("IntersectionObserver" in window && !reduce){
+    var sio = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){ if(e.isIntersecting){ countUp(e.target); sio.unobserve(e.target); } });
+    }, {threshold:.6});
+    statEls.forEach(function(s){ sio.observe(s); });
+  } else { statEls.forEach(countUp); }
+
+  // ---------- phone-mock receipt rotation ----------
+  var mockStates = [
+    {h:"🇦🇪 Paying in Dubai", rows:[["Amount","AED 100.00"],["Rate (mid-market)","₹23.20",1],["Fee (0.5%)","₹11.60"]], tot:"₹2,331.60"},
+    {h:"📱 Paying Priya", rows:[["Sent via UPI","₹250.00"],["Fee","₹0 • Free",1],["Speed","Instant"]], tot:"₹250.00"},
+    {h:"🇸🇬 Sending to Singapore", rows:[["They receive","S$ 15.60",1],["Rate (mid-market)","₹64.10"],["Fee (0.5%)","₹5.00"]], tot:"₹1,005.00"}
+  ];
+  var mockEl = document.getElementById("mockRcpt"), mi = 0;
+  function renderMock(){
+    var s = mockStates[mi];
+    var rows = s.rows.map(function(r){ return '<div class="row'+(r[2]?" mk":"")+'"><span>'+r[0]+'</span><b>'+r[1]+'</b></div>'; }).join("");
+    mockEl.className = "rcpt" + (reduce?"":" scr-fade");
+    mockEl.innerHTML = '<div class="h">'+s.h+'</div>'+rows+
+      '<div class="row tot"><span>You pay</span><b>'+s.tot+'</b></div>'+
+      '<div class="verify">⛓️ Verified on ledger • signed</div>';
+  }
+  renderMock();
+  if (!reduce) setInterval(function(){ mi=(mi+1)%mockStates.length; renderMock(); }, 3200);
+
+  // ---------- FX strip ----------
+  function renderFx(){
+    var order = ["AED","USD","EUR","GBP","SGD","NPR"];
+    document.getElementById("fxChips").innerHTML = order.filter(function(c){return RATES[c];}).map(function(c){
+      return '<span class="fx"><span class="pair">'+FLAGS[c]+' 1 '+c+'</span><span class="rate">= ₹'+RATES[c]+'</span><span class="mk">no markup</span></span>';
+    }).join("");
+  }
+  renderFx();
+
+  // ---------- savings calculator ----------
+  var calcCur = "AED";
+  var amtRange = document.getElementById("amtRange");
+  var defaults = { AED:100, USD:100, EUR:80, GBP:80, SGD:120, NPR:5000 };
+  var maxes    = { AED:5000, USD:5000, EUR:4000, GBP:4000, SGD:8000, NPR:200000 };
+
+  function clamp(n,lo,hi){ return Math.max(lo, Math.min(hi,n)); }
+  function computeCalc(){
+    var amt = Number(amtRange.value), rate = RATES[calcCur];
+    var conv = amt * rate;                          // converted INR
+    var fee  = clamp(conv * 0.005, 2, 500);         // 0.5%, ₹2 floor, ₹500 cap
+    var us   = conv + fee;
+    var bank = conv * 1.035 + 200;                  // ~3.5% markup + flat (matches app)
+    var save = Math.max(0, bank - us);
+    var pct  = bank > 0 ? (save / bank * 100) : 0;
+    document.getElementById("amtLabel").textContent = SYMS[calcCur] + " " + amt.toLocaleString();
+    document.getElementById("localAmt").textContent = SYMS[calcCur] + " " + amt.toLocaleString();
+    document.getElementById("oConv").textContent = inr(conv);
+    document.getElementById("oFee").textContent  = inr(fee);
+    document.getElementById("oUs").textContent   = inr(us);
+    document.getElementById("oBank").textContent = inr(bank);
+    document.getElementById("oSave").textContent = inr0(save);
+    document.getElementById("oPct").textContent  = "≈ " + pct.toFixed(0) + "% cheaper on this payment";
+  }
+  function buildCurChips(){
+    var order = ["AED","USD","EUR","GBP","SGD","NPR"];
+    document.getElementById("curChips").innerHTML = order.filter(function(c){return RATES[c];}).map(function(c){
+      return '<button type="button" class="cur-chip'+(c===calcCur?" active":"")+'" data-cur="'+c+'">'+FLAGS[c]+' '+c+'</button>';
+    }).join("");
+    document.querySelectorAll(".cur-chip").forEach(function(b){
+      b.addEventListener("click", function(){
+        calcCur = b.dataset.cur;
+        document.querySelectorAll(".cur-chip").forEach(function(x){ x.classList.toggle("active", x===b); });
+        amtRange.max = maxes[calcCur]; amtRange.value = defaults[calcCur];
+        computeCalc();
+      });
+    });
+  }
+  amtRange.addEventListener("input", computeCalc);
+  buildCurChips(); amtRange.value = defaults[calcCur]; amtRange.max = maxes[calcCur]; computeCalc();
+
+  // ---------- live data from backend (optional, graceful) ----------
+  if (API !== "" || location.protocol.startsWith("http")) {
+    fetch(API + "/api/currencies").then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
+      if (d && d.rates){ RATES = Object.assign({}, RATES, d.rates); renderFx(); buildCurChips(); computeCalc(); }
+    }).catch(function(){ /* offline — embedded rates already shown */ });
+  }
+
+  // ---------- waitlist (wired to backend, local fallback) ----------
   var BASE = 2847;
-  function getList(){ try{ return JSON.parse(localStorage.getItem('bp_waitlist')||'[]'); }catch(e){ return []; } }
-  function saveEmail(em){ var l=getList(); if(l.indexOf(em)===-1){ l.push(em); localStorage.setItem('bp_waitlist',JSON.stringify(l)); } return l.length; }
-  function renderCount(){ var c=document.getElementById('count'); if(c){ c.textContent=(BASE+getList().length).toLocaleString(); } }
+  function getList(){ try{ return JSON.parse(localStorage.getItem("bp_waitlist")||"[]"); }catch(e){ return []; } }
+  function saveLocal(em){ var l=getList(); if(l.indexOf(em)===-1){ l.push(em); localStorage.setItem("bp_waitlist",JSON.stringify(l)); } return l.length; }
+  function setCount(n){ var c=document.getElementById("count"); if(c) c.textContent = Number(n).toLocaleString(); }
   function validEmail(e){ return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e); }
+
+  // initial count: prefer backend, fall back to local
+  setCount(BASE + getList().length);
+  fetch(API + "/api/waitlist/count").then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
+    if (d && typeof d.count === "number") setCount(BASE + d.count);
+  }).catch(function(){});
+
+  function submitWaitlist(em){
+    // returns a promise resolving to the count to display
+    return fetch(API + "/api/waitlist", {
+      method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({email:em})
+    }).then(function(r){ return r.ok ? r.json() : Promise.reject(); })
+      .then(function(d){ saveLocal(em); return BASE + (d.count||getList().length); })
+      .catch(function(){ return BASE + saveLocal(em); }); // offline: still confirm + persist locally
+  }
   function handle(emailId, noteId){
     return function(ev){
       ev.preventDefault();
-      var input=document.getElementById(emailId);
-      var note=document.getElementById(noteId);
-      var em=(input.value||'').trim().toLowerCase();
-      if(!validEmail(em)){ note.innerHTML='Please enter a valid email.'; return; }
-      saveEmail(em); renderCount();
-      input.value='';
-      note.innerHTML='<span class="ok">✓ You\'re on the list!</span> We\'ll be in touch.';
+      var input=document.getElementById(emailId), note=document.getElementById(noteId);
+      var em=(input.value||"").trim().toLowerCase();
+      if(!validEmail(em)){ note.innerHTML='<span class="err">Please enter a valid email.</span>'; return; }
+      note.textContent = "Adding you…";
+      submitWaitlist(em).then(function(count){
+        setCount(count); input.value="";
+        note.innerHTML='<span class="ok">✓ You\'re on the list!</span> We\'ll be in touch.';
+      });
     };
   }
-  document.getElementById('waitlistForm').addEventListener('submit', handle('email','formNote'));
-  document.getElementById('waitlistForm2').addEventListener('submit', handle('email2','formNote2'));
-  renderCount();
+  document.getElementById("waitlistForm").addEventListener("submit", handle("email","formNote"));
+  document.getElementById("waitlistForm2").addEventListener("submit", handle("email2","formNote2"));
+})();
 </script>
 </body>
 </html>

@@ -152,3 +152,9 @@ export function asPin(v) {
   if (!/^[0-9]{4,6}$/.test(s)) throw new ApiError(400, "bad_pin_format", "PIN must be 4 to 6 digits");
   return s;
 }
+
+export function asEmail(v) {
+  const s = asString(v, "email", { max: 254 }).trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s)) throw new ApiError(400, "bad_email", "Enter a valid email address");
+  return s;
+}

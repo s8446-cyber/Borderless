@@ -15,6 +15,7 @@ const DEFAULT = () => ({
   payments: {},     // paymentId -> receipt
   idempotency: {},  // key -> paymentId
   requests: {},     // requestId -> collect request
+  waitlist: [],     // marketing-site early-access signups: { email, ts }
   security: { fails: {}, locks: {} }, // failed-PIN counters + lockouts
   ledger: null,     // serialized dual ledger
   audit: null,      // serialized audit log

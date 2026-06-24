@@ -1,5 +1,8 @@
 // Borderless Pay — React Native (Expo) app. Android + iOS.
-import React, { useState, useEffect } from "react";
+// Redesigned UI (premium dark fintech) over the same backend wiring: pay abroad,
+// send abroad (P2P), domestic UPI (phone / UPI ID / bank / scan), bills, recharge,
+// request money, contacts, and ledger verification.
+import React, { useState, useEffect, useRef } from "react";
 import {
   SafeAreaView,
   ScrollView,
@@ -9,14 +12,15 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Animated,
   StyleSheet,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import * as LocalAuthentication from "expo-local-authentication";
-import { C, CORRIDORS, P2P_CURRENCIES, OPERATORS, BILL_CATEGORIES, BILLERS } from "./src/theme";
+import { C, TINTS, CORRIDORS, P2P_CURRENCIES, OPERATORS, BILL_CATEGORIES, BILLERS } from "./src/theme";
 import { fmtINR } from "./src/format";
 import { api, setToken } from "./src/api";
-import { Brand, Card, Row, Pill, Badges, PrimaryButton, Chips, PinDots, PinPad } from "./src/ui";
+import { Brand, Card, Row, Pill, Badges, PrimaryButton, Chips, PinDots, PinPad, SectionHeader, Avatar } from "./src/ui";
 
 const SETTLE_STEPS = [
   "Debit home bank account",
@@ -59,6 +63,20 @@ const EMPTY_FORM = {
 function symFor(code) {
   const x = P2P_CURRENCIES.find((p) => p.code === code);
   return x ? x.sym : code;
+}
+
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+function initials(name) {
+  const n = (name || "").trim();
+  if (!n) return "AS";
+  const parts = n.split(/\s+/);
+  return ((parts[0][0] || "") + (parts[1] ? parts[1][0] : "")).toUpperCase();
 }
 
 function txnIcon(p) {
@@ -104,6 +122,8 @@ export default function App() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [contacts, setContacts] = useState([]);
   const [requests, setRequests] = useState([]);
+
+  const checkScale = useRef(new Animated.Value(0)).current;
 
   const setF = (k, v) => setForm((p) => ({ ...p, [k]: v }));
   const c = CORRIDORS[corridor];
@@ -362,6 +382,13 @@ export default function App() {
     return () => clearInterval(id);
   }, [screen]);
 
+  useEffect(() => {
+    if (screen === "receipt") {
+      checkScale.setValue(0);
+      Animated.spring(checkScale, { toValue: 1, useNativeDriver: true, bounciness: 12, speed: 8 }).start();
+    }
+  }, [screen]);
+
   const showTabs = ["home", "scan", "scanDom", "send", "compose", "history", "quote", "receipt"].includes(screen);
 
   return (
@@ -370,11 +397,11 @@ export default function App() {
       <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
         {screen === "welcome" && (
           <View>
-            <Brand />
+            <Brand subtitle="Pay at home & across borders" />
             <Text style={s.h1}>Pay anywhere, straight from your bank.</Text>
             <Text style={s.sub}>
-              Spend abroad at the real mid-market rate with a flat 0.5% fee. No wallets, no hidden FX
-              markup, no surprises.
+              Spend at home and abroad at the real mid-market rate with a flat 0.5% fee — ₹0 on
+              domestic UPI. No wallets, no hidden FX markup, no surprises.
             </Text>
             <Card>
               <Row label="🏦 Direct from your bank" value="✓" accent />
@@ -390,6 +417,7 @@ export default function App() {
               onChangeText={setName}
             />
             <PrimaryButton title="Verify identity (KYC) →" onPress={handleKyc} loading={busy} />
+            <Text style={s.apiNote}>Calls real POST /api/kyc/verify</Text>
           </View>
         )}
 
@@ -414,21 +442,34 @@ export default function App() {
             <PinDots filled={newPin.length} />
             <PinPad onKey={(k) => setNewPin((p) => (k === "del" ? p.slice(0, -1) : p.length < 4 ? p + k : p))} />
             <PrimaryButton title="Link account" onPress={handleLink} loading={busy} />
+            <Text style={s.apiNote}>POST /api/accounts/link • PIN stored as scrypt hash</Text>
           </View>
         )}
 
         {screen === "home" && (
           <View>
-            <Brand />
-            <Card>
-              <Text style={s.muted}>Available balance</Text>
+            <View style={s.topbar}>
+              <View>
+                <Text style={s.greet}>{greeting()}</Text>
+                <Text style={s.greetName}>{(name ? name.split(" ")[0] : "there") + " 👋"}</Text>
+              </View>
+              <Avatar initials={initials(name)} size={46} />
+            </View>
+
+            <Card glow>
+              <Text style={s.muted}>Available to spend</Text>
               <Text style={s.balance}>{fmtINR(account ? account.balance : 0)}</Text>
-              <Pill>{account ? account.bank + " • " + account.maskedNumber : "Bank"}</Pill>
+              <View style={s.balanceRow}>
+                <Pill>{account ? account.bank + " • " + account.maskedNumber : "Bank"}</Pill>
+                <TouchableOpacity onPress={verifyLedger} activeOpacity={0.7} style={s.verifyChip}>
+                  <Text style={s.verifyChipTxt}>🔎 Verify</Text>
+                </TouchableOpacity>
+              </View>
               <Badges items={["🔐 scrypt PIN", "⛓️ dual ledger", "✍️ HMAC signed"]} />
             </Card>
 
             {incomingRequest && (
-              <Card style={[{ borderColor: C.accent }]}>
+              <Card glow>
                 <Text style={[{ color: C.text, fontWeight: "700", marginBottom: 4 }]}>
                   💰 {incomingRequest.fromName} requested {fmtINR(incomingRequest.amount)}
                 </Text>
@@ -439,39 +480,37 @@ export default function App() {
               </Card>
             )}
 
-            <Text style={s.section}>Money transfer</Text>
+            <SectionHeader title="Money transfer" />
             <View style={s.grid}>
-              <ActionTile icon="📷" label="Scan QR" onPress={startScanDomestic} />
-              <ActionTile icon="📱" label="To phone" onPress={() => startDom("phone")} />
-              <ActionTile icon="🆔" label="To UPI ID" onPress={() => startDom("upiid")} />
-              <ActionTile icon="🏦" label="To bank" onPress={() => startDom("bank")} />
-              <ActionTile icon="🔁" label="Request" onPress={() => startDom("request")} />
+              <ActionTile icon="📷" label="Scan QR" tint={TINTS.indigo} onPress={startScanDomestic} />
+              <ActionTile icon="📱" label="To phone" tint={TINTS.mint} onPress={() => startDom("phone")} />
+              <ActionTile icon="🆔" label="To UPI ID" tint={TINTS.violet} onPress={() => startDom("upiid")} />
+              <ActionTile icon="🏦" label="To bank" tint={TINTS.slate} onPress={() => startDom("bank")} />
+              <ActionTile icon="🔁" label="Request" tint={TINTS.amber} onPress={() => startDom("request")} />
             </View>
 
-            <Text style={s.section}>Recharge & bills</Text>
+            <SectionHeader title="Recharge & bills" />
             <View style={s.grid}>
-              <ActionTile icon="📲" label="Recharge" onPress={() => startDom("recharge")} />
-              <ActionTile icon="🧾" label="Pay bills" onPress={() => startDom("bill")} />
-              <ActionTile icon="💡" label="Electricity" onPress={() => startDom("bill")} />
-              <ActionTile icon="📺" label="DTH" onPress={() => startDom("bill")} />
+              <ActionTile icon="📲" label="Recharge" tint={TINTS.mint} onPress={() => startDom("recharge")} />
+              <ActionTile icon="🧾" label="Pay bills" tint={TINTS.amber} onPress={() => startDom("bill")} />
+              <ActionTile icon="💡" label="Electricity" tint={TINTS.amber} onPress={() => startDom("bill")} />
+              <ActionTile icon="📺" label="DTH" tint={TINTS.violet} onPress={() => startDom("bill")} />
             </View>
 
-            <Text style={s.section}>International 🌍</Text>
+            <SectionHeader title="International 🌍" />
             <View style={s.grid}>
-              <ActionTile icon="💸" label="Send abroad" onPress={startSend} tint="#15324d" />
-              <ActionTile icon="🧳" label="Pay abroad" onPress={startScan} tint="#15324d" />
-              <ActionTile icon="🔎" label="Verify" onPress={verifyLedger} tint="#15324d" />
+              <ActionTile icon="💸" label="Send abroad" tint={TINTS.indigo} onPress={startSend} />
+              <ActionTile icon="🧳" label="Pay abroad" tint={TINTS.indigo} onPress={startScan} />
+              <ActionTile icon="🔎" label="Verify" tint={TINTS.slate} onPress={verifyLedger} />
             </View>
 
             {contacts.length > 0 && (
               <View>
-                <Text style={s.section}>People</Text>
+                <SectionHeader title="People" />
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[{ marginBottom: 8 }]}>
                   {contacts.map((ct) => (
                     <TouchableOpacity key={ct.vpa || ct.phone} style={s.person} activeOpacity={0.8} onPress={() => payContact(ct)}>
-                      <View style={s.avatar}>
-                        <Text style={[{ color: "#04122b", fontWeight: "800" }]}>{ct.initials}</Text>
-                      </View>
+                      <Avatar initials={ct.initials} size={52} />
                       <Text style={s.personName} numberOfLines={1}>{ct.name.split(" ")[0]}</Text>
                     </TouchableOpacity>
                   ))}
@@ -479,15 +518,23 @@ export default function App() {
               </View>
             )}
 
-            <Text style={s.section}>Recent</Text>
+            <SectionHeader title="Recent" action={history.length ? "See all" : null} onAction={async () => { await refresh(); setScreen("history"); }} />
             <HistoryList history={history} />
           </View>
         )}
 
         {screen === "scan" && (
           <View>
-            <Text style={s.h2}>Scan to pay</Text>
+            <Text style={s.h2}>Pay abroad</Text>
+            <Text style={s.sub}>Pick a corridor, then scan the local merchant's QR.</Text>
+            <Text style={s.label}>Corridor</Text>
+            <Chips
+              value={corridor}
+              onChange={setCorridor}
+              options={Object.keys(CORRIDORS).map((k) => ({ value: k, label: CORRIDORS[k].flag + " " + k }))}
+            />
             <View style={s.scanner}>
+              <View style={s.scanline} />
               <View style={s.qr}>
                 {Array.from({ length: 25 }).map((_, i) => (
                   <View key={i} style={[s.qrCell, i % 3 === 0 && { backgroundColor: "#000" }, i % 5 === 0 && { backgroundColor: "#000" }]} />
@@ -495,7 +542,7 @@ export default function App() {
               </View>
             </View>
             {scanning ? (
-              <ActivityIndicator color={C.accent} size="large" style={[{ marginTop: 30 }]} />
+              <ActivityIndicator color={C.accent} size="large" style={[{ marginTop: 26 }]} />
             ) : (
               <View>
                 <Card style={[{ marginTop: 16 }]}>
@@ -511,7 +558,7 @@ export default function App() {
 
         {screen === "send" && (
           <View>
-            <Text style={s.h2}>Send money</Text>
+            <Text style={s.h2}>Send money abroad</Text>
             <Text style={s.sub}>
               Send to anyone abroad, straight from your bank at the real mid-market rate.
             </Text>
@@ -546,7 +593,7 @@ export default function App() {
           <View>
             <Text style={s.h2}>Confirm transfer</Text>
             <Text style={s.sub}>To {recipientName || "your recipient"}</Text>
-            <Card>
+            <Card glow>
               <Row label="They receive" value={symFor(quote.recipientCurrency) + " " + quote.recipientAmount.toLocaleString()} accent />
               <Row label="Exchange rate (mid-market)" value={"1 " + quote.recipientCurrency + " = ₹" + quote.rate} />
               <Row label="You send" value={fmtINR(quote.sendAmount)} />
@@ -563,7 +610,7 @@ export default function App() {
           <View>
             <Text style={s.h2}>Confirm payment</Text>
             <Text style={s.sub}>{c.merchant}</Text>
-            <Card>
+            <Card glow>
               <Row label="They charge" value={c.sym + " " + c.amount.toLocaleString()} />
               <Row label="Exchange rate (mid-market)" value={"1 " + corridor + " = ₹" + quote.rate} accent />
               <Row label="Converted amount" value={fmtINR(quote.amount)} />
@@ -582,6 +629,7 @@ export default function App() {
           <View>
             <Text style={s.h2}>Scan any QR</Text>
             <View style={s.scanner}>
+              <View style={s.scanline} />
               <View style={s.qr}>
                 {Array.from({ length: 25 }).map((_, i) => (
                   <View key={i} style={[s.qrCell, i % 3 === 0 && { backgroundColor: "#000" }, i % 5 === 0 && { backgroundColor: "#000" }]} />
@@ -589,7 +637,7 @@ export default function App() {
               </View>
             </View>
             {scanning ? (
-              <ActivityIndicator color={C.accent} size="large" style={[{ marginTop: 30 }]} />
+              <ActivityIndicator color={C.accent} size="large" style={[{ marginTop: 26 }]} />
             ) : (
               <View>
                 <Card style={[{ marginTop: 16 }]}>
@@ -715,9 +763,9 @@ export default function App() {
 
         {screen === "receipt" && receipt && (
           <View>
-            <View style={s.check}>
+            <Animated.View style={[s.check, { transform: [{ scale: checkScale }] }]}>
               <Text style={[{ color: "#04122b", fontSize: 44, fontWeight: "800" }]}>✓</Text>
-            </View>
+            </Animated.View>
             <Text style={[s.h2, { textAlign: "center" }]}>
               {(receipt.kind === "p2p" ? "Sent " : "Paid ") + fmtINR(receipt.total)}
             </Text>
@@ -778,7 +826,7 @@ function ActionTile({ icon, label, onPress, tint }) {
   return (
     <TouchableOpacity style={s.tile} activeOpacity={0.8} onPress={onPress}>
       <View style={[s.tileIcon, tint && { backgroundColor: tint }]}>
-        <Text style={[{ fontSize: 22 }]}>{icon}</Text>
+        <Text style={[{ fontSize: 23 }]}>{icon}</Text>
       </View>
       <Text style={s.tileLbl} numberOfLines={1}>{label}</Text>
     </TouchableOpacity>
@@ -787,8 +835,10 @@ function ActionTile({ icon, label, onPress, tint }) {
 
 function Tab({ label, icon, active, onPress }) {
   return (
-    <TouchableOpacity style={s.tab} onPress={onPress}>
-      <Text style={[{ fontSize: 20 }]}>{icon}</Text>
+    <TouchableOpacity style={s.tab} onPress={onPress} activeOpacity={0.7}>
+      <View style={[s.tabInner, active && s.tabInnerActive]}>
+        <Text style={[{ fontSize: 20 }]}>{icon}</Text>
+      </View>
       <Text style={[s.tabTxt, active && { color: C.accent }]}>{label}</Text>
     </TouchableOpacity>
   );
@@ -823,35 +873,43 @@ function HistoryList({ history }) {
 const s = StyleSheet.create({
   app: { flex: 1, backgroundColor: C.bg },
   scroll: { padding: 22, paddingBottom: 110 },
-  h1: { color: C.text, fontSize: 26, fontWeight: "800", marginBottom: 8, letterSpacing: -0.5 },
-  h2: { color: C.text, fontSize: 20, fontWeight: "700", marginBottom: 12 },
+  h1: { color: C.text, fontSize: 27, fontWeight: "800", marginBottom: 8, letterSpacing: -0.6 },
+  h2: { color: C.text, fontSize: 21, fontWeight: "800", marginBottom: 12, letterSpacing: -0.3 },
   sub: { color: C.muted, fontSize: 14, lineHeight: 21, marginBottom: 20 },
-  label: { color: C.muted, fontSize: 13, marginBottom: 6 },
-  input: { backgroundColor: C.card2, borderColor: "#2b3a6b", borderWidth: 1, borderRadius: 12, padding: 14, color: C.text, fontSize: 15, marginBottom: 12 },
+  label: { color: C.muted, fontSize: 13, marginBottom: 6, fontWeight: "500" },
+  input: { backgroundColor: C.card2, borderColor: "#2b3a6b", borderWidth: 1, borderRadius: 13, padding: 14, color: C.text, fontSize: 15, marginBottom: 12 },
   muted: { color: C.muted, fontSize: 13 },
-  balance: { color: C.text, fontSize: 34, fontWeight: "800", marginVertical: 6, letterSpacing: -1 },
+  apiNote: { color: C.muted2, fontSize: 11, textAlign: "center", marginTop: 14 },
+  topbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 18 },
+  greet: { color: C.muted, fontSize: 13 },
+  greetName: { color: C.text, fontSize: 22, fontWeight: "800", letterSpacing: -0.3 },
+  balance: { color: C.text, fontSize: 36, fontWeight: "800", marginVertical: 6, letterSpacing: -1 },
+  balanceRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  verifyChip: { backgroundColor: "#16233f", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  verifyChipTxt: { color: C.accent2, fontSize: 12, fontWeight: "700" },
   savings: { color: C.accent, fontSize: 12, textAlign: "center", marginVertical: 6 },
-  scanner: { height: 230, borderRadius: 18, backgroundColor: "#0e1730", borderWidth: 2, borderColor: C.border, alignItems: "center", justifyContent: "center" },
-  qr: { width: 120, height: 120, backgroundColor: "#fff", borderRadius: 10, flexDirection: "row", flexWrap: "wrap", padding: 8 },
+  scanner: { height: 230, borderRadius: 20, backgroundColor: "#0e1730", borderWidth: 2, borderColor: C.border, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  scanline: { position: "absolute", left: 16, right: 16, top: "20%", height: 2, backgroundColor: C.accent, opacity: 0.7 },
+  qr: { width: 124, height: 124, backgroundColor: "#fff", borderRadius: 12, flexDirection: "row", flexWrap: "wrap", padding: 8 },
   qrCell: { width: "20%", height: "20%", backgroundColor: "#fff" },
   stepRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12 },
-  stepDot: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: "#33406b", alignItems: "center", justifyContent: "center", marginRight: 12 },
+  stepDot: { width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: "#33406b", alignItems: "center", justifyContent: "center", marginRight: 12 },
   stepDotDone: { backgroundColor: C.accent, borderColor: C.accent },
   stepTxt: { color: C.muted, fontSize: 15, flex: 1 },
-  check: { width: 80, height: 80, borderRadius: 40, backgroundColor: C.accent, alignItems: "center", justifyContent: "center", alignSelf: "center", marginVertical: 16 },
+  check: { width: 84, height: 84, borderRadius: 42, backgroundColor: C.accent, alignItems: "center", justifyContent: "center", alignSelf: "center", marginVertical: 16, shadowColor: C.accent, shadowOpacity: 0.5, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
   hashLbl: { color: C.muted, fontSize: 12, marginTop: 8 },
-  hash: { color: C.muted, fontSize: 11, fontFamily: "monospace", backgroundColor: "#0c1430", padding: 8, borderRadius: 8, marginTop: 4 },
+  hash: { color: C.muted, fontSize: 11, fontFamily: "monospace", backgroundColor: "#0c1430", padding: 9, borderRadius: 9, marginTop: 4 },
   txn: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#1b2546" },
-  txnIc: { width: 38, height: 38, borderRadius: 10, backgroundColor: C.card2, alignItems: "center", justifyContent: "center", marginRight: 10 },
-  tabbar: { position: "absolute", bottom: 0, left: 0, right: 0, height: 74, backgroundColor: "#0a1024", borderTopWidth: 1, borderTopColor: "#1b2546", flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingBottom: 8 },
+  txnIc: { width: 40, height: 40, borderRadius: 12, backgroundColor: C.card2, alignItems: "center", justifyContent: "center", marginRight: 10 },
+  tabbar: { position: "absolute", bottom: 0, left: 0, right: 0, height: 78, backgroundColor: "#0a1024", borderTopWidth: 1, borderTopColor: "#1b2546", flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingBottom: 10 },
   tab: { alignItems: "center" },
-  tabTxt: { color: C.muted, fontSize: 11, marginTop: 3 },
-  section: { color: C.text, fontSize: 15, fontWeight: "700", marginTop: 18, marginBottom: 10 },
+  tabInner: { width: 44, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  tabInnerActive: { backgroundColor: "#16233f" },
+  tabTxt: { color: C.muted, fontSize: 11, marginTop: 2 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  tile: { width: "22%", alignItems: "center", marginBottom: 6 },
-  tileIcon: { width: 54, height: 54, borderRadius: 16, backgroundColor: C.card2, alignItems: "center", justifyContent: "center", marginBottom: 6 },
+  tile: { width: "22%", alignItems: "center", marginBottom: 8 },
+  tileIcon: { width: 56, height: 56, borderRadius: 18, backgroundColor: C.card2, alignItems: "center", justifyContent: "center", marginBottom: 6 },
   tileLbl: { color: C.muted, fontSize: 11, textAlign: "center" },
-  person: { alignItems: "center", marginRight: 16, width: 58 },
-  avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: C.accent, alignItems: "center", justifyContent: "center", marginBottom: 6 },
-  personName: { color: C.muted, fontSize: 12 },
+  person: { alignItems: "center", marginRight: 16, width: 60 },
+  personName: { color: C.muted, fontSize: 12, marginTop: 6 },
 });
