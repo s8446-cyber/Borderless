@@ -140,7 +140,6 @@ const row = (label, value, opt = {}) =>
   `<span class="val ${opt.accent ? "accent" : ""}">${value}</span></div>`;
 const primary = (label, action, arg = "") =>
   `<button class="btn" data-action="${action}" ${arg !== "" ? `data-arg="${esc(arg)}"` : ""}>${label}</button>`;
-const secondary = (label, action) => `<button class="btn secondary" data-action="${action}">${label}</button>`;
 const field = (label, model, opt = {}) =>
   `<label>${label}</label><input data-model="${model}" value="${esc(opt.value ?? "")}" ` +
   `placeholder="${esc(opt.placeholder || "")}" ${opt.type ? `type="${opt.type}"` : ""} ` +
