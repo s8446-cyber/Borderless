@@ -66,14 +66,34 @@ SDK) and installs it on a booted emulator or a USB-connected phone. Start an
 emulator first from Android Studio's **Device Manager**, or plug in a phone with
 **USB debugging** enabled.
 
-**2b) Or open the project directly in Android Studio:**
-1. After `npm run prebuild`, open Android Studio → **Open** → select the
-   **`mobile/android`** folder (not `mobile`). Let Gradle sync finish.
-2. In a terminal, start the JS bundler: `npx expo start --dev-client`
-3. Press the green **▶ Run** button in Android Studio (pick your emulator/device).
+**2b) Or open the project directly in Android Studio (the ▶ button):**
+1. After `npm run prebuild`, **File → Open** → select the **`mobile/android`**
+   folder — **not** `mobile`. (`mobile` is the Expo/JS folder with no Android
+   project, so the Run button would just say *"Add Configuration"*.) Click
+   **Trust Project** if asked.
+2. Wait for **Gradle Sync** to finish (bottom status bar; first run downloads
+   Gradle + deps and can take several minutes). Accept any prompt to install
+   missing SDK / Build-Tools.
+3. Set the build JDK so it doesn't depend on your shell's `JAVA_HOME`:
+   **Settings → Build, Execution, Deployment → Build Tools → Gradle → Gradle JDK**
+   → choose **jbr-17 (Embedded JetBrains Runtime)** or any JDK 17 → **OK**.
+4. After a clean sync the toolbar shows an **`app`** run configuration (the
+   *"Add Configuration"* text disappears).
+5. Create/start a device: **Device Manager** → **Create Device** → Pixel 7 →
+   system image **API 34** → start it (▶). Or plug in a phone with USB debugging.
+6. **Start the JS bundler and leave it running** in a terminal: `npx expo start`.
+   The debug app loads its JavaScript from this dev server.
+7. Pick your device in the dropdown and press the green **▶ Run**. It builds,
+   installs, launches, and connects to Metro. It defaults to **DEMO_MODE**, so it
+   runs standalone — no backend needed.
 
-> If Gradle sync ever gets stuck, run `npm run prebuild:clean` to regenerate the
-> native folder from scratch, then re-open `mobile/android`.
+> - **"Add Configuration" won't go away** → you opened `mobile` instead of
+>   `mobile/android`, or Gradle Sync hasn't finished/failed (fix the JDK in
+>   step 3, then **File → Sync Project with Gradle Files**).
+> - **Red screen "Could not connect to development server"** → Metro isn't
+>   running (step 6); on a physical device also run `adb reverse tcp:8081 tcp:8081`.
+> - **Gradle sync stuck after an upgrade** → `npm run prebuild:clean`, then
+>   re-open `mobile/android`.
 
 ---
 
@@ -99,6 +119,53 @@ npm start                   # = expo start
 
 - **On your phone:** install **Expo Go** (Play Store / App Store) and scan the QR.
 - **iOS simulator:** press `i`. **Android emulator:** press `a`.
+
+---
+
+## 4. Install a standalone build that "just opens" (no Metro)
+
+**This is the fix for the red _"Unable to load script" / "Could not connect to
+development server"_ screen.** That screen appears because `npm run run:android`
+and Android Studio's ▶ both produce a **debug** build, and a debug build never
+contains the JavaScript — it downloads it from Metro at `localhost:8081` every
+launch. A **release** build bundles the JS *inside* the app, so it opens
+directly — no Metro, no `adb reverse`, nothing running on your PC.
+
+### A) Local release build — nothing extra to install (recommended)
+You already have everything (you built the debug app). One command builds the
+release variant, installs it on your connected phone/emulator, and launches it:
+
+```bash
+cd C:\app\Borderless-main\Borderless-main\mobile
+npm run run:android:release        # = expo run:android --variant release
+```
+
+That's it — the app opens straight to the interface in **DEMO_MODE** (standalone,
+no backend). To get a shareable **APK file**, after the build it's at:
+
+```
+mobile\android\app\build\outputs\apk\release\app-release.apk
+```
+Copy that file to any phone and install it (enable *Install unknown apps*). It's
+signed with the project's debug key — fine for testing, not for the Play Store.
+
+> In **Android Studio** you can do the same: **Build → Select Build Variant →**
+> set `app` to **release**, then press ▶. (Release doesn't use Metro.)
+
+### B) Cloud build with EAS — best for sending to many testers
+Produces a hosted APK with a download link/QR; needs a free Expo account:
+
+```bash
+npm i -g eas-cli
+cd mobile
+eas login
+eas build -p android --profile preview   # installable .apk in the cloud
+```
+The `preview` (installable `.apk`) and `production` (Play Store `.aab`) profiles
+are defined in [`eas.json`](./eas.json).
+
+> Use a **debug** run (`npm run run:android` / Android Studio ▶) only when you're
+> actively editing code and want live reload — that one needs Metro running.
 
 ---
 
@@ -166,6 +233,19 @@ assets/             app icon + splash
   **Close and reopen the terminal / VS Code**, then re-run `npm run run:android`.
   If no path returned True, install **JDK 17** (Microsoft OpenJDK or Temurin 17)
   and set `JAVA_HOME` to its folder.
+- **App installs and opens but shows a red/blank screen — "Could not connect to
+  development server" or "Unable to load script"** → the #1 thing testers hit. A
+  **debug** build (from `npm run run:android` *or* Android Studio's ▶) does not
+  contain the JS; it loads it from **Metro** on port 8081. Fix:
+  1. Start Metro and leave it running: `npx expo start`.
+  2. **On a physical phone, also run `adb reverse tcp:8081 tcp:8081`** — the
+     phone's `localhost` is the phone itself, not your PC. (`adb devices` first;
+     `adb` lives in `%LOCALAPPDATA%\Android\Sdk\platform-tools`.)
+  3. Reload the app (shake the device → **Reload**).
+
+  To skip Metro entirely so the app **just opens**, install a **release** build:
+  `npm run run:android:release` (see *"Install a standalone build that just
+  opens"* above). That's what you hand to testers.
 - **"SDK location not found" / Gradle can't find the SDK** → set `ANDROID_HOME`
   to your SDK path, then reopen the terminal:
   ```powershell
