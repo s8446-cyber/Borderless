@@ -122,27 +122,50 @@ npm start                   # = expo start
 
 ---
 
-## 4. Share an installable APK with testers (no Metro, no Android Studio)
+## 4. Install a standalone build that "just opens" (no Metro)
 
-To hand the app to other testers, build a **standalone release APK** with the
-JavaScript bundled in — they just install and open it, no dev server needed.
-The most reliable way is Expo's cloud build (**EAS**):
+**This is the fix for the red _"Unable to load script" / "Could not connect to
+development server"_ screen.** That screen appears because `npm run run:android`
+and Android Studio's ▶ both produce a **debug** build, and a debug build never
+contains the JavaScript — it downloads it from Metro at `localhost:8081` every
+launch. A **release** build bundles the JS *inside* the app, so it opens
+directly — no Metro, no `adb reverse`, nothing running on your PC.
+
+### A) Local release build — nothing extra to install (recommended)
+You already have everything (you built the debug app). One command builds the
+release variant, installs it on your connected phone/emulator, and launches it:
+
+```bash
+cd C:\app\Borderless-main\Borderless-main\mobile
+npm run run:android:release        # = expo run:android --variant release
+```
+
+That's it — the app opens straight to the interface in **DEMO_MODE** (standalone,
+no backend). To get a shareable **APK file**, after the build it's at:
+
+```
+mobile\android\app\build\outputs\apk\release\app-release.apk
+```
+Copy that file to any phone and install it (enable *Install unknown apps*). It's
+signed with the project's debug key — fine for testing, not for the Play Store.
+
+> In **Android Studio** you can do the same: **Build → Select Build Variant →**
+> set `app` to **release**, then press ▶. (Release doesn't use Metro.)
+
+### B) Cloud build with EAS — best for sending to many testers
+Produces a hosted APK with a download link/QR; needs a free Expo account:
 
 ```bash
 npm i -g eas-cli
 cd mobile
-eas login                               # free Expo account; first time only
-eas build -p android --profile preview  # builds an installable APK in the cloud
+eas login
+eas build -p android --profile preview   # installable .apk in the cloud
 ```
+The `preview` (installable `.apk`) and `production` (Play Store `.aab`) profiles
+are defined in [`eas.json`](./eas.json).
 
-EAS prints a **download URL + QR code** for the APK. Send it to testers; on the
-phone, allow *Install unknown apps* for the browser, download, and install. It
-launches in **DEMO_MODE** — fully standalone (no backend, no Metro). The
-`preview` profile (installable `.apk`) and `production` (Play Store `.aab`) are
-defined in [`eas.json`](./eas.json).
-
-> A local `npm run run:android` makes a **debug** build that *requires Metro* to
-> be running. A **release** APK is self-contained — that's the one for testers.
+> Use a **debug** run (`npm run run:android` / Android Studio ▶) only when you're
+> actively editing code and want live reload — that one needs Metro running.
 
 ---
 
@@ -220,8 +243,9 @@ assets/             app icon + splash
      `adb` lives in `%LOCALAPPDATA%\Android\Sdk\platform-tools`.)
   3. Reload the app (shake the device → **Reload**).
 
-  To skip Metro entirely, build a standalone **release APK** (see *"Share an
-  installable APK with testers"* above) — that's what you hand to testers.
+  To skip Metro entirely so the app **just opens**, install a **release** build:
+  `npm run run:android:release` (see *"Install a standalone build that just
+  opens"* above). That's what you hand to testers.
 - **"SDK location not found" / Gradle can't find the SDK** → set `ANDROID_HOME`
   to your SDK path, then reopen the terminal:
   ```powershell

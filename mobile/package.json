@@ -10,6 +10,7 @@
     "prebuild": "expo prebuild",
     "prebuild:clean": "expo prebuild --clean",
     "run:android": "expo run:android",
+    "run:android:release": "expo run:android --variant release",
     "run:ios": "expo run:ios"
   },
   "dependencies": {
