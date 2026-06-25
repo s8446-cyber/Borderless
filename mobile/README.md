@@ -171,22 +171,64 @@ are defined in [`eas.json`](./eas.json).
 
 ## Demo mode vs. real backend
 
-Edit `src/config.js`:
+By default the app is **standalone** (`DEMO_MODE` on) using the built-in
+simulator (`src/demo.js`) — no server. To make the app talk to the **real
+backend** you run on your PC, you don't edit code; set two env vars when you
+start/build the app (they're inlined by Expo):
 
-- `DEMO_MODE: true` (default) — runs standalone via the built-in simulator
-  (`src/demo.js`). No server needed.
-- `DEMO_MODE: false` — talks to the real **Borderless Pay backend**. `API_BASE`
-  is chosen automatically per platform:
-  - **Android emulator** → `http://10.0.2.2:4000` (the emulator's alias for your
-    PC's `localhost` — using `localhost` here is the #1 mistake).
-  - **iOS simulator** → `http://localhost:4000`.
-  - **Real phone** → set `API_BASE` to your computer's LAN IP, e.g.
-    `http://192.168.1.10:4000`, and make sure the phone is on the same Wi-Fi.
+```powershell
+$env:EXPO_PUBLIC_API_BASE="http://192.168.1.5:4000"   # your PC's LAN IP (see below)
+$env:EXPO_PUBLIC_DEMO="false"
+```
 
-  Then run the backend on your PC:
-  ```bash
-  cd ../backend && npm start    # serves the API on :4000
-  ```
+### Recommended: real backend on a physical phone, no Metro (release build)
+This is the most reliable "it just works on my phone" path.
+
+1. **Start the backend** on your PC:
+   ```powershell
+   cd C:\app\Borderless-main\Borderless-main\backend
+   npm install
+   npm start
+   ```
+   On startup it now prints its address, e.g.
+   `"lanUrls": ["http://192.168.1.5:4000"]` — **use that IP**.
+2. **Allow it through the Windows Firewall** (first run): when Windows prompts
+   for Node.js, tick **Private networks → Allow**. (No prompt? Add an inbound
+   rule for TCP port 4000 on Private.) Quick check: open
+   `http://<that-LAN-IP>:4000/api/health` in your **phone's browser** — you
+   should see `{"ok":true,...}`.
+3. **Build + install the app** pointed at that backend (phone on the **same
+   Wi-Fi**, connected by USB for install):
+   ```powershell
+   cd ..\mobile
+   $env:EXPO_PUBLIC_API_BASE="http://192.168.1.5:4000"   # the IP from step 1
+   $env:EXPO_PUBLIC_DEMO="false"
+   npm run run:android:release
+   ```
+   The app installs, opens straight to the UI, and every action hits your real
+   backend. **No Metro, no `adb reverse`, no red screen.**
+
+### Alternative: over USB with `adb reverse` (no Wi-Fi / no firewall changes)
+Maps the phone's own `localhost` to your PC, for both the backend and Metro:
+```powershell
+cd C:\app\Borderless-main\Borderless-main\mobile
+$env:EXPO_PUBLIC_API_BASE="http://localhost:4000"
+$env:EXPO_PUBLIC_DEMO="false"
+npm run run:android                 # debug build (needs Metro)
+adb reverse tcp:8081 tcp:8081       # Metro (JS)
+adb reverse tcp:4000 tcp:4000       # your backend
+```
+Then reload the app. (Use the release recipe above if you'd rather not run Metro.)
+
+### Auto defaults (when `EXPO_PUBLIC_API_BASE` is not set)
+- **Android emulator** → `http://10.0.2.2:4000` (its alias for your PC).
+- **iOS simulator** → `http://localhost:4000`.
+- **Physical phone** → `10.0.2.2` does **not** work; set `EXPO_PUBLIC_API_BASE`
+  (LAN IP) or use the `adb reverse` recipe above.
+
+> The app uses bearer-token auth (not cookies) and the backend allows all
+> origins in dev, so there's **no CORS issue** for the native app — if it can
+> reach the IP/port, it works.
 
 ---
 
