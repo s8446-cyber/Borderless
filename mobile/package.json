@@ -6,7 +6,11 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "prebuild": "expo prebuild",
+    "prebuild:clean": "expo prebuild --clean",
+    "run:android": "expo run:android",
+    "run:ios": "expo run:ios"
   },
   "dependencies": {
     "expo": "~51.0.28",
