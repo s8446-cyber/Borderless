@@ -581,7 +581,7 @@ export default function App() {
               style={s.input}
               placeholder="1000"
               placeholderTextColor={C.muted}
-              keyboardType="number-pad"
+              keyboardType="decimal-pad"
               value={sendAmount}
               onChangeText={setSendAmount}
             />
@@ -709,7 +709,7 @@ export default function App() {
             )}
 
             <Text style={s.label}>Amount (₹)</Text>
-            <TextInput style={s.input} placeholder="0" placeholderTextColor={C.muted} keyboardType="number-pad" value={form.amount} onChangeText={(v) => setF("amount", v)} />
+            <TextInput style={s.input} placeholder="0" placeholderTextColor={C.muted} keyboardType="decimal-pad" value={form.amount} onChangeText={(v) => setF("amount", v)} />
 
             {(domIntent.kind === "phone" || domIntent.kind === "upiid" || domIntent.kind === "contact" || domIntent.kind === "bank" || domIntent.kind === "merchant") && (
               <View>
