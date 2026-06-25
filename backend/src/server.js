@@ -11,6 +11,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, extname, normalize } from "node:path";
 import { randomUUID } from "node:crypto";
+import { networkInterfaces } from "node:os";
 
 import { config, configSummary } from "./config.js";
 import { logger } from "./logger.js";
@@ -411,11 +412,33 @@ async function serveStatic(res, pathname) {
   }
 }
 
+// Collect this machine's LAN IPv4 URLs so a phone on the same Wi-Fi knows where
+// to point EXPO_PUBLIC_API_BASE (the server already listens on all interfaces).
+function lanUrls(port) {
+  const urls = [];
+  const ifaces = networkInterfaces();
+  for (const name of Object.keys(ifaces)) {
+    for (const ni of ifaces[name] || []) {
+      if (ni.family === "IPv4" && !ni.internal) urls.push(`http://${ni.address}:${port}`);
+    }
+  }
+  return urls;
+}
+
 // start when run directly
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const app = buildApp();
   const PORT = config.port;
-  app.server.listen(PORT, () => logger.info("server_listening", { port: PORT, ...configSummary() }));
+  app.server.listen(PORT, () => {
+    const lan = lanUrls(PORT);
+    logger.info("server_listening", { port: PORT, localUrl: `http://localhost:${PORT}`, lanUrls: lan, ...configSummary() });
+    if (lan.length) {
+      logger.info("mobile_hint", {
+        message: "On a phone (same Wi-Fi), set EXPO_PUBLIC_API_BASE to one of lanUrls and run the app with EXPO_PUBLIC_DEMO=false",
+        example: `EXPO_PUBLIC_API_BASE=${lan[0]}`,
+      });
+    }
+  });
   const shutdown = (signal) => {
     logger.info("shutting_down", { signal });
     app.server.close(() => {
