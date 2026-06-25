@@ -122,6 +122,30 @@ npm start                   # = expo start
 
 ---
 
+## 4. Share an installable APK with testers (no Metro, no Android Studio)
+
+To hand the app to other testers, build a **standalone release APK** with the
+JavaScript bundled in — they just install and open it, no dev server needed.
+The most reliable way is Expo's cloud build (**EAS**):
+
+```bash
+npm i -g eas-cli
+cd mobile
+eas login                               # free Expo account; first time only
+eas build -p android --profile preview  # builds an installable APK in the cloud
+```
+
+EAS prints a **download URL + QR code** for the APK. Send it to testers; on the
+phone, allow *Install unknown apps* for the browser, download, and install. It
+launches in **DEMO_MODE** — fully standalone (no backend, no Metro). The
+`preview` profile (installable `.apk`) and `production` (Play Store `.aab`) are
+defined in [`eas.json`](./eas.json).
+
+> A local `npm run run:android` makes a **debug** build that *requires Metro* to
+> be running. A **release** APK is self-contained — that's the one for testers.
+
+---
+
 ## Demo mode vs. real backend
 
 Edit `src/config.js`:
@@ -186,6 +210,18 @@ assets/             app icon + splash
   **Close and reopen the terminal / VS Code**, then re-run `npm run run:android`.
   If no path returned True, install **JDK 17** (Microsoft OpenJDK or Temurin 17)
   and set `JAVA_HOME` to its folder.
+- **App installs and opens but shows a red/blank screen — "Could not connect to
+  development server" or "Unable to load script"** → the #1 thing testers hit. A
+  **debug** build (from `npm run run:android` *or* Android Studio's ▶) does not
+  contain the JS; it loads it from **Metro** on port 8081. Fix:
+  1. Start Metro and leave it running: `npx expo start`.
+  2. **On a physical phone, also run `adb reverse tcp:8081 tcp:8081`** — the
+     phone's `localhost` is the phone itself, not your PC. (`adb devices` first;
+     `adb` lives in `%LOCALAPPDATA%\Android\Sdk\platform-tools`.)
+  3. Reload the app (shake the device → **Reload**).
+
+  To skip Metro entirely, build a standalone **release APK** (see *"Share an
+  installable APK with testers"* above) — that's what you hand to testers.
 - **"SDK location not found" / Gradle can't find the SDK** → set `ANDROID_HOME`
   to your SDK path, then reopen the terminal:
   ```powershell
