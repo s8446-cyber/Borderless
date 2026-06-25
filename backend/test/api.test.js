@@ -117,6 +117,13 @@ test("full journey: onboard → pay → send → domestic → bills → request 
     assert.equal(r.data.ok, true);
     r = await call("/api/ready");
     assert.equal(r.data.ready, true);
+
+    // --- /api/ledger is unauthenticated, so it must NOT leak transaction PII ---
+    r = await call("/api/ledger", { auth: null });
+    assert.equal(r.status, 200);
+    assert.equal(typeof r.data.head.hash, "string");
+    assert.equal(typeof r.data.head.index, "number");
+    assert.equal(r.data.head.txn, undefined, "ledger head must not expose transaction contents");
   });
 });
 

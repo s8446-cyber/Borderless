@@ -280,10 +280,15 @@ export function buildApp({ dbPath = DB_PATH } = {}) {
   add("GET", /^\/api\/billers$/, async () => ({ billers: BILLERS }));
   add("GET", /^\/api\/operators$/, async () => ({ operators: OPERATORS }));
 
-  // Ledger + audit inspection / integrity verification
+  // Ledger inspection / integrity verification. NOTE: this is an unauthenticated
+  // endpoint, so it must never expose transaction contents. We return only the
+  // head's index + hash (for chain-tip verification) and the public anchors
+  // (Merkle roots + simulated public-chain tx hashes — no PII).
   add("GET", /^\/api\/ledger$/, async () => ({
     blocks: ledger.blocks.length, anchors: ledger.anchors.length,
-    auditEntries: audit.entries.length, head: ledger.head, anchorList: ledger.anchors,
+    auditEntries: audit.entries.length,
+    head: { index: ledger.head.index, hash: ledger.head.hash },
+    anchorList: ledger.anchors,
   }));
   add("GET", /^\/api\/ledger\/verify$/, async () => ledger.verify());
   add("GET", /^\/api\/audit\/verify$/, async () => audit.verify());

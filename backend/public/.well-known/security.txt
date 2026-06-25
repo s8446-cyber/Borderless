@@ -1,0 +1,7 @@
+# Borderless Pay security contact (RFC 9116)
+# Replace the contact/expires/owner details with your own before publishing.
+Contact: mailto:security@borderlesspay.app
+Expires: 2027-01-01T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://borderlesspay.app/.well-known/security.txt
+Policy: https://github.com/s8446-cyber/Borderless/blob/main/SECURITY.md
