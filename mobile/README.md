@@ -66,14 +66,34 @@ SDK) and installs it on a booted emulator or a USB-connected phone. Start an
 emulator first from Android Studio's **Device Manager**, or plug in a phone with
 **USB debugging** enabled.
 
-**2b) Or open the project directly in Android Studio:**
-1. After `npm run prebuild`, open Android Studio → **Open** → select the
-   **`mobile/android`** folder (not `mobile`). Let Gradle sync finish.
-2. In a terminal, start the JS bundler: `npx expo start --dev-client`
-3. Press the green **▶ Run** button in Android Studio (pick your emulator/device).
+**2b) Or open the project directly in Android Studio (the ▶ button):**
+1. After `npm run prebuild`, **File → Open** → select the **`mobile/android`**
+   folder — **not** `mobile`. (`mobile` is the Expo/JS folder with no Android
+   project, so the Run button would just say *"Add Configuration"*.) Click
+   **Trust Project** if asked.
+2. Wait for **Gradle Sync** to finish (bottom status bar; first run downloads
+   Gradle + deps and can take several minutes). Accept any prompt to install
+   missing SDK / Build-Tools.
+3. Set the build JDK so it doesn't depend on your shell's `JAVA_HOME`:
+   **Settings → Build, Execution, Deployment → Build Tools → Gradle → Gradle JDK**
+   → choose **jbr-17 (Embedded JetBrains Runtime)** or any JDK 17 → **OK**.
+4. After a clean sync the toolbar shows an **`app`** run configuration (the
+   *"Add Configuration"* text disappears).
+5. Create/start a device: **Device Manager** → **Create Device** → Pixel 7 →
+   system image **API 34** → start it (▶). Or plug in a phone with USB debugging.
+6. **Start the JS bundler and leave it running** in a terminal: `npx expo start`.
+   The debug app loads its JavaScript from this dev server.
+7. Pick your device in the dropdown and press the green **▶ Run**. It builds,
+   installs, launches, and connects to Metro. It defaults to **DEMO_MODE**, so it
+   runs standalone — no backend needed.
 
-> If Gradle sync ever gets stuck, run `npm run prebuild:clean` to regenerate the
-> native folder from scratch, then re-open `mobile/android`.
+> - **"Add Configuration" won't go away** → you opened `mobile` instead of
+>   `mobile/android`, or Gradle Sync hasn't finished/failed (fix the JDK in
+>   step 3, then **File → Sync Project with Gradle Files**).
+> - **Red screen "Could not connect to development server"** → Metro isn't
+>   running (step 6); on a physical device also run `adb reverse tcp:8081 tcp:8081`.
+> - **Gradle sync stuck after an upgrade** → `npm run prebuild:clean`, then
+>   re-open `mobile/android`.
 
 ---
 
