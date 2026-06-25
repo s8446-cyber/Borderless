@@ -13,7 +13,7 @@ hardened for production.
 
 ```bash
 node src/server.js     # http://localhost:4000  (serves API + web client)
-npm test               # 27 tests (core + security)
+npm test               # 32 tests (core + security + HTTP end-to-end)
 ```
 
 ## What’s inside
@@ -65,6 +65,7 @@ See **SECURITY.md** for the full threat model and **DEPLOYMENT.md** for shipping
 | POST | `/api/transfers/quote` · `/api/transfers` | cross-border P2P |
 | POST | `/api/upi/pay` · `/api/bills/pay` · `/api/recharge` | domestic (UPI-style) |
 | POST | `/api/requests` · `/api/requests/pay` | request / pay money |
+| POST | `/api/waitlist` · GET `/api/waitlist/count` | marketing-site early-access signups |
 | GET | `/api/ledger` · `/api/ledger/verify` · `/api/audit/verify` | integrity |
 
 Money-moving endpoints accept an `Idempotency-Key` header.

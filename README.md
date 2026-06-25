@@ -33,7 +33,7 @@ Borderless Pay lets an Indian traveler pay a foreign merchant or send money abro
 ```bash
 cd backend
 npm install
-npm test        # 27 tests, security suite included
+npm test        # 32 tests, security + end-to-end suite included
 npm start       # serves API + PWA on PORT (default 4000)
 ```
 
