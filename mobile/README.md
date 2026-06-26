@@ -4,6 +4,26 @@ The native **Android + iOS** app for Borderless Pay: pay at home and abroad
 straight from your bank at the real mid-market rate with a flat 0.5% fee,
 secured by biometrics + PIN and a cryptographic dual ledger.
 
+> ## ⚡ Seeing the red _"Unable to load script" / "Could not connect to development server"_ screen?
+>
+> That's a **debug** build trying to download JavaScript from **Metro** (`localhost:8081`).
+> Pressing **▶ in Android Studio** (or `npm run run:android`) builds *debug*, which
+> needs Metro running — that's why it keeps happening.
+>
+> **Fix — build the RELEASE app once (JS bundled in, opens with no Metro):**
+> ```bash
+> cd mobile
+> npm install
+> npm run phone          # = expo run:android --variant release
+> ```
+> Windows one-click: `powershell -ExecutionPolicy Bypass -File .\run-on-phone.ps1`
+> (macOS/Linux: `./run-on-phone.sh`). Have your phone plugged in with **USB
+> debugging on** (check `adb devices`). The app installs and **opens by itself —
+> no Metro, no `adb reverse`, no red screen.**
+>
+> Only use the debug run (`npm run run:android`) when you're actively editing code
+> and want live reload — and keep its Metro window open.
+
 It's an **Expo** app, so you can run it three ways depending on what you have:
 
 | You want to… | Use | Need Android Studio / Xcode? |
