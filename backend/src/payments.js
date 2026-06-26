@@ -8,6 +8,11 @@ import { ApiError, createQuote, createP2PQuote, isQuoteValid } from "./fx.js";
 import { verifyPin, signPayment } from "./auth.js";
 import { fromMinor, toMinor } from "./money.js";
 
+// Namespace an idempotency key to its owner so keys never collide across users.
+function scopedIdem(userId, key) {
+  return key ? userId + ":" + key : null;
+}
+
 export class PaymentService {
   constructor(store, ledger, opts = {}) {
     this.store = store;
@@ -47,9 +52,15 @@ export class PaymentService {
     if (this.limitsCheck) this.limitsCheck(this.store, userId, amountMinor, { intl: Boolean(intl) });
   }
 
-  _idem(d, key) {
-    if (key && d.idempotency[key]) {
-      return { replayed: true, receipt: d.payments[d.idempotency[key]] };
+  // Idempotency keys are scoped PER USER. A global key space would let an
+  // authenticated user replay another user's key and read back that user's
+  // receipt (cross-user disclosure), so we namespace by userId and verify
+  // ownership of the stored receipt as defense in depth.
+  _idem(d, userId, key) {
+    const k = scopedIdem(userId, key);
+    if (k && d.idempotency[k]) {
+      const receipt = d.payments[d.idempotency[k]];
+      if (receipt && receipt.userId === userId) return { replayed: true, receipt };
     }
     return null;
   }
@@ -74,7 +85,7 @@ export class PaymentService {
 
   execute({ userId, quoteId, pin, idempotencyKey, merchant }) {
     const d = this.store.data;
-    const replay = this._idem(d, idempotencyKey);
+    const replay = this._idem(d, userId, idempotencyKey);
     if (replay) return replay;
 
     const { acct } = this._authorize(d, userId, pin);
@@ -132,7 +143,7 @@ export class PaymentService {
     };
 
     d.payments[paymentId] = receipt;
-    if (idempotencyKey) d.idempotency[idempotencyKey] = paymentId;
+    if (idempotencyKey) d.idempotency[scopedIdem(userId, idempotencyKey)] = paymentId;
     this.quotes.delete(quoteId);
     this._auditSettle(receipt);
     this.store.persist();
@@ -149,7 +160,7 @@ export class PaymentService {
 
   transfer({ userId, quoteId, pin, idempotencyKey, recipient }) {
     const d = this.store.data;
-    const replay = this._idem(d, idempotencyKey);
+    const replay = this._idem(d, userId, idempotencyKey);
     if (replay) return replay;
 
     const { acct } = this._authorize(d, userId, pin);
@@ -212,7 +223,7 @@ export class PaymentService {
     };
 
     d.payments[transferId] = receipt;
-    if (idempotencyKey) d.idempotency[idempotencyKey] = transferId;
+    if (idempotencyKey) d.idempotency[scopedIdem(userId, idempotencyKey)] = transferId;
     this.quotes.delete(quoteId);
     this._auditSettle(receipt);
     this.store.persist();
@@ -223,7 +234,7 @@ export class PaymentService {
   // ---- Domestic payments (UPI-style, INR -> INR, instant, zero fee) ----
   payDomestic({ userId, pin, idempotencyKey, amountINR, payee, kind }) {
     const d = this.store.data;
-    const replay = this._idem(d, idempotencyKey);
+    const replay = this._idem(d, userId, idempotencyKey);
     if (replay) return replay;
 
     const { acct } = this._authorize(d, userId, pin);
@@ -281,7 +292,7 @@ export class PaymentService {
     };
 
     d.payments[paymentId] = receipt;
-    if (idempotencyKey) d.idempotency[idempotencyKey] = paymentId;
+    if (idempotencyKey) d.idempotency[scopedIdem(userId, idempotencyKey)] = paymentId;
     this._auditSettle(receipt);
     this.store.persist();
 
@@ -316,6 +327,9 @@ export class PaymentService {
     d.requests = d.requests || {};
     const r = d.requests[requestId];
     if (!r) throw new ApiError(404, "request_not_found", "Unknown request");
+    // Ownership check: a collect request can only be acted on by the user it
+    // belongs to (prevents cross-user access / status mutation — IDOR).
+    if (r.userId !== userId) throw new ApiError(404, "request_not_found", "Unknown request");
     if (r.status === "paid") return { replayed: true, receipt: d.payments[r.paymentId] };
     const out = this.payDomestic({
       userId, pin, idempotencyKey,

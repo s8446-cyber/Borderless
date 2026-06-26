@@ -10,6 +10,15 @@ import { encryptField, decryptField, isEncrypted, constantTimeEqual } from "../s
 import { AuditLog } from "../src/audit.js";
 import { checkTxnLimits } from "../src/limits.js";
 import { hashPin, verifyPin, signPayment, verifyPaymentSignature } from "../src/auth.js";
+import { Store } from "../src/store.js";
+import { PaymentService } from "../src/payments.js";
+import { DualLedger } from "../src/ledger.js";
+
+function verifiedUser(store, id, balanceMinor, pin) {
+  store.data.users[id] = { id, kyc: { status: "verified" } };
+  store.data.accounts[id] = { balanceMinor, currency: "INR" };
+  store.data.pins[id] = hashPin(pin);
+}
 
 function fakeStore() {
   return { data: { security: { fails: {}, locks: {} }, payments: {} }, persist() {} };
@@ -134,4 +143,46 @@ test("payment signature verifies and rejects tampering", () => {
   const sig = signPayment(fields);
   assert.equal(verifyPaymentSignature(fields, sig), true);
   assert.equal(verifyPaymentSignature({ ...fields, totalMinor: 1 }, sig), false);
+});
+
+test("idempotency keys are scoped per user (no cross-user receipt disclosure)", () => {
+  const store = new Store(null);
+  const svc = new PaymentService(store, new DualLedger());
+  verifiedUser(store, "userA", 1000000, "1234");
+  verifiedUser(store, "userB", 1000000, "1234");
+
+  const qA = svc.quote("AED", 80);
+  const a = svc.execute({ userId: "userA", quoteId: qA.quoteId, pin: "1234", idempotencyKey: "shared-key" });
+  assert.equal(a.replayed, false);
+
+  // userB replays the SAME idempotency key — must NOT receive userA's receipt,
+  // must process its own fresh payment instead.
+  const qB = svc.quote("AED", 80);
+  const b = svc.execute({ userId: "userB", quoteId: qB.quoteId, pin: "1234", idempotencyKey: "shared-key" });
+  assert.equal(b.replayed, false);
+  assert.notEqual(b.receipt.paymentId, a.receipt.paymentId);
+  assert.equal(b.receipt.userId, "userB");
+
+  // userA replaying its own key still returns userA's original receipt.
+  const aReplay = svc.execute({ userId: "userA", quoteId: qA.quoteId, pin: "1234", idempotencyKey: "shared-key" });
+  assert.equal(aReplay.replayed, true);
+  assert.equal(aReplay.receipt.paymentId, a.receipt.paymentId);
+});
+
+test("payRequest rejects a collect request owned by another user (IDOR)", () => {
+  const store = new Store(null);
+  const svc = new PaymentService(store, new DualLedger());
+  verifiedUser(store, "owner", 200000, "1111");
+  verifiedUser(store, "attacker", 200000, "2222");
+
+  const r = svc.createRequest({ userId: "owner", fromName: "Someone", amountINR: 100 });
+  // attacker (valid session + own PIN) must not be able to act on owner's request
+  assert.throws(
+    () => svc.payRequest({ userId: "attacker", requestId: r.id, pin: "2222" }),
+    (e) => e.code === "request_not_found"
+  );
+  assert.equal(svc.listRequests("owner")[0].status, "pending"); // unchanged
+  // the legitimate owner can still pay it
+  const out = svc.payRequest({ userId: "owner", requestId: r.id, pin: "1111" });
+  assert.equal(out.receipt.kind, "request");
 });

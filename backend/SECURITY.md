@@ -67,4 +67,7 @@ curl https://YOUR_HOST/api/audit/verify   # audit chain
 
 ## Reporting
 
-Report vulnerabilities privately to the security owner before public disclosure.
+Report vulnerabilities privately per the project **[Security Policy](../SECURITY.md)**
+(coordinated disclosure; do not open public issues). A formal internal audit —
+including the threat model, the latest found-and-fixed findings, and CI-encoded
+abuse-case tests — is maintained in **[docs/SECURITY_AUDIT.md](../docs/SECURITY_AUDIT.md)**.

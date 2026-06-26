@@ -152,6 +152,22 @@ Same FX math, fee policy, and dual-ledger logic across every client.
 
 ---
 
+## Security & compliance
+
+Security and regulatory trust are first-class here. Key documents:
+
+- **[Security policy / responsible disclosure](./SECURITY.md)** — how to report a vulnerability.
+- **[Internal security audit report](./docs/SECURITY_AUDIT.md)** — STRIDE threat model, controls, and found-and-fixed findings (CI: 34 tests).
+- **[Engineering threat model & controls](./backend/SECURITY.md)** — the in-code defenses.
+- **[Regulatory & compliance roadmap](./docs/COMPLIANCE.md)** — RBI PA-CB, FEMA/LRS, sponsor bank, FIU-IND/PMLA, DPDP Act 2023, PCI scope.
+- **[Production readiness checklist](./docs/PRODUCTION_READINESS.md)** — done vs. required before real-money launch.
+- **[Investor brief](./docs/INVESTOR_BRIEF.md)** — the trust-as-moat thesis.
+
+> **Honest stance:** this is a hardened pre-production build with a documented
+> security posture and a credible licensing path — **not** a claim of zero
+> vulnerabilities or current authorization. Independent penetration testing and
+> RBI/bank approvals are explicit, tracked pre-launch steps.
+
 ## Status
 
 This is a working prototype / pre-production build. Real-money operation requires regulatory approvals (RBI PA-CB authorization, sponsor AD-Cat-I bank partnership, FIU-IND registration, full KYC/AML), which are out of scope of this codebase.
