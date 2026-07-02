@@ -124,6 +124,15 @@ export function buildApp({ dbPath = DB_PATH } = {}) {
     return { userId, token, kyc };
   });
 
+  // Logout: explicit session revocation (the token is dead server-side immediately)
+  add("POST", /^\/api\/logout$/, async (req) => {
+    const userId = requireAuth(req, store);
+    delete store.data.sessions[bearerToken(req)];
+    audit.append("logout", { userId });
+    persist();
+    return { ok: true };
+  });
+
   // Link bank account
   add("POST", /^\/api\/accounts\/link$/, async (req, body) => {
     const userId = requireAuth(req, store);
@@ -342,7 +351,33 @@ export function buildApp({ dbPath = DB_PATH } = {}) {
     return send(res, 429, { error: "rate_limited", retryAfter }, requestId);
   }
 
-  return { server, store, ledger, payments, audit };
+  // Maintenance sweep (G-2): expired sessions are actively removed (not just
+  // lazily on touch), expired quotes are dropped, and rate-limiter buckets are
+  // compacted — so long-running processes don't grow without bound.
+  function sweepExpired(now = Date.now()) {
+    let sessions = 0;
+    for (const [token, sess] of Object.entries(store.data.sessions)) {
+      const exp = typeof sess === "string" ? null : sess.exp;
+      if (exp && exp < now) {
+        delete store.data.sessions[token];
+        sessions++;
+      }
+    }
+    const quotes = payments.sweepQuotes(now);
+    globalLimiter.sweep(now);
+    authLimiter.sweep(now);
+    paymentLimiter.sweep(now);
+    if (sessions || quotes) persist();
+    return { sessions, quotes };
+  }
+  const sweepTimer = setInterval(() => {
+    const { sessions, quotes } = sweepExpired();
+    if (sessions || quotes) logger.info("maintenance_sweep", { sessions, quotes });
+  }, config.sweepIntervalMs);
+  sweepTimer.unref();
+  server.on("close", () => clearInterval(sweepTimer));
+
+  return { server, store, ledger, payments, audit, sweepExpired };
 }
 
 function decorate(r) {
@@ -355,9 +390,13 @@ function decorate(r) {
   };
 }
 
-function requireAuth(req, store) {
+function bearerToken(req) {
   const h = req.headers["authorization"] || "";
-  const token = h.startsWith("Bearer ") ? h.slice(7) : null;
+  return h.startsWith("Bearer ") ? h.slice(7) : null;
+}
+
+function requireAuth(req, store) {
+  const token = bearerToken(req);
   const sess = token ? store.data.sessions[token] : null;
   if (!sess) throw new ApiError(401, "unauthorized", "Missing or invalid token");
   const userId = typeof sess === "string" ? sess : sess.userId;

@@ -13,14 +13,63 @@ function scopedIdem(userId, key) {
   return key ? userId + ":" + key : null;
 }
 
+// Double-entry legs (G-5): every ledger entry books balanced debit/credit legs.
+// The payer is debited the full total; the principal is credited to a clearing
+// account for the rail, and any fee is credited to the fee-revenue account.
+// Invariant (enforced by the ledger at append time): sum of deltaMinor === 0.
+function doubleEntryLegs({ userId, totalMinor, feeMinor, principalMinor, clearingAccount }) {
+  const legs = [
+    { account: "user:" + userId, deltaMinor: -totalMinor },
+    { account: clearingAccount, deltaMinor: principalMinor },
+  ];
+  if (feeMinor > 0) legs.push({ account: "revenue:fees", deltaMinor: feeMinor });
+  return legs;
+}
+
 export class PaymentService {
   constructor(store, ledger, opts = {}) {
     this.store = store;
     this.ledger = ledger;
-    this.quotes = new Map(); // quoteId -> quote (ephemeral)
     this.guard = opts.guard || null;
     this.audit = opts.audit || null;
     this.limitsCheck = opts.limitsCheck || null;
+  }
+
+  // ---- quote persistence (G-1) ----
+  // Quotes live in the store (not process memory) so they survive restarts and
+  // remain valid across horizontally scaled instances sharing one store.
+  _quotes() {
+    const d = this.store.data;
+    if (!d.quotes) d.quotes = {};
+    return d.quotes;
+  }
+
+  _saveQuote(q) {
+    this._quotes()[q.quoteId] = q;
+    this.sweepQuotes();
+    this.store.persist();
+    return q;
+  }
+
+  _getQuote(quoteId) {
+    return this._quotes()[quoteId] || null;
+  }
+
+  _consumeQuote(quoteId) {
+    delete this._quotes()[quoteId];
+  }
+
+  // Drop expired quotes; returns how many were removed.
+  sweepQuotes(now = Date.now()) {
+    const quotes = this._quotes();
+    let removed = 0;
+    for (const [id, q] of Object.entries(quotes)) {
+      if (!isQuoteValid(q, now)) {
+        delete quotes[id];
+        removed++;
+      }
+    }
+    return removed;
   }
 
   // Shared actor checks: existence, KYC, account, lockout, then PIN.
@@ -78,9 +127,7 @@ export class PaymentService {
   }
 
   quote(currency, localAmount) {
-    const q = createQuote(currency, localAmount);
-    this.quotes.set(q.quoteId, q);
-    return q;
+    return this._saveQuote(createQuote(currency, localAmount));
   }
 
   execute({ userId, quoteId, pin, idempotencyKey, merchant }) {
@@ -90,7 +137,7 @@ export class PaymentService {
 
     const { acct } = this._authorize(d, userId, pin);
 
-    const quote = this.quotes.get(quoteId);
+    const quote = this._getQuote(quoteId);
     if (!isQuoteValid(quote))
       throw new ApiError(409, "quote_expired", "Quote missing or expired — re-quote");
 
@@ -112,6 +159,10 @@ export class PaymentService {
       feeMinor: quote.feeMinor,
       totalMinor: quote.totalMinor,
       merchant: merchant || { name: "Merchant", country: quote.currency },
+      legs: doubleEntryLegs({
+        userId, totalMinor: quote.totalMinor, feeMinor: quote.feeMinor,
+        principalMinor: quote.amountMinor, clearingAccount: "clearing:intl:" + quote.currency,
+      }),
     });
 
     const signature = signPayment({
@@ -144,7 +195,7 @@ export class PaymentService {
 
     d.payments[paymentId] = receipt;
     if (idempotencyKey) d.idempotency[scopedIdem(userId, idempotencyKey)] = paymentId;
-    this.quotes.delete(quoteId);
+    this._consumeQuote(quoteId);
     this._auditSettle(receipt);
     this.store.persist();
 
@@ -153,9 +204,7 @@ export class PaymentService {
 
   // ---- P2P transfers ----
   quoteTransfer(recipientCurrency, sendAmountINR) {
-    const q = createP2PQuote(recipientCurrency, sendAmountINR);
-    this.quotes.set(q.quoteId, q);
-    return q;
+    return this._saveQuote(createP2PQuote(recipientCurrency, sendAmountINR));
   }
 
   transfer({ userId, quoteId, pin, idempotencyKey, recipient }) {
@@ -165,7 +214,7 @@ export class PaymentService {
 
     const { acct } = this._authorize(d, userId, pin);
 
-    const quote = this.quotes.get(quoteId);
+    const quote = this._getQuote(quoteId);
     if (!isQuoteValid(quote) || quote.kind !== "p2p")
       throw new ApiError(409, "quote_expired", "Quote missing or expired — re-quote");
 
@@ -191,6 +240,10 @@ export class PaymentService {
       sendAmountMinor: quote.sendAmountMinor,
       feeMinor: quote.feeMinor,
       totalMinor: quote.totalMinor,
+      legs: doubleEntryLegs({
+        userId, totalMinor: quote.totalMinor, feeMinor: quote.feeMinor,
+        principalMinor: quote.sendAmountMinor, clearingAccount: "clearing:intl:" + quote.recipientCurrency,
+      }),
     });
 
     const signature = signPayment({
@@ -224,7 +277,7 @@ export class PaymentService {
 
     d.payments[transferId] = receipt;
     if (idempotencyKey) d.idempotency[scopedIdem(userId, idempotencyKey)] = transferId;
-    this.quotes.delete(quoteId);
+    this._consumeQuote(quoteId);
     this._auditSettle(receipt);
     this.store.persist();
 
@@ -260,6 +313,10 @@ export class PaymentService {
       kind: kind || "upi",
       payee: pye,
       amountMinor,
+      legs: doubleEntryLegs({
+        userId, totalMinor: amountMinor, feeMinor: 0,
+        principalMinor: amountMinor, clearingAccount: "clearing:domestic:upi",
+      }),
     });
 
     const signature = signPayment({

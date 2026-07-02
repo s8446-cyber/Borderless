@@ -65,7 +65,13 @@ export class DualLedger {
   get head() { return this.blocks[this.blocks.length - 1]; }
 
   // Append a settlement record; returns the block and (if triggered) anchor.
+  // If the txn carries double-entry legs, the zero-sum invariant is enforced
+  // HERE, at write time — an unbalanced entry can never enter the chain.
   append(txn) {
+    if (txn && txn.legs !== undefined) {
+      const err = validateLegs(txn.legs);
+      if (err) throw new Error("unbalanced ledger entry: " + err);
+    }
     const prev = this.head;
     const block = {
       index: prev.index + 1,
@@ -112,6 +118,10 @@ export class DualLedger {
         return { ok: false, reason: `broken link at block ${i}` };
       if (b.hash !== hashBlock(b))
         return { ok: false, reason: `tampered block ${i}` };
+      if (b.txn && b.txn.legs !== undefined) {
+        const err = validateLegs(b.txn.legs);
+        if (err) return { ok: false, reason: `block ${i}: ${err}` };
+      }
     }
     // verify each anchor's merkle root still matches its range
     for (const a of this.anchors) {
@@ -122,7 +132,34 @@ export class DualLedger {
     return { ok: true, blocks: this.blocks.length, anchors: this.anchors.length };
   }
 
+  // Fold all double-entry legs into per-account balances. Because every entry
+  // is zero-sum, the grand total across all accounts is always exactly 0 —
+  // this is the reconciliation invariant a settlement-break monitor watches.
+  balances() {
+    const out = {};
+    for (const b of this.blocks) {
+      const legs = (b.txn && b.txn.legs) || [];
+      for (const leg of legs) {
+        out[leg.account] = (out[leg.account] || 0) + leg.deltaMinor;
+      }
+    }
+    return out;
+  }
+
   toJSON() {
     return { blocks: this.blocks, anchors: this.anchors, anchorEvery: this.anchorEvery };
   }
+}
+
+// Returns null if legs are well-formed and zero-sum, else a reason string.
+function validateLegs(legs) {
+  if (!Array.isArray(legs) || legs.length < 2) return "legs must be an array of at least 2 entries";
+  let sum = 0;
+  for (const leg of legs) {
+    if (!leg || typeof leg.account !== "string" || !leg.account) return "leg missing account";
+    if (!Number.isInteger(leg.deltaMinor)) return "leg deltaMinor must be an integer (minor units)";
+    sum += leg.deltaMinor;
+  }
+  if (sum !== 0) return "legs do not sum to zero (sum=" + sum + ")";
+  return null;
 }
