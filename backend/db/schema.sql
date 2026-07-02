@@ -106,7 +106,7 @@ CREATE TABLE login_security (
 CREATE TABLE ledger_blocks (
   index       BIGINT PRIMARY KEY,
   ts          BIGINT NOT NULL,                 -- epoch ms (hashed field — keep exact)
-  txn         JSONB NOT NULL,                  -- includes double-entry legs
+  txn         JSON NOT NULL,                 -- json NOT jsonb: block hashes cover the exact serialized text (includes double-entry legs)
   prev_hash   TEXT NOT NULL,
   hash        TEXT NOT NULL UNIQUE
 );
@@ -126,7 +126,7 @@ CREATE TABLE audit_entries (
   index      BIGINT PRIMARY KEY,
   ts         BIGINT NOT NULL,
   event      TEXT NOT NULL,
-  data       JSONB NOT NULL DEFAULT '{}',
+  data       JSON NOT NULL,                  -- json NOT jsonb: entry hashes cover the exact serialized text
   prev_hash  TEXT NOT NULL,
   hash       TEXT NOT NULL UNIQUE
 );

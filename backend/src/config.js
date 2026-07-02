@@ -45,6 +45,7 @@ export const config = {
   isProd,
   port: intEnv("PORT", 4000),
   dbPath: process.env.BP_DB || null,
+  pgUrl: (process.env.BP_PG_URL || "").trim() || null, // Postgres persistence (overrides file store)
   signingSecret,
   encKey,
   corsOrigins,
@@ -78,7 +79,7 @@ export function configSummary() {
   return {
     env: config.env,
     port: config.port,
-    persistence: config.dbPath ? "file" : "in-memory",
+    persistence: config.pgUrl ? "postgres" : (config.dbPath ? "file" : "in-memory"),
     corsOrigins: config.corsOrigins,
     trustProxy: config.trustProxy,
     signingSecretSet: Boolean(process.env.BP_SIGNING_SECRET),

@@ -67,7 +67,7 @@ Run through these to exercise every feature. Each payment asks for the **PIN you
 ### Run the automated test suite
 ```bash
 cd backend
-npm test             # 56 tests: unit + security + hardening + observability + full end-to-end HTTP journey
+npm test             # 60 tests: unit + security + hardening + observability + Postgres + full HTTP e2e
 ```
 All 43 should pass. This is the strongest proof the wiring is correct.
 
@@ -157,12 +157,14 @@ Same FX math, fee policy, and dual-ledger logic across every client.
 Security and regulatory trust are first-class here. Key documents:
 
 - **[Security policy / responsible disclosure](./SECURITY.md)** — how to report a vulnerability.
-- **[Internal security audit report](./docs/SECURITY_AUDIT.md)** — STRIDE threat model, controls, and found-and-fixed findings (CI: 56 tests).
+- **[Internal security audit report](./docs/SECURITY_AUDIT.md)** — STRIDE threat model, controls, and found-and-fixed findings (CI: 60 tests).
 - **[Engineering threat model & controls](./backend/SECURITY.md)** — the in-code defenses.
 - **[Regulatory & compliance roadmap](./docs/COMPLIANCE.md)** — RBI PA-CB, FEMA/LRS, sponsor bank, FIU-IND/PMLA, DPDP Act 2023, PCI scope.
 - **[Production readiness checklist](./docs/PRODUCTION_READINESS.md)** — done vs. required before real-money launch.
 - **[Operations & incident response runbook](./docs/RUNBOOK.md)** — observability surface, alert rules, per-scenario playbooks.
 - **[Mobile hardening posture](./mobile/SECURITY.md)** — implemented controls vs. native-build-time items.
+- **[Sponsor bank & PA-CB engagement pack](./docs/BANK_ENGAGEMENT_PACK.md)** — the document to open the bank conversation.
+- **[Pen-test scope & RFP](./docs/PENTEST_SCOPE.md)** — ready to send to CERT-In empanelled firms.
 - **[Investor brief](./docs/INVESTOR_BRIEF.md)** — the trust-as-moat thesis.
 
 > **Honest stance:** this is a hardened pre-production build with a documented

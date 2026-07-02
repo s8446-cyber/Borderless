@@ -11,6 +11,11 @@ WORKDIR /app
 # Copy manifest first for better layer caching (no deps to install)
 COPY package.json ./
 
+# Optional: bake in the Postgres driver for BP_PG_URL persistence.
+# Build with:  docker build --build-arg WITH_PG=true .
+ARG WITH_PG=false
+RUN if [ "$WITH_PG" = "true" ]; then npm install --no-save --no-audit --no-fund pg; fi
+
 # Copy application source
 COPY src ./src
 COPY public ./public
