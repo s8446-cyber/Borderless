@@ -19,7 +19,8 @@ import { StatusBar } from "expo-status-bar";
 import * as LocalAuthentication from "expo-local-authentication";
 import { C, TINTS, CORRIDORS, P2P_CURRENCIES, OPERATORS, BILL_CATEGORIES, BILLERS } from "./src/theme";
 import { fmtINR } from "./src/format";
-import { api, setToken } from "./src/api";
+import { api, setSession } from "./src/api";
+import { getDeviceId } from "./src/device";
 import { Brand, Card, Row, Pill, Badges, PrimaryButton, Chips, PinDots, PinPad, SectionHeader, Avatar } from "./src/ui";
 
 const SETTLE_STEPS = [
@@ -135,9 +136,9 @@ export default function App() {
     try {
       const r = await api("/api/kyc/verify", {
         method: "POST",
-        body: { fullName: name || "Aarav Shah", documentId: "P" + Date.now(), country: "IN" },
+        body: { fullName: name || "Aarav Shah", documentId: "P" + Date.now(), country: "IN", deviceId: await getDeviceId() },
       });
-      setToken(r.token);
+      setSession(r);
       setScreen("link");
     } catch (e) {
       Alert.alert("Verification failed", e.message);
