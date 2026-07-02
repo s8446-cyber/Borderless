@@ -6,7 +6,7 @@ import { dirname } from "node:path";
 
 const SCHEMA_VERSION = 2;
 
-const DEFAULT = () => ({
+export const DEFAULT = () => ({
   schemaVersion: SCHEMA_VERSION,
   users: {},        // userId -> { id, name, country, kyc }
   accounts: {},     // userId -> { bank, maskedNumber, currency, balanceMinor, accountRefEnc }

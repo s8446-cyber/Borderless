@@ -13,8 +13,13 @@ hardened for production.
 
 ```bash
 node src/server.js     # http://localhost:4000  (serves API + web client)
-npm test               # 56 tests (core + security + hardening + observability + HTTP end-to-end)
+npm test               # 60 tests (core + security + hardening + observability + Postgres + HTTP e2e)
 ```
+
+### Persistence backends
+- **Default:** in-memory (nothing set) or atomic file store (`BP_DB=/path/db.json`). Zero dependencies.
+- **Production:** PostgreSQL — set `BP_PG_URL=postgres://user:pass@host:5432/db` and install the optional driver (`npm install pg`). State snapshots plus **append-only ledger/audit mirrors** land in Postgres (`src/store-pg.js`); tables are created automatically. Docker: build with `--build-arg WITH_PG=true`.
+- The Postgres test suite runs automatically when `BP_PG_TEST_URL` is set (CI provisions a Postgres 16 service); it skips gracefully otherwise.
 
 ## What’s inside
 
@@ -32,7 +37,8 @@ src/
   limits.js     per-txn + daily velocity limits
   kyc.js        KYC / sanctions screening (stub)
   payments.js   orchestration: auth, idempotency, limits, ledger, audit
-  store.js      atomic file-backed JSON store (Postgres-swappable)
+  store.js      atomic file-backed JSON store (reference persistence)
+  store-pg.js   PostgreSQL persistence: snapshot + append-only ledger/audit mirrors
 public/         installable PWA web client
 test/           core.test.js + security.test.js
 ```

@@ -16,7 +16,7 @@ or investor can verify status against the code.
 - ✅ Store-persisted quotes (survive restart / multi-instance); session revocation (`POST /api/logout`) + periodic GC of expired sessions & quotes
 - ✅ Device-bound sessions + refresh-token rotation with reuse detection (theft → revoke all); `POST /api/sessions/revoke-all` "log out everywhere"
 - ✅ Public Merkle inclusion proofs (`GET /api/ledger/proof/:index`, PII-free) — any third party can verify a receipt against a published anchor; anchor publisher is pluggable for a real public-chain writer
-- ✅ CI: 56 automated tests incl. security, platform-hardening + observability regressions + full HTTP journey
+- ✅ CI: 60 automated tests incl. security, platform-hardening, observability + Postgres persistence regressions + full HTTP journey
 - ⬜ Independent third-party penetration test + source audit
 - ⬜ Private bug-bounty program (policy ready in `SECURITY.md`)
 - ⬜ SAST/DAST + dependency scanning in CI (zero runtime deps today keeps this small)
@@ -28,7 +28,8 @@ or investor can verify status against the code.
 
 ## Data & persistence
 - ✅ Atomic writes + corrupt-file quarantine (reference store)
-- 🟨 **PostgreSQL** — target schema drafted ([`backend/db/schema.sql`](../backend/db/schema.sql), mirrors the store 1:1 incl. append-only ledger/audit role policy); adapter + managed instance (encryption at rest, RBAC, PITR backups, least-privilege) still required
+- ✅ **PostgreSQL persistence adapter** (`backend/src/store-pg.js`): state snapshots + append-only ledger/audit mirrors, exactly-once across restarts, CI-tested against Postgres 16; target schema in [`backend/db/schema.sql`](../backend/db/schema.sql)
+- ⬜ Managed India-region Postgres instance: encryption at rest, RBAC (INSERT+SELECT-only app role on mirror tables), PITR backups + tested restores
 - ⬜ **Redis** for rate-limit/lockout/session state (multi-instance correctness)
 - ⬜ Data retention + deletion (DSR) tooling per DPDP Act
 - ⬜ RBI data-localisation: primary store in India

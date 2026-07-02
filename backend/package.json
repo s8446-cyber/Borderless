@@ -22,5 +22,8 @@
     "fintech",
     "ledger"
   ],
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "optionalDependencies": {
+    "pg": "^8.22.0"
+  }
 }

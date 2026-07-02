@@ -55,8 +55,10 @@ const BILLERS = [
 ];
 const OPERATORS = ["Airtel", "Jio", "Vi", "BSNL"];
 
-export function buildApp({ dbPath = DB_PATH } = {}) {
-  const store = new Store(dbPath);
+export function buildApp({ dbPath = DB_PATH, store: injectedStore } = {}) {
+  // Persistence backend: an injected store (e.g. PgStore) wins; otherwise the
+  // file-backed reference store.
+  const store = injectedStore || new Store(dbPath);
   const ledger = new DualLedger(store.data.ledger);
   const audit = new AuditLog(store.data.audit);
   const guard = new LoginGuard(store, config.lockout);
@@ -594,7 +596,13 @@ function lanUrls(port) {
 
 // start when run directly
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const app = buildApp();
+  let store;
+  if (config.pgUrl) {
+    const { PgStore } = await import("./store-pg.js");
+    store = await PgStore.create(config.pgUrl);
+    logger.info("postgres_persistence_active", {});
+  }
+  const app = buildApp({ store });
   const PORT = config.port;
   app.server.listen(PORT, () => {
     const lan = lanUrls(PORT);
@@ -608,11 +616,13 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   });
   const shutdown = (signal) => {
     logger.info("shutting_down", { signal });
-    app.server.close(() => {
+    app.server.close(async () => {
       try {
         app.store.data.ledger = app.ledger.toJSON();
         app.store.data.audit = app.audit.toJSON();
         app.store.persist();
+        if (app.store.flush) await app.store.flush();   // durable (PgStore)
+        if (app.store.close) await app.store.close();
       } catch (e) { logger.error("shutdown_persist_failed", { message: String(e && e.message) }); }
       process.exit(0);
     });
