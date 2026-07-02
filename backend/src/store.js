@@ -11,7 +11,8 @@ const DEFAULT = () => ({
   users: {},        // userId -> { id, name, country, kyc }
   accounts: {},     // userId -> { bank, maskedNumber, currency, balanceMinor, accountRefEnc }
   pins: {},         // userId -> versioned scrypt hash
-  sessions: {},     // token -> { userId, exp, createdAt }
+  sessions: {},     // token -> { userId, exp, createdAt, deviceHash? }
+  refresh: {},      // refreshToken -> { userId, deviceHash?, exp, createdAt, rotatedTo? }
   payments: {},     // paymentId -> receipt
   quotes: {},       // quoteId -> quote (TTL-bound; survives restart, multi-instance safe via shared store)
   idempotency: {},  // key -> paymentId

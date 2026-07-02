@@ -109,7 +109,7 @@ export function applyCors(req, res) {
     res.setHeader("Vary", "Origin");
   }
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "content-type, authorization, idempotency-key");
+  res.setHeader("Access-Control-Allow-Headers", "content-type, authorization, idempotency-key, x-device-id");
   res.setHeader("Access-Control-Max-Age", "600");
 }
 

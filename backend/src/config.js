@@ -51,6 +51,7 @@ export const config = {
   trustProxy: process.env.BP_TRUST_PROXY === "true",
   bodyLimitBytes: intEnv("BP_BODY_LIMIT", 1048576),
   sessionTtlMs: intEnv("BP_SESSION_TTL_MS", 86400000),
+  refreshTtlMs: intEnv("BP_REFRESH_TTL_MS", 2592000000), // refresh-token lifetime (30 days)
   sweepIntervalMs: intEnv("BP_SWEEP_INTERVAL_MS", 300000), // maintenance GC cadence (5 min)
   rateLimit: {
     windowMs: intEnv("BP_RL_WINDOW_MS", 60000),
