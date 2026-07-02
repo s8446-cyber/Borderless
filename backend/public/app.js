@@ -101,8 +101,23 @@ const esc = (s) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const symFor = (code) => (P2P_CURRENCIES.find((p) => p.code === code) || { sym: code }).sym;
 
+// Stable per-browser device identifier (G-3). The session issued at KYC is
+// bound to it server-side; every call presents it via the x-device-id header.
+const DEVICE_ID = (() => {
+  try {
+    let id = localStorage.getItem("bp_device_id");
+    if (!id) {
+      id = "web-" + crypto.randomUUID();
+      localStorage.setItem("bp_device_id", id);
+    }
+    return id;
+  } catch {
+    return "web-" + Math.random().toString(36).slice(2);
+  }
+})();
+
 async function api(path, { method = "GET", body, idempotencyKey } = {}) {
-  const headers = { "content-type": "application/json" };
+  const headers = { "content-type": "application/json", "x-device-id": DEVICE_ID };
   if (state.token) headers.authorization = "Bearer " + state.token;
   if (idempotencyKey) headers["idempotency-key"] = idempotencyKey;
   const res = await fetch(API + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
@@ -305,6 +320,7 @@ function screenHome() {
       ${actionTile("💸", "Send abroad", "start-send", "", true)}
       ${actionTile("🧳", "Pay abroad", "start-scan-intl", "", true)}
       ${actionTile("🔎", "Verify", "verify-ledger", "", true)}
+      ${actionTile("🚪", "Log out", "logout", "", true)}
     </div>
     ${peopleRow}
     <div class="section">Recent</div>
@@ -494,7 +510,10 @@ function screenReceipt() {
        <span class="muted" style="font-size:12px">Public anchor (tx)</span>
        <div class="hashrow">${r.anchor ? esc(r.anchor.publicTxHash) : "(batched in next anchor)"}</div>
        <span class="muted" style="font-size:12px">Authorization signature</span>
-       <div class="hashrow">${esc(r.signature.slice(0, 40))}…</div>`
+       <div class="hashrow">${esc(r.signature.slice(0, 40))}…</div>
+       <div id="proof-result"></div>
+       <button class="btn secondary" data-action="verify-receipt">🔎 Verify this receipt independently</button>
+       <p class="api-note">Recomputes the Merkle proof from /api/ledger/proof — no trust in this app required</p>`
     )}
     ${primary("Done", "receipt-done")}`;
 }
@@ -558,7 +577,7 @@ async function handleKyc() {
   try {
     const r = await api("/api/kyc/verify", {
       method: "POST",
-      body: { fullName: state.name || "Aarav Shah", documentId: "P" + Date.now(), country: "IN" },
+      body: { fullName: state.name || "Aarav Shah", documentId: "P" + Date.now(), country: "IN", deviceId: DEVICE_ID },
     });
     state.token = r.token;
     go("link");
@@ -760,6 +779,47 @@ async function verifyLedger() {
   }
 }
 
+// ---- independent receipt verification (G-4) ----
+// Recomputes the Merkle inclusion proof CLIENT-SIDE with Web Crypto: the
+// receipt's settlement hash is walked up the sibling path and must land
+// exactly on the published anchor root. The server is not trusted for the
+// math — only for serving the proof, which is itself pinned by the anchor.
+async function sha256Hex(text) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function verifyReceipt() {
+  const r = state.receipt;
+  const el = document.getElementById("proof-result");
+  if (!r || !r.settlement || !el) return;
+  el.innerHTML = `<div class="hashrow">Verifying…</div>`;
+  try {
+    const p = await api("/api/ledger/proof/" + r.settlement.index);
+    if (p.blockHash !== r.settlement.hash) throw new Error("Ledger block hash does not match this receipt");
+    let h = p.blockHash;
+    for (const step of p.path) {
+      h = step.right ? await sha256Hex(h + step.hash) : await sha256Hex(step.hash + h);
+    }
+    if (h !== p.anchor.merkleRoot) throw new Error("Merkle path does not reach the anchor root");
+    el.innerHTML = `<div class="hashrow" style="color:var(--accent)">✓ Independently verified — this settlement is committed under anchor ${esc(p.anchor.anchorId)} (root ${esc(p.anchor.merkleRoot.slice(0, 16))}…), published as ${esc(p.anchor.publicTxHash)}</div>`;
+  } catch (e) {
+    el.innerHTML = `<div class="hashrow" style="color:#ff6b6b">✗ Verification failed: ${esc(e.message)}</div>`;
+  }
+}
+
+async function logout() {
+  try {
+    await api("/api/logout", { method: "POST" });
+  } catch (e) {}
+  state.token = null;
+  state.account = null;
+  state.history = [];
+  state.requests = [];
+  toast("Logged out — session revoked server-side");
+  go("welcome");
+}
+
 async function goActivity() {
   try {
     await refresh();
@@ -803,6 +863,8 @@ const ACTIONS = {
   "proceed-domestic": proceedDomestic,
   "quote-pay": openAuth,
   "verify-ledger": verifyLedger,
+  "verify-receipt": verifyReceipt,
+  logout,
   "receipt-done": () => go("home"),
   tab: (arg) => (arg === "scanDom" ? startScanDom() : arg === "history" ? goActivity() : go(arg)),
 };

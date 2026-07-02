@@ -15,6 +15,7 @@ import { networkInterfaces } from "node:os";
 
 import { config, configSummary } from "./config.js";
 import { logger } from "./logger.js";
+import { Metrics } from "./metrics.js";
 import { Store } from "./store.js";
 import { DualLedger } from "./ledger.js";
 import { AuditLog } from "./audit.js";
@@ -75,6 +76,7 @@ export function buildApp({ dbPath = DB_PATH } = {}) {
   const globalLimiter = new RateLimiter({ windowMs: config.rateLimit.windowMs, max: config.rateLimit.max });
   const authLimiter = new RateLimiter({ windowMs: config.rateLimit.windowMs, max: config.rateLimit.authMax });
   const paymentLimiter = new RateLimiter({ windowMs: config.rateLimit.windowMs, max: config.rateLimit.paymentMax });
+  const metrics = new Metrics();
   const limiterFor = (path) => {
     if (/^\/api\/(payments|transfers|upi|bills|recharge)/.test(path) || /^\/api\/requests\/pay$/.test(path)) return paymentLimiter;
     if (/^\/api\/(kyc|accounts\/link|waitlist|sessions)/.test(path)) return authLimiter;
@@ -387,6 +389,7 @@ export function buildApp({ dbPath = DB_PATH } = {}) {
   const server = createServer(async (req, res) => {
     const requestId = logger.requestId();
     const ip = clientIp(req);
+    const t0 = Date.now();
     securityHeaders(res);
     applyCors(req, res);
     try {
@@ -395,6 +398,26 @@ export function buildApp({ dbPath = DB_PATH } = {}) {
       const path = url.pathname;
 
       if (path.startsWith("/api/")) {
+        // record every API request's route/status/latency at response time
+        if (path !== "/api/metrics") {
+          res.on("finish", () => metrics.recordHttp(req.method, path, res.statusCode, Date.now() - t0));
+        }
+
+        // Prometheus scrape endpoint (G-7). Text format, not JSON. In
+        // production it requires the BP_METRICS_TOKEN bearer; if none is
+        // configured in prod the endpoint stays hidden (fail-closed).
+        if (path === "/api/metrics") {
+          if (config.metricsToken) {
+            if (bearerToken(req) !== config.metricsToken) return send(res, 401, { error: "unauthorized" }, requestId);
+          } else if (config.isProd) {
+            return send(res, 404, { error: "not_found" }, requestId);
+          }
+          res.statusCode = 200;
+          res.setHeader("content-type", "text/plain; version=0.0.4; charset=utf-8");
+          res.end(metrics.render({ ledger, audit, store }));
+          return;
+        }
+
         const gl = globalLimiter.check(ip);
         if (!gl.ok) return rateLimited(res, gl.retryAfter, requestId, ip, path, "global");
         const tier = limiterFor(path);
@@ -412,6 +435,8 @@ export function buildApp({ dbPath = DB_PATH } = {}) {
         }
         const body = req.method === "POST" ? await readBody(req) : {};
         const result = await match.handler(req, body, url, { ip, requestId });
+        // business metrics: count fresh settlements (idempotent replays excluded)
+        if (result && result.receipt && result.replayed === false) metrics.recordPayment(result.receipt);
         return send(res, 200, result, requestId);
       }
       return serveStatic(res, url.pathname);
@@ -426,6 +451,7 @@ export function buildApp({ dbPath = DB_PATH } = {}) {
   });
 
   function rateLimited(res, retryAfter, requestId, ip, path, scope) {
+    metrics.recordRateLimited();
     audit.append("rate_limited", { ip, path, scope });
     persist();
     res.setHeader("retry-after", String(retryAfter));
@@ -465,7 +491,7 @@ export function buildApp({ dbPath = DB_PATH } = {}) {
   sweepTimer.unref();
   server.on("close", () => clearInterval(sweepTimer));
 
-  return { server, store, ledger, payments, audit, sweepExpired };
+  return { server, store, ledger, payments, audit, metrics, sweepExpired };
 }
 
 function decorate(r) {

@@ -49,6 +49,7 @@ export const config = {
   encKey,
   corsOrigins,
   trustProxy: process.env.BP_TRUST_PROXY === "true",
+  metricsToken: (process.env.BP_METRICS_TOKEN || "").trim() || null,
   bodyLimitBytes: intEnv("BP_BODY_LIMIT", 1048576),
   sessionTtlMs: intEnv("BP_SESSION_TTL_MS", 86400000),
   refreshTtlMs: intEnv("BP_REFRESH_TTL_MS", 2592000000), // refresh-token lifetime (30 days)

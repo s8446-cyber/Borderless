@@ -16,7 +16,7 @@ or investor can verify status against the code.
 - ✅ Store-persisted quotes (survive restart / multi-instance); session revocation (`POST /api/logout`) + periodic GC of expired sessions & quotes
 - ✅ Device-bound sessions + refresh-token rotation with reuse detection (theft → revoke all); `POST /api/sessions/revoke-all` "log out everywhere"
 - ✅ Public Merkle inclusion proofs (`GET /api/ledger/proof/:index`, PII-free) — any third party can verify a receipt against a published anchor; anchor publisher is pluggable for a real public-chain writer
-- ✅ CI: 52 automated tests incl. security, platform-hardening regressions + full HTTP journey
+- ✅ CI: 56 automated tests incl. security, platform-hardening + observability regressions + full HTTP journey
 - ⬜ Independent third-party penetration test + source audit
 - ⬜ Private bug-bounty program (policy ready in `SECURITY.md`)
 - ⬜ SAST/DAST + dependency scanning in CI (zero runtime deps today keeps this small)
@@ -36,10 +36,12 @@ or investor can verify status against the code.
 ## Reliability & operations
 - ✅ Liveness (`/api/health`) + readiness/integrity (`/api/ready`) endpoints
 - ✅ Structured JSON logs with secret redaction; graceful shutdown
+- ✅ Prometheus metrics endpoint (`/api/metrics`, token-gated in prod): traffic/latency by route, settlements, fee revenue, rate limits, chain-size & session gauges
+- ✅ Incident response runbook with per-scenario playbooks ([`RUNBOOK.md`](./RUNBOOK.md))
 - ✅ Containerized (Dockerfile, non-root, healthcheck); Fly/Render/Compose configs
-- ⬜ Centralized logging/metrics/tracing + alerting (SLOs, on-call)
+- ⬜ Centralized logging/metrics/tracing infra + alerting (SLOs, on-call) — alert rules drafted in the runbook
 - ⬜ Multi-AZ deployment, autoscaling, DR plan + tested restores
-- ⬜ Incident response runbook + status page
+- ⬜ Status page
 
 ## Payments, KYC & money movement
 - ✅ Transparent FX (mid-market, explicit fee), per-txn + daily velocity limits
@@ -57,7 +59,9 @@ or investor can verify status against the code.
 
 ## Mobile / client
 - ✅ Biometric + PIN auth; standalone (release) build path; configurable backend
-- ⬜ Certificate pinning; jailbreak/root detection; Play Integrity / App Attest
+- ✅ Keystore-backed device ID + device-bound sessions; refresh-token rotation with silent renewal; tokens memory-only (see [`mobile/SECURITY.md`](../mobile/SECURITY.md))
+- ✅ Web app: independent client-side Merkle receipt verification; device-bound sessions; explicit logout
+- ⬜ Certificate pinning; jailbreak/root detection; Play Integrity / App Attest (build-time items tracked in [`mobile/SECURITY.md`](../mobile/SECURITY.md))
 - ⬜ Store listings, signing key custody, staged rollouts
 
 ---
