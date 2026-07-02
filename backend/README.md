@@ -13,7 +13,7 @@ hardened for production.
 
 ```bash
 node src/server.js     # http://localhost:4000  (serves API + web client)
-npm test               # 32 tests (core + security + HTTP end-to-end)
+npm test               # 43 tests (core + security + hardening + HTTP end-to-end)
 ```
 
 ## What’s inside

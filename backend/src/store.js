@@ -13,6 +13,7 @@ const DEFAULT = () => ({
   pins: {},         // userId -> versioned scrypt hash
   sessions: {},     // token -> { userId, exp, createdAt }
   payments: {},     // paymentId -> receipt
+  quotes: {},       // quoteId -> quote (TTL-bound; survives restart, multi-instance safe via shared store)
   idempotency: {},  // key -> paymentId
   requests: {},     // requestId -> collect request
   waitlist: [],     // marketing-site early-access signups: { email, ts }

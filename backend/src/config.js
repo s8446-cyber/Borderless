@@ -51,6 +51,7 @@ export const config = {
   trustProxy: process.env.BP_TRUST_PROXY === "true",
   bodyLimitBytes: intEnv("BP_BODY_LIMIT", 1048576),
   sessionTtlMs: intEnv("BP_SESSION_TTL_MS", 86400000),
+  sweepIntervalMs: intEnv("BP_SWEEP_INTERVAL_MS", 300000), // maintenance GC cadence (5 min)
   rateLimit: {
     windowMs: intEnv("BP_RL_WINDOW_MS", 60000),
     max: intEnv("BP_RL_MAX", 120),

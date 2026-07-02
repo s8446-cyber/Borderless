@@ -12,7 +12,9 @@ or investor can verify status against the code.
 - ✅ AES-256-GCM field encryption at rest
 - ✅ Per-user idempotency scoping; ownership checks (IDOR-safe); no PII on public endpoints
 - ✅ Fail-closed config (refuses to boot in prod without secrets)
-- ✅ CI: 34 automated tests incl. security + full HTTP journey
+- ✅ Double-entry ledger legs (user/clearing/fee accounts) with the zero-sum invariant enforced at append time; `balances()` reconciliation fold
+- ✅ Store-persisted quotes (survive restart / multi-instance); session revocation (`POST /api/logout`) + periodic GC of expired sessions & quotes
+- ✅ CI: 43 automated tests incl. security, platform-hardening regressions + full HTTP journey
 - ⬜ Independent third-party penetration test + source audit
 - ⬜ Private bug-bounty program (policy ready in `SECURITY.md`)
 - ⬜ SAST/DAST + dependency scanning in CI (zero runtime deps today keeps this small)
