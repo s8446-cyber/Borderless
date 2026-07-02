@@ -21,9 +21,10 @@ import { AuditLog } from "./audit.js";
 import { PaymentService } from "./payments.js";
 import { checkTxnLimits } from "./limits.js";
 import { runKyc } from "./kyc.js";
-import { hashPin, newToken } from "./auth.js";
+import { hashPin, newToken, newRefreshToken } from "./auth.js";
 import { encryptField } from "./crypto.js";
 import { ApiError, RATES, listCurrencies, FEE_PCT } from "./fx.js";
+import { sha256 } from "./ledger.js";
 import { toMinor, fromMinor, formatINR } from "./money.js";
 import {
   RateLimiter, LoginGuard, securityHeaders, applyCors, clientIp,
@@ -76,7 +77,7 @@ export function buildApp({ dbPath = DB_PATH } = {}) {
   const paymentLimiter = new RateLimiter({ windowMs: config.rateLimit.windowMs, max: config.rateLimit.paymentMax });
   const limiterFor = (path) => {
     if (/^\/api\/(payments|transfers|upi|bills|recharge)/.test(path) || /^\/api\/requests\/pay$/.test(path)) return paymentLimiter;
-    if (/^\/api\/(kyc|accounts\/link|waitlist)/.test(path)) return authLimiter;
+    if (/^\/api\/(kyc|accounts\/link|waitlist|sessions)/.test(path)) return authLimiter;
     return null;
   };
 
@@ -109,19 +110,78 @@ export function buildApp({ dbPath = DB_PATH } = {}) {
     return { ok: true, count: store.data.waitlist.length };
   });
 
-  // KYC + create user
+  // KYC + create user. Optionally binds the session to a client device
+  // identifier (G-3): if `deviceId` is provided, every subsequent authed call
+  // must present the same device via the `x-device-id` header, and the issued
+  // refresh token is bound to it too. A refresh token enables silent session
+  // renewal with rotation + reuse detection.
   add("POST", /^\/api\/kyc\/verify$/, async (req, body) => {
     asString(body.fullName, "fullName", { max: 120 });
     asString(body.documentId, "documentId", { max: 120 });
     asString(body.country, "country", { max: 60 });
+    const deviceId = asString(body.deviceId, "deviceId", { required: false, max: 200 });
+    const deviceHash = deviceId ? sha256(deviceId) : null;
     const kyc = runKyc(body);
     const userId = "usr_" + randomUUID();
     store.data.users[userId] = { id: userId, name: body.fullName, country: body.country, kyc };
-    const token = newToken();
-    store.data.sessions[token] = { userId, exp: Date.now() + config.sessionTtlMs, createdAt: Date.now() };
-    audit.append("user_created", { userId, country: body.country, kycStatus: kyc.status });
+    const { token, refreshToken } = issueSession(userId, deviceHash);
+    audit.append("user_created", { userId, country: body.country, kycStatus: kyc.status, deviceBound: Boolean(deviceHash) });
     persist();
-    return { userId, token, kyc };
+    return { userId, token, refreshToken, kyc };
+  });
+
+  function issueSession(userId, deviceHash) {
+    const now = Date.now();
+    const token = newToken();
+    store.data.sessions[token] = { userId, exp: now + config.sessionTtlMs, createdAt: now, deviceHash: deviceHash || null };
+    const refreshToken = newRefreshToken();
+    store.data.refresh[refreshToken] = { userId, deviceHash: deviceHash || null, exp: now + config.refreshTtlMs, createdAt: now };
+    return { token, refreshToken };
+  }
+
+  function revokeAllForUser(userId) {
+    let revoked = 0;
+    for (const [t, s] of Object.entries(store.data.sessions)) {
+      if ((typeof s === "string" ? s : s.userId) === userId) { delete store.data.sessions[t]; revoked++; }
+    }
+    for (const [t, r] of Object.entries(store.data.refresh)) {
+      if (r.userId === userId) { delete store.data.refresh[t]; revoked++; }
+    }
+    return revoked;
+  }
+
+  // Rotate a refresh token (G-3): the old token is retired and a fresh
+  // access+refresh pair is issued. Reusing an already-rotated refresh token is
+  // treated as a theft signal — ALL of that user's sessions are revoked.
+  add("POST", /^\/api\/sessions\/refresh$/, async (req, body) => {
+    const rt = asString(body.refreshToken, "refreshToken", { max: 200 });
+    const rec = store.data.refresh[rt];
+    if (!rec) throw new ApiError(401, "bad_refresh_token", "Unknown refresh token");
+    if (rec.rotatedTo) {
+      // reuse of a rotated token → assume compromise, kill everything
+      const revoked = revokeAllForUser(rec.userId);
+      audit.append("refresh_reuse_detected", { userId: rec.userId, revoked });
+      persist();
+      throw new ApiError(401, "refresh_reused", "Refresh token reuse detected; all sessions revoked");
+    }
+    if (Date.now() > rec.exp) {
+      delete store.data.refresh[rt];
+      persist();
+      throw new ApiError(401, "refresh_expired", "Refresh token expired, please re-authenticate");
+    }
+    if (rec.deviceHash) {
+      const deviceId = asString(body.deviceId, "deviceId", { required: false, max: 200 });
+      if (!deviceId || sha256(deviceId) !== rec.deviceHash) {
+        audit.append("refresh_device_mismatch", { userId: rec.userId });
+        persist();
+        throw new ApiError(401, "device_mismatch", "Refresh token is bound to a different device");
+      }
+    }
+    const issued = issueSession(rec.userId, rec.deviceHash);
+    rec.rotatedTo = sha256(issued.refreshToken); // marker only — never store the live token in the old record
+    audit.append("session_refreshed", { userId: rec.userId });
+    persist();
+    return issued;
   });
 
   // Logout: explicit session revocation (the token is dead server-side immediately)
@@ -131,6 +191,16 @@ export function buildApp({ dbPath = DB_PATH } = {}) {
     audit.append("logout", { userId });
     persist();
     return { ok: true };
+  });
+
+  // Revoke ALL sessions + refresh tokens for the caller (G-3) — the "log me
+  // out everywhere" panic button after a lost or compromised device.
+  add("POST", /^\/api\/sessions\/revoke-all$/, async (req) => {
+    const userId = requireAuth(req, store);
+    const revoked = revokeAllForUser(userId);
+    audit.append("sessions_revoked_all", { userId, revoked });
+    persist();
+    return { ok: true, revoked };
   });
 
   // Link bank account
@@ -302,6 +372,17 @@ export function buildApp({ dbPath = DB_PATH } = {}) {
   add("GET", /^\/api\/ledger\/verify$/, async () => ledger.verify());
   add("GET", /^\/api\/audit\/verify$/, async () => audit.verify());
 
+  // Merkle inclusion proof for a settlement block (G-4). PUBLIC and PII-free:
+  // returns only hashes — the block hash from a receipt, the sibling path, and
+  // the anchor root — so anyone can independently verify that a receipt's
+  // settlement is committed under a published anchor.
+  add("GET", /^\/api\/ledger\/proof\/\d+$/, async (req, body, url) => {
+    const index = Number(url.pathname.split("/").pop());
+    const p = ledger.proof(index);
+    if (!p) throw new ApiError(404, "not_anchored", "Block not found or not anchored yet");
+    return p;
+  });
+
   // ---- request handling ----
   const server = createServer(async (req, res) => {
     const requestId = logger.requestId();
@@ -363,16 +444,23 @@ export function buildApp({ dbPath = DB_PATH } = {}) {
         sessions++;
       }
     }
+    let refresh = 0;
+    for (const [token, rec] of Object.entries(store.data.refresh || {})) {
+      if (rec.exp && rec.exp < now) {
+        delete store.data.refresh[token];
+        refresh++;
+      }
+    }
     const quotes = payments.sweepQuotes(now);
     globalLimiter.sweep(now);
     authLimiter.sweep(now);
     paymentLimiter.sweep(now);
-    if (sessions || quotes) persist();
-    return { sessions, quotes };
+    if (sessions || refresh || quotes) persist();
+    return { sessions, refresh, quotes };
   }
   const sweepTimer = setInterval(() => {
-    const { sessions, quotes } = sweepExpired();
-    if (sessions || quotes) logger.info("maintenance_sweep", { sessions, quotes });
+    const { sessions, refresh, quotes } = sweepExpired();
+    if (sessions || refresh || quotes) logger.info("maintenance_sweep", { sessions, refresh, quotes });
   }, config.sweepIntervalMs);
   sweepTimer.unref();
   server.on("close", () => clearInterval(sweepTimer));
@@ -406,6 +494,15 @@ function requireAuth(req, store) {
     throw new ApiError(401, "session_expired", "Session expired, please re-authenticate");
   }
   if (!userId) throw new ApiError(401, "unauthorized", "Missing or invalid token");
+  // Device binding (G-3): a session created with a deviceId only works from
+  // that device. Sessions created without one behave as before.
+  const deviceHash = typeof sess === "string" ? null : sess.deviceHash;
+  if (deviceHash) {
+    const presented = req.headers["x-device-id"];
+    if (!presented || sha256(String(presented)) !== deviceHash) {
+      throw new ApiError(401, "device_mismatch", "Session is bound to a different device");
+    }
+  }
   return userId;
 }
 

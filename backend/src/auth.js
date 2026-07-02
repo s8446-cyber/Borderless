@@ -42,6 +42,10 @@ export function newToken() {
   return "tok_" + randomBytes(32).toString("hex");
 }
 
+export function newRefreshToken() {
+  return "rtk_" + randomBytes(32).toString("hex");
+}
+
 export function signPayment(fields) {
   const canonical = [
     fields.paymentId, fields.userId, fields.currency,

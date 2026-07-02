@@ -37,8 +37,51 @@ export function merkleRoot(leaves) {
   return level[0];
 }
 
+// Merkle INCLUSION proof (G-4): the sibling path from leaf `index` up to the
+// root. Mirrors merkleRoot exactly (odd levels duplicate the last node).
+// Each step is { hash, right } — `right: true` means the sibling is on the
+// right, i.e. hash(current + sibling); otherwise hash(sibling + current).
+export function merkleProof(leaves, index) {
+  if (index < 0 || index >= leaves.length) return null;
+  let level = leaves.slice();
+  let i = index;
+  const path = [];
+  while (level.length > 1) {
+    const next = [];
+    for (let j = 0; j < level.length; j += 2) {
+      const left = level[j];
+      const right = level[j + 1] ?? left;
+      next.push(sha256(left + right));
+      if (j === i || j + 1 === i) {
+        if (i === j) path.push({ hash: right, right: true });
+        else path.push({ hash: left, right: false });
+      }
+    }
+    i = Math.floor(i / 2);
+    level = next;
+  }
+  return path;
+}
+
+// Anyone (no login, no transaction data) can recompute leaf → root with this.
+export function verifyMerkleProof(leafHash, path, root) {
+  let h = leafHash;
+  for (const step of path || []) {
+    h = step.right ? sha256(h + step.hash) : sha256(step.hash + h);
+  }
+  return h === root;
+}
+
+// Default anchor publisher: simulates a public-chain write. In production this
+// is swapped (via DualLedger's `publisher` option) for a writer that commits
+// the Merkle root to an actual public chain and returns the real tx hash.
+export function simulatedPublisher({ fromIndex, toIndex }) {
+  return "0x" + sha256("anchor" + fromIndex + toIndex + Date.now()).slice(0, 40);
+}
+
 export class DualLedger {
-  constructor(state) {
+  constructor(state, opts = {}) {
+    this.publisher = opts.publisher || simulatedPublisher;
     if (state && state.blocks?.length) {
       this.blocks = state.blocks;
       this.anchors = state.anchors ?? [];
@@ -97,17 +140,42 @@ export class DualLedger {
     const from = 1 + this._anchoredCount();
     const to = this.blocks.length - 1;
     const leaves = this.blocks.slice(from, to + 1).map((b) => b.hash);
+    const root = merkleRoot(leaves);
     const anchor = {
       anchorId: "anc_" + this.anchors.length,
       fromIndex: from,
       toIndex: to,
-      merkleRoot: merkleRoot(leaves),
+      merkleRoot: root,
       publishedAt: Date.now(),
-      // simulated public-chain tx hash
-      publicTxHash: "0x" + sha256("anchor" + from + to + Date.now()).slice(0, 40),
+      // pluggable: simulated by default, real public-chain writer in production
+      publicTxHash: this.publisher({ fromIndex: from, toIndex: to, merkleRoot: root }),
     };
     this.anchors.push(anchor);
     return anchor;
+  }
+
+  // Merkle inclusion proof for a settlement block (G-4). Returns everything a
+  // third party needs to verify — WITHOUT any transaction contents: the block
+  // hash, the sibling path, and the anchor it rolls up to. Null if the block
+  // doesn't exist or isn't anchored yet.
+  proof(blockIndex) {
+    const block = this.blocks[blockIndex];
+    if (!block || blockIndex === 0) return null;
+    const anchor = this.anchors.find((a) => a.fromIndex <= blockIndex && blockIndex <= a.toIndex);
+    if (!anchor) return null;
+    const leaves = this.blocks.slice(anchor.fromIndex, anchor.toIndex + 1).map((b) => b.hash);
+    const path = merkleProof(leaves, blockIndex - anchor.fromIndex);
+    return {
+      blockIndex,
+      blockHash: block.hash,
+      path,
+      anchor: {
+        anchorId: anchor.anchorId,
+        merkleRoot: anchor.merkleRoot,
+        publicTxHash: anchor.publicTxHash,
+        publishedAt: anchor.publishedAt,
+      },
+    };
   }
 
   // Recompute the entire chain to detect tampering.

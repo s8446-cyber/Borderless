@@ -14,7 +14,9 @@ or investor can verify status against the code.
 - ✅ Fail-closed config (refuses to boot in prod without secrets)
 - ✅ Double-entry ledger legs (user/clearing/fee accounts) with the zero-sum invariant enforced at append time; `balances()` reconciliation fold
 - ✅ Store-persisted quotes (survive restart / multi-instance); session revocation (`POST /api/logout`) + periodic GC of expired sessions & quotes
-- ✅ CI: 43 automated tests incl. security, platform-hardening regressions + full HTTP journey
+- ✅ Device-bound sessions + refresh-token rotation with reuse detection (theft → revoke all); `POST /api/sessions/revoke-all` "log out everywhere"
+- ✅ Public Merkle inclusion proofs (`GET /api/ledger/proof/:index`, PII-free) — any third party can verify a receipt against a published anchor; anchor publisher is pluggable for a real public-chain writer
+- ✅ CI: 52 automated tests incl. security, platform-hardening regressions + full HTTP journey
 - ⬜ Independent third-party penetration test + source audit
 - ⬜ Private bug-bounty program (policy ready in `SECURITY.md`)
 - ⬜ SAST/DAST + dependency scanning in CI (zero runtime deps today keeps this small)
@@ -26,7 +28,7 @@ or investor can verify status against the code.
 
 ## Data & persistence
 - ✅ Atomic writes + corrupt-file quarantine (reference store)
-- ⬜ **PostgreSQL** (encryption at rest, RBAC, PITR backups, least-privilege)
+- 🟨 **PostgreSQL** — target schema drafted ([`backend/db/schema.sql`](../backend/db/schema.sql), mirrors the store 1:1 incl. append-only ledger/audit role policy); adapter + managed instance (encryption at rest, RBAC, PITR backups, least-privilege) still required
 - ⬜ **Redis** for rate-limit/lockout/session state (multi-instance correctness)
 - ⬜ Data retention + deletion (DSR) tooling per DPDP Act
 - ⬜ RBI data-localisation: primary store in India
