@@ -88,7 +88,7 @@ npm start            # scan the QR code with the Expo Go app
 ```bash
 cd mobile
 npm install
-npm run prebuild     # generates the native android/ + ios/ projects
+npm run prebuild     # generates the native android/ + ios/ projects (and auto-aligns Gradle with your JDK — any Java 17+ works, no JDK 17 install needed)
 npm run run:android  # builds with Gradle and launches on an emulator/device
 ```
 …or open the generated **`mobile/android`** folder in Android Studio and press ▶.

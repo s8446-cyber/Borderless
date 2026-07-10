@@ -16,6 +16,11 @@ adb devices || echo "Note: 'adb' not on PATH (it's in \$ANDROID_HOME/platform-to
 
 [ -d node_modules ] || { echo "Installing dependencies (first run)..."; npm install; }
 
+# Works with ANY JDK 17+ (17/21/22/23/24 ...): generate the native project,
+# then auto-align the Gradle wrapper with whatever Java you have installed.
+npx expo prebuild
+node scripts/java-compat.js
+
 npx expo run:android --variant release
 
 echo ""

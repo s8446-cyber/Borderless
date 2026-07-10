@@ -29,6 +29,11 @@ if (-not (Test-Path "node_modules")) {
   npm install
 }
 
+# Works with ANY JDK 17+ (17/21/22/23/24 ...): generate the native project,
+# then auto-align the Gradle wrapper with whatever Java you have installed.
+npx expo prebuild
+node scripts/java-compat.js
+
 # Build + install + launch the release variant.
 npx expo run:android --variant release
 
