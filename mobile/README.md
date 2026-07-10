@@ -49,42 +49,54 @@ dependencies), not from code that ships in or runs inside your app.
 
 ---
 
-## ☕ Set up Java (JDK 17) — required for every Android build
+## ☕ Set up Java (JDK **17 or newer**) — required for every Android build
 
-Android builds (`npm run phone`, `run:android`, Gradle, Android Studio) need
-**JDK 17** — *exactly* 17, not 8 / 11 / 21. Wrong or missing Java is the most
-common build error. Typical messages:
+Android builds (`npm run phone`, `run:android`, Gradle, Android Studio) need a
+JDK. **Any JDK 17+ works: 17, 21, 22, 23, 24 …** — you do **not** need to
+install 17 specifically for this app.
+
+> **How that works:** the only thing that ever pinned us to a specific JDK was
+> the Gradle version inside the generated `android/` project. All build entry
+> points (`npm run phone`, `run:android`, `prebuild`, the `run-on-phone`
+> scripts) now run `scripts/java-compat.js` automatically: it detects the Java
+> you actually have and, when it's newer than the stock Gradle supports
+> (22/23/24), aligns the Gradle wrapper to a matching version. The app's
+> bytecode target stays 17 — newer JDKs compile it natively. To check your
+> setup at any time: `npm run java:check`.
+
+Missing or **too-old** Java (8/11) is still the most common build error.
+Typical messages:
 
 - `ERROR: JAVA_HOME is set to an invalid directory ...`
 - `JAVA_HOME is not set and no 'java' command could be found in your PATH`
-- `Android Gradle plugin requires Java 17 to run. You are currently using Java 21/11/8`
+- `Android Gradle plugin requires Java 17 to run. You are currently using Java 11/8`
 - `Unsupported class file major version 65/61/52` · `invalid source release: 17`
-- `Could not determine java version from '21.0.x'`
 
 ### Fix on Windows (PowerShell)
 
-**1. See what you have** (you want `17.x`):
+**1. See what you have** (anything `17` or higher is fine):
 ```powershell
 java -version
 echo $env:JAVA_HOME
 ```
 
-**2. Locate a JDK 17.** You already have one inside Android Studio (`jbr`).
-Run these — the one that prints **True** is your path:
+**2. Locate a JDK 17+.** You already have one inside Android Studio (`jbr` —
+recent versions ship JBR 21, which is perfect). Run these — the one that
+prints **True** is your path:
 ```powershell
 Test-Path "C:\Program Files\Android\Android Studio\jbr\bin\java.exe"
 Test-Path "$env:LOCALAPPDATA\Programs\Android Studio\jbr\bin\java.exe"
 ```
-No Android Studio JDK? Install a standalone one: `winget install Microsoft.OpenJDK.17`
-(then its path is like `C:\Program Files\Microsoft\jdk-17.x.x`).
+No Android Studio? Install any modern JDK, e.g. `winget install Microsoft.OpenJDK.21`
+(or 17 — both work; the path is like `C:\Program Files\Microsoft\jdk-21.x.x`).
 
-**3. Point `JAVA_HOME` at it (permanent + this window) and verify 17:**
+**3. Point `JAVA_HOME` at it (permanent + this window) and verify 17+:**
 ```powershell
 $jdk = "C:\Program Files\Android\Android Studio\jbr"   # use YOUR path from step 2
 [Environment]::SetEnvironmentVariable("JAVA_HOME", $jdk, "User")
 $env:JAVA_HOME = $jdk
 $env:Path = "$env:JAVA_HOME\bin;$env:Path"
-java -version          # must now print openjdk version "17.x"
+java -version          # 17 or anything newer is good
 ```
 
 **4. Close and reopen the terminal / VS Code** (so the change is picked up), then:
@@ -95,39 +107,37 @@ npm run phone
 
 ### Fix on macOS / Linux
 ```bash
-# macOS (Homebrew): brew install --cask temurin@17
-# Linux (Debian/Ubuntu): sudo apt install openjdk-17-jdk
-export JAVA_HOME="$(/usr/libexec/java_home -v 17 2>/dev/null || echo /usr/lib/jvm/java-17-openjdk-amd64)"
+# macOS (Homebrew): brew install --cask temurin      # latest LTS; temurin@17 also fine
+# Linux (Debian/Ubuntu): sudo apt install default-jdk   # or openjdk-21-jdk / openjdk-17-jdk
+export JAVA_HOME="$(/usr/libexec/java_home 2>/dev/null || echo /usr/lib/jvm/default-java)"
 export PATH="$JAVA_HOME/bin:$PATH"
-java -version   # 17.x
+java -version   # 17 or newer
 ```
 
-### If `java -version` still shows the wrong version (e.g. 23) after installing 17
-This is normal — it means another JDK is **earlier on your PATH**. Two facts:
-- **Gradle / `npm run phone` use `JAVA_HOME`, *not* the `java` on PATH.** So the
-  real fix is to point `JAVA_HOME` at a true **17**, even if `java -version`
-  prints something else in a fresh terminal.
-- **`winget install Microsoft.OpenJDK.17` does not change `JAVA_HOME`** and may
-  not win on PATH. Set it explicitly:
+### If the build still complains about the Java version
+- **Gradle / `npm run phone` use `JAVA_HOME`, *not* the `java` on PATH.** Make
+  sure `JAVA_HOME` points at a real JDK 17+ install:
+  `& "$env:JAVA_HOME\bin\java.exe" -version` (Windows) / `"$JAVA_HOME/bin/java" -version`.
+- **`winget install` does not change `JAVA_HOME`.** Set it explicitly:
   ```powershell
-  # Find the JDK 17 winget installed, set JAVA_HOME to it, and put it first on PATH (this window):
-  $jdk = (Get-ChildItem "C:\Program Files\Microsoft" -Directory -Filter "jdk-17*" | Select-Object -First 1).FullName
-  & "$jdk\bin\java.exe" -version                        # confirm 17.0.x
+  # Find the JDK winget installed, set JAVA_HOME to it, and put it first on PATH (this window):
+  $jdk = (Get-ChildItem "C:\Program Files\Microsoft" -Directory -Filter "jdk-*" | Select-Object -First 1).FullName
+  & "$jdk\bin\java.exe" -version                        # confirm 17+
   [Environment]::SetEnvironmentVariable("JAVA_HOME", $jdk, "User")
   $env:JAVA_HOME = $jdk; $env:Path = "$jdk\bin;" + $env:Path
-  java -version                                          # now 17 in this window
   ```
-- To see which JDK currently wins and remove it from PATH if you want `java` = 17
-  everywhere: `where.exe java` (then drop that folder from the **System** Path).
-- ⚠️ **Android Studio's bundled `jbr` is not always 17** — recent versions ship
-  **JBR 21**, which RN/Expo rejects. Verify with
-  `& "$env:JAVA_HOME\bin\java.exe" -version`; if it's not 17, use the Microsoft
-  OpenJDK 17 path above instead.
+- To see which JDK wins on your PATH: `where.exe java` (Windows) / `which java`.
+- If you generated `android/` earlier with a different JDK, re-align it:
+  `npm run prebuild` (safe, non-destructive) — or `npm run prebuild:clean` to regenerate.
+- Java **25+** is newer than our tested range (17–24): the compat script still
+  tries a best-effort alignment, but if the build fails, use any JDK 17–24.
 
 ### Notes
 - **Android Studio's ▶** uses its own *Gradle JDK* (not your shell's `JAVA_HOME`).
-  Set it too: **Settings → Build, Execution, Deployment → Build Tools → Gradle →
-  Gradle JDK → 17** (pick the JDK 17 you installed, or `jbr` only if it reports 17).
+  Set it in **Settings → Build, Execution, Deployment → Build Tools → Gradle →
+  Gradle JDK** — pick any 17+ (the bundled `jbr` is fine). If you use a JDK
+  newer than 21 there, run `npm run prebuild` once first so the wrapper is
+  aligned before Android Studio syncs.
 - **Multiple JDKs installed?** Make sure `JAVA_HOME` points to 17 **and** that
   `%JAVA_HOME%\bin` is *first* on `PATH`, so `java` resolves to 17.
 - **Last-resort override:** after `npm run prebuild`, you can force Gradle to use
@@ -148,10 +158,12 @@ This is normal — it means another JDK is **earlier on your PATH**. Two facts:
    - **Android SDK Build-Tools**
    - **Android SDK Platform-Tools**
    - **Android Emulator** + at least one **virtual device** (e.g. Pixel 7, API 34)
-3. **JDK 17** — required by Gradle/RN 0.74. Android Studio **bundles one** (its
-   `jbr` folder), so you usually don't install Java separately — you just point
-   `JAVA_HOME` at it. Set `JAVA_HOME` to the folder whose `bin\java.exe` exists,
-   and add `%JAVA_HOME%\bin` to `PATH`. Verify with `java -version` → `17.x`.
+3. **JDK 17 or newer** — required by Gradle/RN 0.74 (any of 17/21/22/23/24;
+   the build auto-aligns Gradle to your JDK — see the Java section above).
+   Android Studio **bundles one** (its `jbr` folder), so you usually don't
+   install Java separately — you just point `JAVA_HOME` at it. Set `JAVA_HOME`
+   to the folder whose `bin\java.exe` exists, and add `%JAVA_HOME%\bin` to
+   `PATH`. Verify with `java -version` → `17` or higher.
    (See the JAVA_HOME entry under [Troubleshooting](#troubleshooting) for the
    exact Windows commands — this is the most common first-run error.)
 4. Make sure `ANDROID_HOME` is set (Android Studio usually does this):
@@ -185,7 +197,8 @@ emulator first from Android Studio's **Device Manager**, or plug in a phone with
    missing SDK / Build-Tools.
 3. Set the build JDK so it doesn't depend on your shell's `JAVA_HOME`:
    **Settings → Build, Execution, Deployment → Build Tools → Gradle → Gradle JDK**
-   → choose **jbr-17 (Embedded JetBrains Runtime)** or any JDK 17 → **OK**.
+   → choose the embedded **jbr** or any JDK **17+** → **OK**. (Using a JDK newer
+   than 21? Run `npm run prebuild` once first so the Gradle wrapper is aligned.)
 4. After a clean sync the toolbar shows an **`app`** run configuration (the
    *"Add Configuration"* text disappears).
 5. Create/start a device: **Device Manager** → **Create Device** → Pixel 7 →
@@ -379,10 +392,10 @@ assets/             app icon + splash
   $jdk = "C:\Program Files\Android\Android Studio\jbr"
   [Environment]::SetEnvironmentVariable("JAVA_HOME", $jdk, "User")
   $env:JAVA_HOME = $jdk; $env:Path = "$env:JAVA_HOME\bin;$env:Path"
-  java -version            # should print openjdk version "17.x"
+  java -version            # 17 or newer is good
   ```
   **Close and reopen the terminal / VS Code**, then re-run `npm run run:android`.
-  If no path returned True, install **JDK 17** (Microsoft OpenJDK or Temurin 17)
+  If no path returned True, install any **JDK 17+** (e.g. Temurin/Microsoft OpenJDK 17 or 21)
   and set `JAVA_HOME` to its folder.
 - **App installs and opens but shows a red/blank screen — "Could not connect to
   development server" or "Unable to load script"** → the #1 thing testers hit. A
