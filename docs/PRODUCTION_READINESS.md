@@ -16,7 +16,7 @@ or investor can verify status against the code.
 - ✅ Store-persisted quotes (survive restart / multi-instance); session revocation (`POST /api/logout`) + periodic GC of expired sessions & quotes
 - ✅ Device-bound sessions + refresh-token rotation with reuse detection (theft → revoke all); `POST /api/sessions/revoke-all` "log out everywhere"
 - ✅ Public Merkle inclusion proofs (`GET /api/ledger/proof/:index`, PII-free) — any third party can verify a receipt against a published anchor; anchor publisher is pluggable for a real public-chain writer
-- ✅ CI: 60 automated tests incl. security, platform-hardening, observability + Postgres persistence regressions + full HTTP journey
+- ✅ CI: 61 automated tests incl. security, platform-hardening, observability + Postgres persistence regressions + full HTTP journey
 - ⬜ Independent third-party penetration test + source audit
 - ⬜ Private bug-bounty program (policy ready in `SECURITY.md`)
 - ⬜ SAST/DAST + dependency scanning in CI (zero runtime deps today keeps this small)

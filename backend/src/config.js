@@ -55,6 +55,7 @@ export const config = {
   sessionTtlMs: intEnv("BP_SESSION_TTL_MS", 86400000),
   refreshTtlMs: intEnv("BP_REFRESH_TTL_MS", 2592000000), // refresh-token lifetime (30 days)
   sweepIntervalMs: intEnv("BP_SWEEP_INTERVAL_MS", 300000), // maintenance GC cadence (5 min)
+  idemTtlMs: intEnv("BP_IDEM_TTL_MS", 86400000), // idempotency-key retention after settlement (24h)
   rateLimit: {
     windowMs: intEnv("BP_RL_WINDOW_MS", 60000),
     max: intEnv("BP_RL_MAX", 120),

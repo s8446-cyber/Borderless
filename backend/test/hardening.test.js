@@ -217,3 +217,40 @@ test("G-2: maintenance sweep garbage-collects expired sessions and quotes", asyn
     assert.equal(app.store.data.quotes[q.data.quoteId], undefined);
   });
 });
+
+test("G-2: sweep GCs idempotency keys 24h after settlement — fresh keys still dedupe", async () => {
+  await withServer(async ({ call, app }) => {
+    const r = await call("/api/kyc/verify", { method: "POST", body: { fullName: "Aarav Shah", documentId: "P1", country: "IN" } });
+    const token = r.data.token;
+    await call("/api/accounts/link", { method: "POST", body: { bank: "HDFC", pin: "4321" }, token });
+
+    const base = Object.keys(app.store.data.idempotency).length;
+    const pay = async (idem) => {
+      const q = await call("/api/quotes", { method: "POST", body: { currency: "AED", localAmount: 10 } });
+      const res = await fetch(`http://127.0.0.1:${app.server.address().port}/api/payments`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer " + token, "idempotency-key": idem },
+        body: JSON.stringify({ quoteId: q.data.quoteId, pin: "4321" }),
+      });
+      return res.json();
+    };
+
+    const first = await pay("fresh-key");
+    assert.equal(Object.keys(app.store.data.idempotency).length, base + 1);
+
+    // a fresh key survives the sweep AND still deduplicates
+    let swept = app.sweepExpired();
+    assert.equal(swept.idem, 0, "fresh idempotency key kept");
+    const replay = await pay("fresh-key");
+    assert.equal(replay.replayed, true, "dedupe still works after sweep");
+    assert.equal(replay.receipt.paymentId, first.receipt.paymentId);
+
+    // age the payment past the retention window → key is GC'd, receipt remains
+    const paymentId = first.receipt.paymentId;
+    app.store.data.payments[paymentId].settledAt = Date.now() - 86400001;
+    swept = app.sweepExpired();
+    assert.equal(swept.idem, 1, "expired idempotency key removed");
+    assert.equal(Object.keys(app.store.data.idempotency).length, base);
+    assert.ok(app.store.data.payments[paymentId], "the receipt itself is permanent");
+  });
+});
