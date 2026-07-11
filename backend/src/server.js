@@ -480,15 +480,26 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore } = {}) {
       }
     }
     const quotes = payments.sweepQuotes(now);
+    // Idempotency keys exist to absorb short-lived retries; once their payment
+    // has been settled for >24h they only leak memory/storage. GC them (the
+    // receipt itself is permanent — only the retry-dedupe key is dropped).
+    let idem = 0;
+    for (const [key, paymentId] of Object.entries(store.data.idempotency || {})) {
+      const p = store.data.payments[paymentId];
+      if (!p || (p.settledAt || 0) < now - config.idemTtlMs) {
+        delete store.data.idempotency[key];
+        idem++;
+      }
+    }
     globalLimiter.sweep(now);
     authLimiter.sweep(now);
     paymentLimiter.sweep(now);
-    if (sessions || refresh || quotes) persist();
-    return { sessions, refresh, quotes };
+    if (sessions || refresh || quotes || idem) persist();
+    return { sessions, refresh, quotes, idem };
   }
   const sweepTimer = setInterval(() => {
-    const { sessions, refresh, quotes } = sweepExpired();
-    if (sessions || refresh || quotes) logger.info("maintenance_sweep", { sessions, refresh, quotes });
+    const { sessions, refresh, quotes, idem } = sweepExpired();
+    if (sessions || refresh || quotes || idem) logger.info("maintenance_sweep", { sessions, refresh, quotes, idem });
   }, config.sweepIntervalMs);
   sweepTimer.unref();
   server.on("close", () => clearInterval(sweepTimer));

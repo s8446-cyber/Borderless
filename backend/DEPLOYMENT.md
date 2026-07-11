@@ -16,10 +16,24 @@ The server **refuses to start in production** without both (fail-closed).
 
 ```bash
 node src/server.js              # http://localhost:4000
-npm test                        # 32 tests
+npm test                        # 61 tests
 ```
 
 In development, ephemeral secrets are auto-generated and CORS is open (`*`).
+
+## 1.5 Production persistence & observability (any platform)
+
+- **PostgreSQL (recommended for production):** set
+  `BP_PG_URL=postgres://user:pass@host:5432/db` and install the optional driver
+  (`npm install pg`; Docker: build with `--build-arg WITH_PG=true`). State
+  snapshots plus **append-only ledger/audit mirrors** are stored in Postgres —
+  tables are created automatically. Use an **India-region** managed instance
+  (RBI data-localisation) with PITR backups. Without `BP_PG_URL`, the file
+  store (`BP_DB`) is used.
+- **Metrics:** set `BP_METRICS_TOKEN` (e.g. `openssl rand -hex 32`) to enable
+  the Prometheus scrape endpoint `GET /api/metrics` (bearer-token gated; the
+  endpoint stays hidden in production if unset). Alert rules and playbooks:
+  [`docs/RUNBOOK.md`](../docs/RUNBOOK.md).
 
 ## 2. Docker (single host)
 
