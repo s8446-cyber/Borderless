@@ -153,6 +153,12 @@ export function asPin(v) {
   return s;
 }
 
+export function asPassword(v) {
+  const s = asString(v, "password", { max: 200 });
+  if (s.length < 8) throw new ApiError(400, "weak_password", "Password must be at least 8 characters");
+  return s;
+}
+
 export function asEmail(v) {
   const s = asString(v, "email", { max: 254 }).trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s)) throw new ApiError(400, "bad_email", "Enter a valid email address");

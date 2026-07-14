@@ -22,14 +22,15 @@ import { AuditLog } from "./audit.js";
 import { PaymentService } from "./payments.js";
 import { checkTxnLimits } from "./limits.js";
 import { runKyc } from "./kyc.js";
-import { hashPin, newToken, newRefreshToken } from "./auth.js";
-import { encryptField } from "./crypto.js";
+import { hashPin, newToken, newRefreshToken, newResetToken, verifyPin } from "./auth.js";
+import { encryptField, decryptField } from "./crypto.js";
+import { generateTotpSecret, verifyTotp, otpauthUri } from "./totp.js";
 import { ApiError, RATES, listCurrencies, FEE_PCT } from "./fx.js";
 import { sha256 } from "./ledger.js";
 import { toMinor, fromMinor, formatINR } from "./money.js";
 import {
   RateLimiter, LoginGuard, securityHeaders, applyCors, clientIp,
-  asString, asPin, asAmount, asEmail,
+  asString, asPin, asAmount, asEmail, asPassword,
 } from "./security.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -81,7 +82,7 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore } = {}) {
   const metrics = new Metrics();
   const limiterFor = (path) => {
     if (/^\/api\/(payments|transfers|upi|bills|recharge)/.test(path) || /^\/api\/requests\/pay$/.test(path)) return paymentLimiter;
-    if (/^\/api\/(kyc|accounts\/link|waitlist|sessions)/.test(path)) return authLimiter;
+    if (/^\/api\/(kyc|accounts\/link|waitlist|sessions|auth)/.test(path)) return authLimiter;
     return null;
   };
 
@@ -142,6 +143,134 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore } = {}) {
     store.data.refresh[refreshToken] = { userId, deviceHash: deviceHash || null, exp: now + config.refreshTtlMs, createdAt: now };
     return { token, refreshToken };
   }
+
+  function credentialsByUser(userId) {
+    for (const [email, cred] of Object.entries(store.data.credentials)) {
+      if (cred.userId === userId) return { email, cred };
+    }
+    return null;
+  }
+
+  // ---- Email + password authentication (production path) ----
+  // The demo KYC flow above stays for testers; these routes add real account
+  // security: scrypt-hashed passwords, lockout-guarded login, optional TOTP
+  // 2FA (secret AES-256-GCM-encrypted at rest), and a password-reset flow
+  // that revokes every session on completion.
+  add("POST", /^\/api\/auth\/signup$/, async (req, body) => {
+    const email = asEmail(body.email);
+    const password = asPassword(body.password);
+    asString(body.fullName, "fullName", { max: 120 });
+    const country = asString(body.country, "country", { required: false, max: 60 }) || "IN";
+    if (store.data.credentials[email]) throw new ApiError(409, "email_taken", "An account with this email already exists");
+    const kyc = runKyc({ fullName: body.fullName, documentId: "email:" + email, country });
+    const userId = "usr_" + randomUUID();
+    store.data.users[userId] = { id: userId, name: body.fullName, email, country, kyc };
+    store.data.credentials[email] = { userId, passHash: hashPin(password), totpSecretEnc: null, totpEnabled: false, createdAt: Date.now() };
+    const deviceId = asString(body.deviceId, "deviceId", { required: false, max: 200 });
+    const issued = issueSession(userId, deviceId ? sha256(deviceId) : null);
+    audit.append("user_signed_up", { userId, domain: email.split("@")[1], kycStatus: kyc.status });
+    persist();
+    return { userId, ...issued, kyc };
+  });
+
+  add("POST", /^\/api\/auth\/login$/, async (req, body) => {
+    const email = asEmail(body.email);
+    const password = asString(body.password, "password", { max: 200 });
+    const cred = store.data.credentials[email];
+    if (cred) guard.assertNotLocked(cred.userId);
+    // Uniform error whether the email or the password is wrong — no account
+    // enumeration. Failed attempts count toward the same lockout as PINs.
+    if (!cred || !verifyPin(password, cred.passHash)) {
+      if (cred) {
+        const r = guard.recordFail(cred.userId);
+        audit.append("login_failed", { userId: cred.userId, locked: r.locked });
+        persist();
+      }
+      throw new ApiError(401, "bad_credentials", "Invalid email or password");
+    }
+    if (cred.totpEnabled) {
+      const given = body.totp === undefined || body.totp === null ? "" : String(body.totp);
+      if (!given) throw new ApiError(401, "totp_required", "Two-factor authentication code required");
+      if (!verifyTotp(decryptField(cred.totpSecretEnc), given)) {
+        const r = guard.recordFail(cred.userId);
+        audit.append("totp_failed", { userId: cred.userId, locked: r.locked });
+        persist();
+        throw new ApiError(401, "bad_totp", "Invalid two-factor code");
+      }
+    }
+    guard.recordSuccess(cred.userId);
+    const deviceId = asString(body.deviceId, "deviceId", { required: false, max: 200 });
+    const issued = issueSession(cred.userId, deviceId ? sha256(deviceId) : null);
+    audit.append("login", { userId: cred.userId, totp: Boolean(cred.totpEnabled) });
+    persist();
+    return { userId: cred.userId, ...issued };
+  });
+
+  // TOTP 2FA — setup returns the secret + otpauth:// URI for authenticator
+  // apps; a correct code must be proven before 2FA becomes enforced.
+  add("POST", /^\/api\/auth\/2fa\/setup$/, async (req) => {
+    const userId = requireAuth(req, store);
+    const found = credentialsByUser(userId);
+    if (!found) throw new ApiError(409, "no_credentials", "This account uses the demo KYC flow — sign up with email + password to enable 2FA");
+    const secret = generateTotpSecret();
+    found.cred.totpSecretEnc = encryptField(secret);
+    found.cred.totpEnabled = false; // enforced only after a verified code
+    audit.append("totp_setup", { userId });
+    persist();
+    return { secret, otpauth: otpauthUri(secret, found.email) };
+  });
+
+  add("POST", /^\/api\/auth\/2fa\/enable$/, async (req, body) => {
+    const userId = requireAuth(req, store);
+    const found = credentialsByUser(userId);
+    if (!found || !found.cred.totpSecretEnc) throw new ApiError(409, "no_2fa_setup", "Run 2FA setup first");
+    if (!verifyTotp(decryptField(found.cred.totpSecretEnc), String(body.code || ""))) {
+      throw new ApiError(401, "bad_totp", "Invalid two-factor code");
+    }
+    found.cred.totpEnabled = true;
+    audit.append("totp_enabled", { userId });
+    persist();
+    return { ok: true, totpEnabled: true };
+  });
+
+  // Password reset. The response is uniform whether or not the account exists
+  // (no enumeration). In production the token is delivered by the mailer
+  // integration and NEVER returned by the API; in development it is returned
+  // so the full flow is testable without an email provider.
+  add("POST", /^\/api\/auth\/password\/reset-request$/, async (req, body) => {
+    const email = asEmail(body.email);
+    const cred = store.data.credentials[email];
+    const out = { ok: true };
+    if (cred) {
+      const token = newResetToken();
+      store.data.resets[token] = { email, exp: Date.now() + 1800000 }; // 30 min
+      audit.append("password_reset_requested", { userId: cred.userId });
+      logger.info("password_reset_token_issued", { userId: cred.userId }); // token itself never logged
+      if (!config.isProd) out.resetToken = token; // mailer integration point in prod
+      persist();
+    }
+    return out;
+  });
+
+  add("POST", /^\/api\/auth\/password\/reset$/, async (req, body) => {
+    const token = asString(body.token, "token", { max: 200 });
+    const password = asPassword(body.newPassword);
+    const rec = store.data.resets[token];
+    if (!rec || Date.now() > rec.exp) {
+      delete store.data.resets[token];
+      persist();
+      throw new ApiError(401, "bad_reset_token", "Invalid or expired reset token");
+    }
+    const cred = store.data.credentials[rec.email];
+    if (!cred) throw new ApiError(401, "bad_reset_token", "Invalid or expired reset token");
+    cred.passHash = hashPin(password);
+    delete store.data.resets[token];
+    const revoked = revokeAllForUser(cred.userId); // a reset kills every live session
+    guard.recordSuccess(cred.userId); // clear any lockout so the user can log in
+    audit.append("password_reset_completed", { userId: cred.userId, revoked });
+    persist();
+    return { ok: true };
+  });
 
   function revokeAllForUser(userId) {
     let revoked = 0;
@@ -479,6 +608,13 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore } = {}) {
         refresh++;
       }
     }
+    let resets = 0;
+    for (const [token, rec] of Object.entries(store.data.resets || {})) {
+      if (rec.exp && rec.exp < now) {
+        delete store.data.resets[token];
+        resets++;
+      }
+    }
     const quotes = payments.sweepQuotes(now);
     // Idempotency keys exist to absorb short-lived retries; once their payment
     // has been settled for >24h they only leak memory/storage. GC them (the
@@ -494,8 +630,8 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore } = {}) {
     globalLimiter.sweep(now);
     authLimiter.sweep(now);
     paymentLimiter.sweep(now);
-    if (sessions || refresh || quotes || idem) persist();
-    return { sessions, refresh, quotes, idem };
+    if (sessions || refresh || resets || quotes || idem) persist();
+    return { sessions, refresh, resets, quotes, idem };
   }
   const sweepTimer = setInterval(() => {
     const { sessions, refresh, quotes, idem } = sweepExpired();
