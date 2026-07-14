@@ -13,6 +13,8 @@ export const DEFAULT = () => ({
   pins: {},         // userId -> versioned scrypt hash
   sessions: {},     // token -> { userId, exp, createdAt, deviceHash? }
   refresh: {},      // refreshToken -> { userId, deviceHash?, exp, createdAt, rotatedTo? }
+  credentials: {},  // email -> { userId, passHash, totpSecretEnc, totpEnabled, createdAt }
+  resets: {},       // resetToken -> { email, exp }
   payments: {},     // paymentId -> receipt
   quotes: {},       // quoteId -> quote (TTL-bound; survives restart, multi-instance safe via shared store)
   idempotency: {},  // key -> paymentId

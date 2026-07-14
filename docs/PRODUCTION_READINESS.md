@@ -15,8 +15,10 @@ or investor can verify status against the code.
 - ✅ Double-entry ledger legs (user/clearing/fee accounts) with the zero-sum invariant enforced at append time; `balances()` reconciliation fold
 - ✅ Store-persisted quotes (survive restart / multi-instance); session revocation (`POST /api/logout`) + periodic GC of expired sessions & quotes
 - ✅ Device-bound sessions + refresh-token rotation with reuse detection (theft → revoke all); `POST /api/sessions/revoke-all` "log out everywhere"
-- ✅ Public Merkle inclusion proofs (`GET /api/ledger/proof/:index`, PII-free) — any third party can verify a receipt against a published anchor; anchor publisher is pluggable for a real public-chain writer
-- ✅ CI: 61 automated tests incl. security, platform-hardening, observability + Postgres persistence regressions + full HTTP journey
+- ✅ Public Merkle inclusion proofs (`GET /api/ledger/proof/:index`, PII-free) — any third party can verify a receipt against a published anchor; anchor publisher is pluggable for a real public-chain writer; standalone public verifier page (`/verify.html`, client-side Web Crypto)
+- ✅ Email+password accounts (scrypt, enumeration-safe login, lockout-guarded), **TOTP 2FA** (RFC 6238, secret AES-256-GCM-encrypted at rest), password reset with full session revocation
+- ⬜ Transactional email provider (reset-token + receipt delivery — integration point ready, dev mode returns tokens)
+- ✅ CI: 68 automated tests incl. security, platform-hardening, observability + Postgres persistence regressions + full HTTP journey
 - ⬜ Independent third-party penetration test + source audit
 - ⬜ Private bug-bounty program (policy ready in `SECURITY.md`)
 - ⬜ SAST/DAST + dependency scanning in CI (zero runtime deps today keeps this small)

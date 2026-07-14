@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<title>Borderless Pay — Public Receipt Verifier</title>
+<link rel="stylesheet" href="/styles.css" />
+<style>
+  .verify-wrap { max-width: 560px; margin: 0 auto; padding: 24px 18px 60px; }
+  .verify-wrap h1 { font-size: 22px; margin: 18px 0 6px; }
+  .verify-wrap p.lead { color: var(--muted, #8b93b8); font-size: 14px; line-height: 1.5; }
+  .verify-field { margin: 14px 0; }
+  .verify-field label { display: block; font-size: 12px; color: var(--muted, #8b93b8); margin-bottom: 6px; }
+  .verify-field input { width: 100%; box-sizing: border-box; background: #0c1430; border: 1px solid #33406b; border-radius: 12px; color: inherit; padding: 13px 14px; font-size: 15px; font-family: monospace; }
+  .step { display: flex; gap: 10px; align-items: baseline; font-size: 13px; margin: 8px 0; color: var(--muted, #8b93b8); }
+  .step .ok { color: #35d49a; }
+  .step .fail { color: #ff6b6b; }
+  #result .hashrow { font-family: monospace; font-size: 11px; word-break: break-all; background: #0c1430; padding: 8px 10px; border-radius: 8px; margin: 6px 0; }
+  .verdict { border-radius: 14px; padding: 14px 16px; margin-top: 16px; font-weight: 700; }
+  .verdict.pass { background: rgba(53, 212, 154, .12); color: #35d49a; border: 1px solid rgba(53, 212, 154, .4); }
+  .verdict.fail { background: rgba(255, 107, 107, .12); color: #ff6b6b; border: 1px solid rgba(255, 107, 107, .4); }
+  .backlink { display: inline-block; margin-top: 22px; color: var(--muted, #8b93b8); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="verify-wrap">
+  <div class="brand"><div class="logo">🌍</div> Borderless Pay</div>
+  <h1>Public receipt verifier</h1>
+  <p class="lead">
+    Every Borderless Pay receipt prints a <strong>settlement block index</strong> and a
+    <strong>settlement ledger hash</strong>. Paste them below: this page fetches the Merkle
+    inclusion proof and recomputes the cryptography <strong>in your browser</strong> —
+    the server is not trusted for the math, and no login or personal data is involved.
+  </p>
+  <div class="verify-field">
+    <label for="idx">Settlement block index (from the receipt)</label>
+    <input id="idx" type="number" min="1" inputmode="numeric" placeholder="e.g. 42" />
+  </div>
+  <div class="verify-field">
+    <label for="hash">Settlement ledger hash (optional — proves the proof matches YOUR receipt)</label>
+    <input id="hash" type="text" placeholder="64-character hash from the receipt" />
+  </div>
+  <button class="btn" id="go">🔎 Verify</button>
+  <div id="steps"></div>
+  <div id="result"></div>
+  <a class="backlink" href="/">← Back to the app</a>
+</div>
+<script src="/verify.js"></script>
+</body>
+</html>

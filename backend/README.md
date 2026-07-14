@@ -13,7 +13,7 @@ hardened for production.
 
 ```bash
 node src/server.js     # http://localhost:4000  (serves API + web client)
-npm test               # 61 tests (core + security + hardening + observability + Postgres + HTTP e2e)
+npm test               # 68 tests (core + security + auth + hardening + observability + Postgres + HTTP e2e)
 ```
 
 ### Persistence backends
@@ -36,6 +36,7 @@ src/
   security.js   rate limiting, login lockout, headers, CORS, validators
   limits.js     per-txn + daily velocity limits
   kyc.js        KYC / sanctions screening (stub)
+  totp.js       TOTP 2FA (RFC 6238, zero-dep, RFC-vector tested)
   payments.js   orchestration: auth, idempotency, limits, ledger, audit
   store.js      atomic file-backed JSON store (reference persistence)
   store-pg.js   PostgreSQL persistence: snapshot + append-only ledger/audit mirrors

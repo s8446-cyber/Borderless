@@ -513,7 +513,8 @@ function screenReceipt() {
        <div class="hashrow">${esc(r.signature.slice(0, 40))}…</div>
        <div id="proof-result"></div>
        <button class="btn secondary" data-action="verify-receipt">🔎 Verify this receipt independently</button>
-       <p class="api-note">Recomputes the Merkle proof from /api/ledger/proof — no trust in this app required</p>`
+       <p class="api-note">Recomputes the Merkle proof from /api/ledger/proof — no trust in this app required.
+       <a href="/verify.html?index=${r.settlement.index}&hash=${esc(r.settlement.hash)}" target="_blank" rel="noopener">Or verify on the public explorer ↗</a></p>`
     )}
     ${primary("Done", "receipt-done")}`;
 }

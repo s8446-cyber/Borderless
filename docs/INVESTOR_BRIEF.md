@@ -23,7 +23,7 @@ hard parts first:
 - **Transparent economics** (mid-market FX, explicit fee, "FX markup: none").
 - **Bank-grade security, in code today:** triple-layer auth, AES-256-GCM at rest,
   hash-chained signed ledger + audit, rate-limiting, velocity limits, fail-closed
-  config. See [`docs/SECURITY_AUDIT.md`](./SECURITY_AUDIT.md) (61 automated tests; a
+  config. See [`docs/SECURITY_AUDIT.md`](./SECURITY_AUDIT.md) (68 automated tests; a
   real found-and-fixed audit trail).
 - **Regulation-first architecture:** an orchestration layer over a licensed sponsor
   bank / PSP — the compliant, fastest route to market. See
@@ -42,7 +42,7 @@ honest 0.5% on a sliver of cross-border flow is a large, defensible business.
 ## Status & traction signals
 - Working full-stack build: hardened API, installable web app (PWA), native
   mobile app, marketing site with a wired waitlist.
-- Internal security audit complete; CI green (61 tests).
+- Internal security audit complete; CI green (68 tests).
 - Pre-revenue; in sponsor-bank / PSP conversations.
 
 ## What we're raising for (use of funds)
