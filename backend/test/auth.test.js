@@ -59,7 +59,7 @@ async function withServer(fn) {
   }
 }
 
-const SIGNUP = { method: "POST", body: { email: "aarav@example.com", password: "correct-horse-9", fullName: "Aarav Shah", country: "IN" } };
+const SIGNUP = { method: "POST", body: { email: "aarav@example.com", password: "correct-horse-9", fullName: "Aarav Shah", country: "IN", consent: true } };
 
 // ---------- signup / login ----------
 
@@ -139,7 +139,7 @@ test("auth: TOTP setup → enable → login requires and verifies the code", asy
 
 test("auth: demo-KYC accounts cannot enable 2FA (no credentials)", async () => {
   await withServer(async ({ call }) => {
-    const r = await call("/api/kyc/verify", { method: "POST", body: { fullName: "Demo User", documentId: "P1", country: "IN" } });
+    const r = await call("/api/kyc/verify", { method: "POST", body: { fullName: "Demo User", documentId: "P1", country: "IN", consent: true } });
     const out = await call("/api/auth/2fa/setup", { method: "POST", token: r.data.token });
     assert.equal(out.status, 409);
     assert.equal(out.data.error, "no_credentials");

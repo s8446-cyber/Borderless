@@ -4,6 +4,17 @@ All notable changes to Borderless Pay. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is
 [SemVer](https://semver.org/).
 
+## [1.2.0] — Consent & data-rights architecture (DPDP Act 2023)
+
+### Added
+- **Enforced, versioned consent**: account creation (demo KYC and email+password) is refused with `consent_required` unless the user explicitly accepts the Terms of Service and Privacy Policy; accepted versions + timestamp are recorded on the user and in the tamper-evident audit chain. `GET /api/policies` exposes current versions for re-prompt detection.
+- **Policy documents in-app**: `/terms.html` and `/privacy.html` (v1.0, DPDP-structured templates marked for counsel finalization), linked from the web and mobile consent screens; mobile shows inline summaries when offline.
+- **Consent withdrawal / erasure**: `POST /api/account/close` — profile PII erased (name, email, credentials, PIN hash, bank link), all sessions/refresh tokens revoked, closure audited; transaction records retained **pseudonymously** (PMLA/RBI retention). Mobile UI: account menu → Close account (double-confirmed).
+- **Least-privilege device permissions** (`mobile/app.json`): only biometrics declared (with purpose strings); mic/storage/overlay permissions **explicitly blocked**; contacts/location/ad identifiers never collected. Policy + store-submission mapping in `docs/PRIVACY_CONSENT.md`.
+
+### Changed
+- Release smoke suite now asserts consent enforcement; suite grows to **71 tests**.
+
 ## [1.1.0] — Mobile trust parity (mobile app 1.1.0; backend unchanged)
 
 The mobile app now carries the full trust story — piece-for-piece parity with

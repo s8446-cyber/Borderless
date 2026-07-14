@@ -14,12 +14,14 @@ import {
   Alert,
   Animated,
   StyleSheet,
+  Linking,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import * as LocalAuthentication from "expo-local-authentication";
 import { C, TINTS, CORRIDORS, P2P_CURRENCIES, OPERATORS, BILL_CATEGORIES, BILLERS } from "./src/theme";
 import { fmtINR } from "./src/format";
 import { api, setSession } from "./src/api";
+import { CONFIG } from "./src/config";
 import { getDeviceId } from "./src/device";
 import { foldMerkleProof } from "./src/sha256";
 import { Brand, Card, Row, Pill, Badges, PrimaryButton, Chips, PinDots, PinPad, SectionHeader, Avatar } from "./src/ui";
@@ -125,6 +127,7 @@ export default function App() {
   const [contacts, setContacts] = useState([]);
   const [requests, setRequests] = useState([]);
   const [verifyResult, setVerifyResult] = useState(null);
+  const [consent, setConsent] = useState(false);
 
   const checkScale = useRef(new Animated.Value(0)).current;
 
@@ -134,11 +137,18 @@ export default function App() {
   const incomingRequest = requests.find((r) => r.direction === "incoming" && r.status === "pending");
 
   async function handleKyc() {
+    if (!consent) {
+      return Alert.alert("Consent needed", "Please read and accept the Terms of Service and Privacy Policy to continue.");
+    }
     setBusy(true);
     try {
       const r = await api("/api/kyc/verify", {
         method: "POST",
-        body: { fullName: name || "Aarav Shah", documentId: "P" + Date.now(), country: "IN", deviceId: await getDeviceId() },
+        body: {
+          fullName: name || "Aarav Shah", documentId: "P" + Date.now(), country: "IN",
+          deviceId: await getDeviceId(),
+          consent: { tosVersion: "1.0", privacyVersion: "1.0" },
+        },
       });
       setSession(r);
       setScreen("link");
@@ -391,11 +401,52 @@ export default function App() {
     }
   }
 
+  // Open the hosted policy document; if unreachable (standalone demo, no
+  // backend), show the key points inline so consent is still informed.
+  async function openPolicy(doc, title, summary) {
+    try {
+      const supported = await Linking.canOpenURL(CONFIG.API_BASE + "/" + doc);
+      if (!supported) throw new Error("unavailable");
+      await Linking.openURL(CONFIG.API_BASE + "/" + doc);
+    } catch {
+      Alert.alert(title + " (v1.0)", summary);
+    }
+  }
+
+  const PRIVACY_SUMMARY =
+    "We collect only what payments need: your name (and email if you create a login), a hashed device ID for session security, and transaction records. PINs/passwords are stored as scrypt hashes; sensitive fields are AES-256-GCM encrypted. No contacts, location, camera or ad data is collected. You can close your account anytime — profile data is erased; transaction records are kept pseudonymously where law requires. Full policy: privacy.html on the web app.";
+  const TERMS_SUMMARY =
+    "Demo product — no real money moves. ₹0 domestic fee; cross-border at the mid-market rate + flat 0.5% (₹2 min, ₹500 cap), always shown before you confirm. Receipts are recorded on a tamper-evident ledger. Keep your PIN and 2FA codes secret. Full terms: terms.html on the web app.";
+
   function confirmLogout() {
-    Alert.alert("Log out?", "Your session will be revoked on the server.", [
+    Alert.alert("Account", "Log out, or close your account permanently?", [
       { text: "Cancel", style: "cancel" },
-      { text: "Log out", style: "destructive", onPress: logout },
+      { text: "Log out", onPress: logout },
+      {
+        text: "Close account",
+        style: "destructive",
+        onPress: () =>
+          Alert.alert(
+            "Close your account?",
+            "Your profile data is erased immediately and every session is revoked. Transaction records are retained pseudonymously as required by law. This cannot be undone.",
+            [
+              { text: "Cancel", style: "cancel" },
+              { text: "Erase & close", style: "destructive", onPress: closeAccount },
+            ]
+          ),
+      },
     ]);
+  }
+
+  async function closeAccount() {
+    try {
+      await api("/api/account/close", { method: "POST" });
+      Alert.alert("Account closed", "Your profile data has been erased and all sessions revoked.");
+    } catch (e) {
+      Alert.alert("Could not close account", e.message);
+      return;
+    }
+    await resetLocal();
   }
 
   async function logout() {
@@ -404,6 +455,10 @@ export default function App() {
     } catch (e) {
       // best effort — local state is cleared regardless
     }
+    await resetLocal();
+  }
+
+  async function resetLocal() {
     setSession({});
     setAccount(null);
     setHistory([]);
@@ -415,6 +470,7 @@ export default function App() {
     setNewPin("");
     setPin("");
     setName("");
+    setConsent(false); // a fresh onboarding must re-consent
     setScreen("welcome");
   }
 
@@ -475,8 +531,23 @@ export default function App() {
               value={name}
               onChangeText={setName}
             />
+            <TouchableOpacity style={s.consentRow} activeOpacity={0.8} onPress={() => setConsent(!consent)}>
+              <View style={[s.consentBox, consent && s.consentBoxOn]}>
+                {consent ? <Text style={[{ color: "#04122b", fontWeight: "800", fontSize: 13 }]}>✓</Text> : null}
+              </View>
+              <Text style={s.consentTxt}>I agree to the Terms of Service and Privacy Policy (v1.0)</Text>
+            </TouchableOpacity>
+            <View style={[{ flexDirection: "row", marginLeft: 32, marginBottom: 6 }]}>
+              <TouchableOpacity onPress={() => openPolicy("terms.html", "Terms of Service", TERMS_SUMMARY)}>
+                <Text style={s.consentLink}>Read the Terms ↗</Text>
+              </TouchableOpacity>
+              <Text style={[{ color: C.muted, marginHorizontal: 6, fontSize: 12 }]}>·</Text>
+              <TouchableOpacity onPress={() => openPolicy("privacy.html", "Privacy Policy", PRIVACY_SUMMARY)}>
+                <Text style={s.consentLink}>Privacy Policy ↗</Text>
+              </TouchableOpacity>
+            </View>
             <PrimaryButton title="Verify identity (KYC) →" onPress={handleKyc} loading={busy} />
-            <Text style={s.apiNote}>Calls real POST /api/kyc/verify</Text>
+            <Text style={s.apiNote}>Calls real POST /api/kyc/verify • consent recorded & versioned</Text>
           </View>
         )}
 
@@ -988,4 +1059,9 @@ const s = StyleSheet.create({
   tileLbl: { color: C.muted, fontSize: 11, textAlign: "center" },
   person: { alignItems: "center", marginRight: 16, width: 60 },
   personName: { color: C.muted, fontSize: 12, marginTop: 6 },
+  consentRow: { flexDirection: "row", alignItems: "flex-start", marginTop: 6, marginBottom: 4 },
+  consentBox: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: "#33406b", alignItems: "center", justifyContent: "center", marginRight: 10, marginTop: 1 },
+  consentBoxOn: { backgroundColor: C.accent, borderColor: C.accent },
+  consentTxt: { color: C.muted, fontSize: 13, lineHeight: 19, flex: 1 },
+  consentLink: { color: C.accent, fontSize: 12, fontWeight: "600" },
 });

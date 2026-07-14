@@ -167,14 +167,20 @@ export async function simulate(path, { method = "GET", body = {}, idempotencyKey
   await wait(280);
 
   if (path === "/api/kyc/verify") {
+    if (!body.consent) throw new Error("Please accept the Terms of Service and Privacy Policy to continue");
     ensureGenesis();
-    db.user = { id: uid("usr_"), name: body.fullName };
+    db.user = { id: uid("usr_"), name: body.fullName, consent: { acceptedAt: Date.now(), tosVersion: body.consent.tosVersion || "1.0", privacyVersion: body.consent.privacyVersion || "1.0" } };
     return { userId: db.user.id, token: uid("tok_"), kyc: { status: "verified", level: "tier-1" } };
   }
 
   if (path === "/api/logout") {
     db = freshDb(); // demo logout = clean slate, ready to re-onboard
     return { ok: true };
+  }
+
+  if (path === "/api/account/close") {
+    db = freshDb(); // demo closure: everything local is erased
+    return { ok: true, note: "Your profile data has been erased and all sessions revoked." };
   }
 
   if (path === "/api/accounts/link") {

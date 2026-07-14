@@ -18,7 +18,7 @@ or investor can verify status against the code.
 - ✅ Public Merkle inclusion proofs (`GET /api/ledger/proof/:index`, PII-free) — any third party can verify a receipt against a published anchor; anchor publisher is pluggable for a real public-chain writer; standalone public verifier page (`/verify.html`, client-side Web Crypto)
 - ✅ Email+password accounts (scrypt, enumeration-safe login, lockout-guarded), **TOTP 2FA** (RFC 6238, secret AES-256-GCM-encrypted at rest), password reset with full session revocation
 - ⬜ Transactional email provider (reset-token + receipt delivery — integration point ready, dev mode returns tokens)
-- ✅ CI: 68 automated tests incl. security, platform-hardening, observability + Postgres persistence regressions + full HTTP journey
+- ✅ CI: 71 automated tests incl. security, platform-hardening, observability + Postgres persistence regressions + full HTTP journey
 - ⬜ Independent third-party penetration test + source audit
 - ⬜ Private bug-bounty program (policy ready in `SECURITY.md`)
 - ⬜ SAST/DAST + dependency scanning in CI (zero runtime deps today keeps this small)
@@ -33,7 +33,7 @@ or investor can verify status against the code.
 - ✅ **PostgreSQL persistence adapter** (`backend/src/store-pg.js`): state snapshots + append-only ledger/audit mirrors, exactly-once across restarts, CI-tested against Postgres 16; target schema in [`backend/db/schema.sql`](../backend/db/schema.sql)
 - ⬜ Managed India-region Postgres instance: encryption at rest, RBAC (INSERT+SELECT-only app role on mirror tables), PITR backups + tested restores
 - ⬜ **Redis** for rate-limit/lockout/session state (multi-instance correctness)
-- ⬜ Data retention + deletion (DSR) tooling per DPDP Act
+- 🟨 Data retention + deletion (DSR): consent withdrawal + PII erasure implemented (`POST /api/account/close`, pseudonymous PMLA retention); full DSR tooling (access/correction exports) pending
 - ⬜ RBI data-localisation: primary store in India
 
 ## Reliability & operations
@@ -57,7 +57,7 @@ or investor can verify status against the code.
 - 🟨 Regulatory roadmap documented ([`COMPLIANCE.md`](./COMPLIANCE.md))
 - ⬜ RBI **PA-CB** authorization (with sponsor bank); domestic PA coverage
 - ⬜ FIU-IND registration; DPDP program; PCI scope assessment
-- ⬜ Terms of Service, Privacy Policy, grievance officer (RBI requirement)
+- 🟨 Terms of Service + Privacy Policy: v1.0 templates live in-app (`/terms.html`, `/privacy.html`) with enforced, versioned, audited consent + account-closure erasure ([`PRIVACY_CONSENT.md`](./PRIVACY_CONSENT.md)); counsel finalization + named grievance officer still required
 - ⬜ SOC 2 Type II (post-launch trust signal)
 
 ## Mobile / client

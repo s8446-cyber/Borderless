@@ -30,7 +30,7 @@ async function withServer(fn) {
 test("full journey: onboard → pay → send → domestic → bills → request → verify", async () => {
   await withServer(async ({ call, setToken }) => {
     // --- KYC + session ---
-    let r = await call("/api/kyc/verify", { method: "POST", body: { fullName: "Aarav Shah", documentId: "P1", country: "IN" } });
+    let r = await call("/api/kyc/verify", { method: "POST", body: { fullName: "Aarav Shah", documentId: "P1", country: "IN", consent: true } });
     assert.equal(r.status, 200);
     assert.equal(r.data.kyc.status, "verified");
     setToken(r.data.token);

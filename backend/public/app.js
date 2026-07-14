@@ -75,6 +75,7 @@ const state = {
   screen: "welcome",
   token: null,
   name: "",
+  consent: false,
   bank: "HDFC Bank",
   newPin: "",
   pin: "",
@@ -241,8 +242,13 @@ function screenWelcome() {
     )}
     <label>Your name</label>
     <input data-model="name" value="${esc(state.name)}" placeholder="Aarav Shah" autocapitalize="words" />
+    <label class="consent-row">
+      <input type="checkbox" id="consent-box" ${state.consent ? "checked" : ""} />
+      <span>I agree to the Terms of Service and Privacy Policy (v1.0)</span>
+    </label>
+    <p class="consent-links"><a href="/terms.html" target="_blank" rel="noopener">Read the Terms ↗</a> · <a href="/privacy.html" target="_blank" rel="noopener">Read the Privacy Policy ↗</a></p>
     ${primary("Verify identity (KYC) →", "start-kyc")}
-    <p class="api-note">Calls real POST /api/kyc/verify</p>`;
+    <p class="api-note">Calls real POST /api/kyc/verify • your consent is recorded and versioned</p>`;
 }
 
 function screenLink() {
@@ -575,10 +581,15 @@ async function refresh() {
 
 // ---- flows ----
 async function handleKyc() {
+  if (!state.consent) return toast("Please accept the Terms & Privacy Policy first");
   try {
     const r = await api("/api/kyc/verify", {
       method: "POST",
-      body: { fullName: state.name || "Aarav Shah", documentId: "P" + Date.now(), country: "IN", deviceId: DEVICE_ID },
+      body: {
+        fullName: state.name || "Aarav Shah", documentId: "P" + Date.now(), country: "IN",
+        deviceId: DEVICE_ID,
+        consent: { tosVersion: "1.0", privacyVersion: "1.0" },
+      },
     });
     state.token = r.token;
     go("link");
@@ -880,6 +891,10 @@ document.addEventListener("click", (e) => {
   if (action === "pin-key") return onPinKey("pin", target.dataset.key);
   const fn = ACTIONS[action];
   if (fn) fn(arg);
+});
+
+document.addEventListener("change", (e) => {
+  if (e.target && e.target.id === "consent-box") state.consent = e.target.checked;
 });
 
 document.addEventListener("input", (e) => {

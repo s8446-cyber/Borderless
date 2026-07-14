@@ -88,7 +88,7 @@ async function withServer(fn) {
   }
 }
 
-const KYC = (extra = {}) => ({ method: "POST", body: { fullName: "Aarav Shah", documentId: "P1", country: "IN", ...extra } });
+const KYC = (extra = {}) => ({ method: "POST", body: { fullName: "Aarav Shah", documentId: "P1", country: "IN", consent: true, ...extra } });
 
 // ---------- G-3: device binding ----------
 

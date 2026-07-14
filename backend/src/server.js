@@ -56,6 +56,10 @@ const BILLERS = [
 ];
 const OPERATORS = ["Airtel", "Jio", "Vi", "BSNL"];
 
+// Current policy versions. Consent is recorded against these, so a future
+// policy change can re-prompt users whose accepted version is older.
+const POLICY_VERSIONS = { tos: "1.0", privacy: "1.0" };
+
 export function buildApp({ dbPath = DB_PATH, store: injectedStore } = {}) {
   // Persistence backend: an injected store (e.g. PgStore) wins; otherwise the
   // file-backed reference store.
@@ -82,7 +86,7 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore } = {}) {
   const metrics = new Metrics();
   const limiterFor = (path) => {
     if (/^\/api\/(payments|transfers|upi|bills|recharge)/.test(path) || /^\/api\/requests\/pay$/.test(path)) return paymentLimiter;
-    if (/^\/api\/(kyc|accounts\/link|waitlist|sessions|auth)/.test(path)) return authLimiter;
+    if (/^\/api\/(kyc|accounts\/link|waitlist|sessions|auth|account\/close)/.test(path)) return authLimiter;
     return null;
   };
 
@@ -124,13 +128,14 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore } = {}) {
     asString(body.fullName, "fullName", { max: 120 });
     asString(body.documentId, "documentId", { max: 120 });
     asString(body.country, "country", { max: 60 });
+    const consent = requireConsent(body);
     const deviceId = asString(body.deviceId, "deviceId", { required: false, max: 200 });
     const deviceHash = deviceId ? sha256(deviceId) : null;
     const kyc = runKyc(body);
     const userId = "usr_" + randomUUID();
-    store.data.users[userId] = { id: userId, name: body.fullName, country: body.country, kyc };
+    store.data.users[userId] = { id: userId, name: body.fullName, country: body.country, kyc, consent };
     const { token, refreshToken } = issueSession(userId, deviceHash);
-    audit.append("user_created", { userId, country: body.country, kycStatus: kyc.status, deviceBound: Boolean(deviceHash) });
+    audit.append("user_created", { userId, country: body.country, kycStatus: kyc.status, deviceBound: Boolean(deviceHash), consent: { tosVersion: consent.tosVersion, privacyVersion: consent.privacyVersion } });
     persist();
     return { userId, token, refreshToken, kyc };
   });
@@ -151,6 +156,25 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore } = {}) {
     return null;
   }
 
+  // Explicit, versioned user consent (DPDP Act 2023). Account creation is
+  // refused without it, and what was accepted (and when) is recorded on the
+  // user and in the tamper-evident audit log.
+  function requireConsent(body) {
+    const c = body.consent;
+    if (!c) throw new ApiError(400, "consent_required", "You must accept the Terms of Service and Privacy Policy to continue");
+    return {
+      acceptedAt: Date.now(),
+      tosVersion: (c && c.tosVersion) || POLICY_VERSIONS.tos,
+      privacyVersion: (c && c.privacyVersion) || POLICY_VERSIONS.privacy,
+    };
+  }
+
+  // Current policy versions + where the documents live (clients link these).
+  add("GET", /^\/api\/policies$/, async () => ({
+    versions: POLICY_VERSIONS,
+    documents: { terms: "/terms.html", privacy: "/privacy.html" },
+  }));
+
   // ---- Email + password authentication (production path) ----
   // The demo KYC flow above stays for testers; these routes add real account
   // security: scrypt-hashed passwords, lockout-guarded login, optional TOTP
@@ -161,16 +185,41 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore } = {}) {
     const password = asPassword(body.password);
     asString(body.fullName, "fullName", { max: 120 });
     const country = asString(body.country, "country", { required: false, max: 60 }) || "IN";
+    const consent = requireConsent(body);
     if (store.data.credentials[email]) throw new ApiError(409, "email_taken", "An account with this email already exists");
     const kyc = runKyc({ fullName: body.fullName, documentId: "email:" + email, country });
     const userId = "usr_" + randomUUID();
-    store.data.users[userId] = { id: userId, name: body.fullName, email, country, kyc };
+    store.data.users[userId] = { id: userId, name: body.fullName, email, country, kyc, consent };
     store.data.credentials[email] = { userId, passHash: hashPin(password), totpSecretEnc: null, totpEnabled: false, createdAt: Date.now() };
     const deviceId = asString(body.deviceId, "deviceId", { required: false, max: 200 });
     const issued = issueSession(userId, deviceId ? sha256(deviceId) : null);
-    audit.append("user_signed_up", { userId, domain: email.split("@")[1], kycStatus: kyc.status });
+    audit.append("user_signed_up", { userId, domain: email.split("@")[1], kycStatus: kyc.status, consent: { tosVersion: consent.tosVersion, privacyVersion: consent.privacyVersion } });
     persist();
     return { userId, ...issued, kyc };
+  });
+
+  // Account closure (DPDP data-principal rights: consent withdrawal + erasure).
+  // Profile PII is erased and every session revoked. Transaction records are
+  // retained PSEUDONYMOUSLY (userId only) — PMLA/RBI record-retention rules
+  // require it, and the hash-chained ledger cannot be rewritten by design.
+  add("POST", /^\/api\/account\/close$/, async (req) => {
+    const userId = requireAuth(req, store);
+    const found = credentialsByUser(userId);
+    if (found) delete store.data.credentials[found.email];
+    delete store.data.pins[userId];
+    delete store.data.accounts[userId];
+    for (const [id, r] of Object.entries(store.data.requests || {})) {
+      if (r.userId === userId) delete store.data.requests[id];
+    }
+    // keep a pseudonymous shell so ledger references stay resolvable
+    store.data.users[userId] = { id: userId, closed: true, closedAt: Date.now() };
+    const revoked = revokeAllForUser(userId);
+    audit.append("account_closed", { userId, revoked });
+    persist();
+    return {
+      ok: true,
+      note: "Your profile data has been erased and all sessions revoked. Pseudonymous transaction records are retained as required by law (PMLA/RBI record retention).",
+    };
   });
 
   add("POST", /^\/api\/auth\/login$/, async (req, body) => {
