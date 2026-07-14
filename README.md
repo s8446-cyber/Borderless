@@ -61,6 +61,8 @@ Run through these to exercise every feature. Each payment asks for the **PIN you
   - **Send abroad** — pick the recipient's currency + an INR amount, see exactly what they receive, PIN.
 - **Trust features:**
   - On any receipt, note the **settlement ledger hash**, **public anchor**, and **HMAC signature**.
+  - On the receipt, tap **🔎 Verify this receipt independently** — the app recomputes the Merkle proof client-side.
+  - Open **`/verify.html`** (the public verifier) — paste any receipt's block index + hash and verify it **without logging in**.
   - Tap **Verify** (home screen) → confirms the ledger is intact and tamper-free.
 - **Security checks worth trying:** enter a **wrong PIN** (it's rejected; 5 wrong tries locks the account for a while); your balance only ever decreases by the exact amount shown.
 
