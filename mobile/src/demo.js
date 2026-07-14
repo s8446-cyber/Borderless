@@ -1,5 +1,11 @@
 // Standalone simulator that mirrors the Borderless Pay backend so the mobile
-// app works with no server. Mirrors src/fx.js, payments.js and ledger.js logic.
+// app works with no server. Mirrors src/fx.js, payments.js and ledger.js —
+// including a REAL SHA-256 hash-chained ledger with per-block Merkle anchors,
+// so the in-app "verify this receipt" cryptography is genuine even offline.
+// Also mirrors the backend's security behaviors: wrong-PIN lockout (5 fails)
+// and 60-second single-use quotes.
+import { sha256 } from "./sha256";
+
 const RATES = { AED: 23.2, SGD: 64.1, EUR: 90.4, NPR: 0.625, USD: 83.4, GBP: 105.7 };
 
 // Domestic (India) directories for the UPI-style flows.
@@ -19,71 +25,111 @@ const BILLERS = [
 ];
 const OPERATORS = ["Airtel", "Jio", "Vi", "BSNL"];
 
-const db = {
-  user: null,
-  account: null,
-  pin: null,
-  payments: [],
-  requests: {},
-  quotes: {},
-  idem: {},
-  blocks: 1, // genesis
-  anchors: 0,
-};
+const LOCK_AFTER_FAILS = 5;
+const LOCK_MS = 60_000; // shorter than prod (15 min) so demos recover quickly
+const QUOTE_TTL_MS = 60_000;
+
+function freshDb() {
+  return {
+    user: null,
+    account: null,
+    pin: null,
+    payments: [],
+    requests: {},
+    quotes: {},
+    idem: {},
+    chain: [],   // real hash-chained blocks (genesis at index 0)
+    anchors: [], // per-block Merkle anchors (anchorEvery = 1, like the backend default)
+    pinFails: 0,
+    lockUntil: 0,
+  };
+}
+let db = freshDb();
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 const round2 = (n) => Math.round(n * 100) / 100;
 const uid = (p) => p + Math.random().toString(36).slice(2, 12);
 
-// Deterministic 64-hex pseudo-hash (FNV-1a expanded) — for demo display only.
-function hx(seed) {
-  let h = 0x811c9dc5 >>> 0;
-  const s = String(seed);
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  let out = "";
-  let x = h;
-  for (let i = 0; i < 8; i++) {
-    x = Math.imul(x ^ (x >>> 15), 0x2c1b3c6d) >>> 0;
-    out += ("00000000" + x.toString(16)).slice(-8);
-  }
-  return out.slice(0, 64);
+// ---- real hash-chained ledger (mirrors backend ledger.js exactly) ----
+function hashBlock(b) {
+  return sha256(`${b.index}|${b.timestamp}|${JSON.stringify(b.txn)}|${b.prevHash}`);
 }
 
-// Shared domestic (UPI-style) payment: INR -> INR, instant, zero fee.
-function domesticPay(body, idempotencyKey, kind, payee) {
-  if (idempotencyKey && db.idem[idempotencyKey])
-    return { replayed: true, receipt: db.idem[idempotencyKey] };
-  if (String(body.pin) !== db.pin) throw new Error("Incorrect PIN");
-  const amount = round2(Number(body.amount));
-  if (!(amount > 0)) throw new Error("Enter a valid amount");
-  if (db.account.balance < amount) throw new Error("Insufficient funds");
+function ensureGenesis() {
+  if (db.chain.length) return;
+  const g = { index: 0, timestamp: 0, txn: { type: "genesis" }, prevHash: "0".repeat(64) };
+  g.hash = hashBlock(g);
+  db.chain.push(g);
+}
 
-  db.account.balance = round2(db.account.balance - amount);
-  db.account.balanceMinor = Math.round(db.account.balance * 100);
+// Append a settlement block and publish its anchor (one block per anchor —
+// same as the backend's default anchorEvery=1, so the Merkle path is empty
+// and the root equals the block hash; verification is still the real fold).
+function appendBlock(txn) {
+  ensureGenesis();
+  const prev = db.chain[db.chain.length - 1];
+  const block = { index: prev.index + 1, timestamp: Date.now(), txn, prevHash: prev.hash };
+  block.hash = hashBlock(block);
+  db.chain.push(block);
+  const anchor = {
+    anchorId: "anc_" + db.anchors.length,
+    fromIndex: block.index,
+    toIndex: block.index,
+    merkleRoot: block.hash, // single-leaf Merkle tree
+    publishedAt: Date.now(),
+    publicTxHash: "0x" + sha256("anchor" + block.index + block.index + Date.now()).slice(0, 40),
+  };
+  db.anchors.push(anchor);
+  return { block, anchor };
+}
 
-  const paymentId = uid("pay_");
-  db.blocks += 1;
-  db.anchors += 1;
+function verifyChain() {
+  ensureGenesis();
+  for (let i = 1; i < db.chain.length; i++) {
+    const b = db.chain[i];
+    if (b.prevHash !== db.chain[i - 1].hash) return { ok: false, reason: "broken link at block " + i };
+    if (b.hash !== hashBlock(b)) return { ok: false, reason: "tampered block " + i };
+  }
+  return { ok: true, blocks: db.chain.length, anchors: db.anchors.length };
+}
+
+// ---- security behaviors (parity with backend LoginGuard) ----
+function checkPin(pin) {
+  const now = Date.now();
+  if (db.lockUntil > now) {
+    throw new Error("Too many failed attempts. Try again in " + Math.ceil((db.lockUntil - now) / 1000) + "s");
+  }
+  if (String(pin) !== db.pin) {
+    db.pinFails += 1;
+    if (db.pinFails >= LOCK_AFTER_FAILS) {
+      db.lockUntil = now + LOCK_MS;
+      db.pinFails = 0;
+      throw new Error("Too many failed attempts. Account locked for " + LOCK_MS / 1000 + "s");
+    }
+    throw new Error("Incorrect PIN");
+  }
+  db.pinFails = 0;
+  db.lockUntil = 0;
+}
+
+function takeQuote(quoteId, kind) {
+  const q = db.quotes[quoteId];
+  if (!q || Date.now() > q.expiresAt || (kind && q.kind !== kind)) {
+    delete db.quotes[quoteId];
+    throw new Error("Quote expired — please re-quote");
+  }
+  delete db.quotes[quoteId]; // single-use, like the backend
+  return q;
+}
+
+function settle(receiptBase, txn, idempotencyKey) {
+  const { block, anchor } = appendBlock(txn);
   const receipt = {
-    paymentId,
-    kind,
-    domestic: true,
-    status: "settled",
-    payee,
-    currency: "INR",
-    localAmount: amount,
-    rate: 1,
-    amount,
-    fee: 0,
-    total: amount,
-    reference: "BP-" + paymentId.slice(4, 10).toUpperCase(),
-    settlement: { index: db.blocks - 1, hash: hx(paymentId) },
-    anchor: { merkleRoot: hx("mr" + paymentId), publicTxHash: "0x" + hx("anc" + paymentId).slice(0, 40) },
-    signature: hx("sig" + paymentId),
+    ...receiptBase,
+    settlement: { index: block.index, hash: block.hash },
+    anchor: { merkleRoot: anchor.merkleRoot, publicTxHash: anchor.publicTxHash },
+    signature: sha256("sig|" + receiptBase.paymentId + "|" + block.hash), // display-only (HMAC needs the server key)
     balanceAfterMinor: db.account.balanceMinor,
     settledAt: Date.now(),
   };
@@ -92,12 +138,43 @@ function domesticPay(body, idempotencyKey, kind, payee) {
   return { replayed: false, receipt };
 }
 
+// Shared domestic (UPI-style) payment: INR -> INR, instant, zero fee.
+function domesticPay(body, idempotencyKey, kind, payee) {
+  if (idempotencyKey && db.idem[idempotencyKey])
+    return { replayed: true, receipt: db.idem[idempotencyKey] };
+  checkPin(body.pin);
+  const amount = round2(Number(body.amount));
+  if (!(amount > 0)) throw new Error("Enter a valid amount");
+  if (db.account.balance < amount) throw new Error("Insufficient funds");
+
+  db.account.balance = round2(db.account.balance - amount);
+  db.account.balanceMinor = Math.round(db.account.balance * 100);
+
+  const paymentId = uid("pay_");
+  return settle(
+    {
+      paymentId, kind, domestic: true, status: "settled", payee,
+      currency: "INR", localAmount: amount, rate: 1,
+      amount, fee: 0, total: amount,
+      reference: "BP-" + paymentId.slice(4, 10).toUpperCase(),
+    },
+    { type: "domestic_payment", paymentId, kind, payee, amountMinor: Math.round(amount * 100) },
+    idempotencyKey
+  );
+}
+
 export async function simulate(path, { method = "GET", body = {}, idempotencyKey } = {}) {
   await wait(280);
 
   if (path === "/api/kyc/verify") {
+    ensureGenesis();
     db.user = { id: uid("usr_"), name: body.fullName };
     return { userId: db.user.id, token: uid("tok_"), kyc: { status: "verified", level: "tier-1" } };
+  }
+
+  if (path === "/api/logout") {
+    db = freshDb(); // demo logout = clean slate, ready to re-onboard
+    return { ok: true };
   }
 
   if (path === "/api/accounts/link") {
@@ -135,7 +212,7 @@ export async function simulate(path, { method = "GET", body = {}, idempotencyKey
       fee,
       total,
       fxMarkupMinor: 0,
-      expiresAt: Date.now() + 60000,
+      expiresAt: Date.now() + QUOTE_TTL_MS,
     };
     db.quotes[q.quoteId] = q;
     return q;
@@ -144,38 +221,25 @@ export async function simulate(path, { method = "GET", body = {}, idempotencyKey
   if (path === "/api/payments" && method === "POST") {
     if (idempotencyKey && db.idem[idempotencyKey])
       return { replayed: true, receipt: db.idem[idempotencyKey] };
-    if (String(body.pin) !== db.pin) throw new Error("Incorrect PIN");
-    const q = db.quotes[body.quoteId];
-    if (!q) throw new Error("Quote expired — please re-quote");
+    checkPin(body.pin);
+    const q = takeQuote(body.quoteId);
     if (db.account.balance < q.total) throw new Error("Insufficient funds");
 
     db.account.balance = round2(db.account.balance - q.total);
     db.account.balanceMinor = Math.round(db.account.balance * 100);
 
     const paymentId = uid("pay_");
-    db.blocks += 1;
-    db.anchors += 1;
-    const receipt = {
-      paymentId,
-      kind: "payment",
-      status: "settled",
-      merchant: body.merchant || { name: "Merchant", country: q.currency },
-      currency: q.currency,
-      localAmount: q.localAmount,
-      rate: q.rate,
-      amount: q.amount,
-      fee: q.fee,
-      total: q.total,
-      reference: "BP-" + paymentId.slice(4, 10).toUpperCase(),
-      settlement: { index: db.blocks - 1, hash: hx(paymentId) },
-      anchor: { merkleRoot: hx("mr" + paymentId), publicTxHash: "0x" + hx("anc" + paymentId).slice(0, 40) },
-      signature: hx("sig" + paymentId),
-      balanceAfterMinor: db.account.balanceMinor,
-      settledAt: Date.now(),
-    };
-    db.payments.unshift(receipt);
-    if (idempotencyKey) db.idem[idempotencyKey] = receipt;
-    return { replayed: false, receipt };
+    return settle(
+      {
+        paymentId, kind: "payment", status: "settled",
+        merchant: body.merchant || { name: "Merchant", country: q.currency },
+        currency: q.currency, localAmount: q.localAmount, rate: q.rate,
+        amount: q.amount, fee: q.fee, total: q.total,
+        reference: "BP-" + paymentId.slice(4, 10).toUpperCase(),
+      },
+      { type: "settlement", paymentId, currency: q.currency, totalMinor: Math.round(q.total * 100) },
+      idempotencyKey
+    );
   }
 
   if (path === "/api/payments" && method === "GET") {
@@ -199,7 +263,7 @@ export async function simulate(path, { method = "GET", body = {}, idempotencyKey
       fee,
       total,
       fxMarkupMinor: 0,
-      expiresAt: Date.now() + 60000,
+      expiresAt: Date.now() + QUOTE_TTL_MS,
     };
     db.quotes[q.quoteId] = q;
     return q;
@@ -208,40 +272,26 @@ export async function simulate(path, { method = "GET", body = {}, idempotencyKey
   if (path === "/api/transfers" && method === "POST") {
     if (idempotencyKey && db.idem[idempotencyKey])
       return { replayed: true, receipt: db.idem[idempotencyKey] };
-    if (String(body.pin) !== db.pin) throw new Error("Incorrect PIN");
-    const q = db.quotes[body.quoteId];
-    if (!q || q.kind !== "p2p") throw new Error("Quote expired — please re-quote");
+    checkPin(body.pin);
+    const q = takeQuote(body.quoteId, "p2p");
     if (db.account.balance < q.total) throw new Error("Insufficient funds");
 
     db.account.balance = round2(db.account.balance - q.total);
     db.account.balanceMinor = Math.round(db.account.balance * 100);
 
     const paymentId = uid("pay_");
-    db.blocks += 1;
-    db.anchors += 1;
     const recipient = body.recipient && body.recipient.name ? body.recipient : { name: "Recipient", country: q.recipientCurrency };
-    const receipt = {
-      paymentId,
-      kind: "p2p",
-      status: "settled",
-      recipient,
-      currency: q.recipientCurrency,
-      recipientAmount: q.recipientAmount,
-      localAmount: q.recipientAmount,
-      rate: q.rate,
-      amount: q.sendAmount,
-      fee: q.fee,
-      total: q.total,
-      reference: "BP-" + paymentId.slice(4, 10).toUpperCase(),
-      settlement: { index: db.blocks - 1, hash: hx(paymentId) },
-      anchor: { merkleRoot: hx("mr" + paymentId), publicTxHash: "0x" + hx("anc" + paymentId).slice(0, 40) },
-      signature: hx("sig" + paymentId),
-      balanceAfterMinor: db.account.balanceMinor,
-      settledAt: Date.now(),
-    };
-    db.payments.unshift(receipt);
-    if (idempotencyKey) db.idem[idempotencyKey] = receipt;
-    return { replayed: false, receipt };
+    return settle(
+      {
+        paymentId, kind: "p2p", status: "settled", recipient,
+        currency: q.recipientCurrency, recipientAmount: q.recipientAmount,
+        localAmount: q.recipientAmount, rate: q.rate,
+        amount: q.sendAmount, fee: q.fee, total: q.total,
+        reference: "BP-" + paymentId.slice(4, 10).toUpperCase(),
+      },
+      { type: "p2p_transfer", paymentId, recipientCurrency: q.recipientCurrency, totalMinor: Math.round(q.total * 100) },
+      idempotencyKey
+    );
   }
 
   // ---- Domestic (UPI-style) endpoints ----
@@ -269,7 +319,10 @@ export async function simulate(path, { method = "GET", body = {}, idempotencyKey
   if (path === "/api/requests/pay" && method === "POST") {
     const r = db.requests[body.requestId];
     if (!r) throw new Error("Request not found");
-    if (r.status === "paid") return { replayed: true, receipt: db.idem[r.paymentId] || db.payments[0] };
+    if (r.status === "paid") {
+      const prev = db.payments.find((p) => p.paymentId === r.paymentId);
+      return { replayed: true, receipt: prev || db.payments[0] };
+    }
     const out = domesticPay({ pin: body.pin, amount: r.amount }, idempotencyKey, "request", { type: "request", name: r.fromName });
     r.status = "paid";
     r.paymentId = out.receipt.paymentId;
@@ -279,8 +332,26 @@ export async function simulate(path, { method = "GET", body = {}, idempotencyKey
   if (path === "/api/billers") return { billers: BILLERS };
   if (path === "/api/operators") return { operators: OPERATORS };
 
-  if (path === "/api/ledger/verify") return { ok: true, blocks: db.blocks, anchors: db.anchors };
-  if (path === "/api/ledger") return { blocks: db.blocks, anchors: db.anchors };
+  // ---- trust endpoints: REAL verification math, same as the backend ----
+  if (path === "/api/ledger/verify") return verifyChain();
+  if (path === "/api/ledger") {
+    ensureGenesis();
+    const head = db.chain[db.chain.length - 1];
+    return { blocks: db.chain.length, anchors: db.anchors.length, head: { index: head.index, hash: head.hash } };
+  }
+  if (path.startsWith("/api/ledger/proof/")) {
+    ensureGenesis();
+    const index = Number(path.split("/").pop());
+    const block = db.chain[index];
+    const anchor = db.anchors.find((a) => a.fromIndex <= index && index <= a.toIndex);
+    if (!block || index === 0 || !anchor) throw new Error("Block not found or not anchored yet");
+    return {
+      blockIndex: index,
+      blockHash: block.hash,
+      path: [], // single-leaf anchors → empty sibling path (root === block hash)
+      anchor: { anchorId: anchor.anchorId, merkleRoot: anchor.merkleRoot, publicTxHash: anchor.publicTxHash, publishedAt: anchor.publishedAt },
+    };
+  }
 
   throw new Error("Unknown endpoint " + path);
 }

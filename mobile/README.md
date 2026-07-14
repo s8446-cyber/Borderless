@@ -4,6 +4,13 @@ The native **Android + iOS** app for Borderless Pay: pay at home and abroad
 straight from your bank at the real mid-market rate with a flat 0.5% fee,
 secured by biometrics + PIN and a cryptographic dual ledger.
 
+**Trust features on-device:** every receipt carries a settlement-ledger hash and
+public anchor, and the **🔎 Verify this receipt independently** button recomputes
+the Merkle inclusion proof with **on-device SHA-256** — genuine cryptography in
+both demo mode (the built-in simulator keeps a real hash chain) and real-backend
+mode. Wrong-PIN lockout (5 attempts), single-use 60-second quotes, idempotent
+payments, and server-side logout all behave the same in demo and real mode.
+
 > ## ⚡ Seeing the red _"Unable to load script" / "Could not connect to development server"_ screen?
 >
 > That's a **debug** build trying to download JavaScript from **Metro** (`localhost:8081`).

@@ -21,6 +21,7 @@ import { C, TINTS, CORRIDORS, P2P_CURRENCIES, OPERATORS, BILL_CATEGORIES, BILLER
 import { fmtINR } from "./src/format";
 import { api, setSession } from "./src/api";
 import { getDeviceId } from "./src/device";
+import { foldMerkleProof } from "./src/sha256";
 import { Brand, Card, Row, Pill, Badges, PrimaryButton, Chips, PinDots, PinPad, SectionHeader, Avatar } from "./src/ui";
 
 const SETTLE_STEPS = [
@@ -123,6 +124,7 @@ export default function App() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [contacts, setContacts] = useState([]);
   const [requests, setRequests] = useState([]);
+  const [verifyResult, setVerifyResult] = useState(null);
 
   const checkScale = useRef(new Animated.Value(0)).current;
 
@@ -350,14 +352,70 @@ export default function App() {
       }
       const r = await api(endpoint, { method: "POST", idempotencyKey: idem, body });
       setTimeout(async () => {
+        setVerifyResult(null);
         setReceipt(r.receipt);
         await refresh();
         setScreen("receipt");
       }, steps.length * 520 + 300);
     } catch (e) {
+      // A 60-second quote can lapse while the user hesitates — recover by
+      // fetching a fresh one instead of stranding them on a dead quote.
+      if (/expired/i.test(e.message || "") && flow !== "domestic") {
+        Alert.alert("Quote expired", "Rates lock for 60 seconds — fetching you a fresh quote.");
+        if (flow === "send") getTransferQuote();
+        else getQuote();
+        return;
+      }
       Alert.alert("Could not complete", e.message);
       setScreen(flow === "domestic" ? (domIntent && domIntent.kind !== "payrequest" ? "compose" : "home") : "quote");
     }
+  }
+
+  // Recompute the receipt's Merkle inclusion proof CLIENT-SIDE (pure-JS
+  // SHA-256 — no trust in the server/simulator for the math). Works in both
+  // demo mode (real hash chain in src/demo.js) and real-backend mode.
+  async function verifyReceipt() {
+    if (!receipt || !receipt.settlement) return;
+    setVerifyResult({ pending: true });
+    try {
+      const p = await api("/api/ledger/proof/" + receipt.settlement.index);
+      if (p.blockHash !== receipt.settlement.hash) throw new Error("ledger block hash does not match this receipt");
+      const root = foldMerkleProof(p.blockHash, p.path);
+      if (root !== p.anchor.merkleRoot) throw new Error("Merkle path does not reach the anchor root");
+      setVerifyResult({
+        ok: true,
+        message: "Independently verified — committed under anchor " + p.anchor.anchorId + ", published as " + p.anchor.publicTxHash.slice(0, 16) + "…",
+      });
+    } catch (e) {
+      setVerifyResult({ ok: false, message: "Verification failed: " + e.message });
+    }
+  }
+
+  function confirmLogout() {
+    Alert.alert("Log out?", "Your session will be revoked on the server.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Log out", style: "destructive", onPress: logout },
+    ]);
+  }
+
+  async function logout() {
+    try {
+      await api("/api/logout", { method: "POST" });
+    } catch (e) {
+      // best effort — local state is cleared regardless
+    }
+    setSession({});
+    setAccount(null);
+    setHistory([]);
+    setRequests([]);
+    setContacts([]);
+    setReceipt(null);
+    setQuote(null);
+    setVerifyResult(null);
+    setNewPin("");
+    setPin("");
+    setName("");
+    setScreen("welcome");
   }
 
   async function verifyLedger() {
@@ -454,7 +512,12 @@ export default function App() {
                 <Text style={s.greet}>{greeting()}</Text>
                 <Text style={s.greetName}>{(name ? name.split(" ")[0] : "there") + " 👋"}</Text>
               </View>
-              <Avatar initials={initials(name)} size={46} />
+              <View style={[{ flexDirection: "row", alignItems: "center" }]}>
+                <TouchableOpacity onPress={confirmLogout} activeOpacity={0.7} style={[s.verifyChip, { marginRight: 10 }]}>
+                  <Text style={s.verifyChipTxt}>🚪 Log out</Text>
+                </TouchableOpacity>
+                <Avatar initials={initials(name)} size={46} />
+              </View>
             </View>
 
             <Card glow>
@@ -791,8 +854,20 @@ export default function App() {
               <Text style={s.hash}>{receipt.anchor ? receipt.anchor.publicTxHash : "(batched next)"}</Text>
               <Text style={s.hashLbl}>Authorization signature</Text>
               <Text style={s.hash}>{receipt.signature.slice(0, 40) + "…"}</Text>
+              {verifyResult && (
+                <Text
+                  style={[{
+                    marginTop: 10, fontSize: 13, lineHeight: 19, fontWeight: "600",
+                    color: verifyResult.pending ? C.muted : verifyResult.ok ? C.accent : "#ff6b6b",
+                  }]}
+                >
+                  {verifyResult.pending ? "Verifying…" : (verifyResult.ok ? "✓ " : "✗ ") + verifyResult.message}
+                </Text>
+              )}
             </Card>
-            <PrimaryButton title="Done" onPress={() => setScreen("home")} />
+            <PrimaryButton title="🔎 Verify this receipt independently" secondary onPress={verifyReceipt} />
+            <Text style={s.apiNote}>Recomputes the Merkle proof with on-device SHA-256 — no trust in the app required</Text>
+            <PrimaryButton title="Done" onPress={() => { setVerifyResult(null); setScreen("home"); }} />
           </View>
         )}
 

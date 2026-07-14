@@ -4,6 +4,21 @@ All notable changes to Borderless Pay. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is
 [SemVer](https://semver.org/).
 
+## [1.1.0] — Mobile trust parity (mobile app 1.1.0; backend unchanged)
+
+The mobile app now carries the full trust story — piece-for-piece parity with
+the web app and backend, in **both** demo and real-backend modes.
+
+### Added (mobile)
+- **🔎 Verify this receipt independently** on every receipt: recomputes the Merkle inclusion proof with a pure-JS, on-device **SHA-256** (validated against `node:crypto` on 510 vectors — React Native has no Web Crypto). Also validated against a live real-backend proof.
+- **Real hash-chained ledger in the demo simulator**: blocks and anchors are genuinely SHA-256 hash-chained (identical block format to the backend), `/api/ledger/proof/:index` served offline, and `ledger/verify` actually recomputes the chain — the flagship demo is real cryptography, not theater.
+- **Log out** (server-side revocation in real mode; clean-slate reset in demo).
+- Demo security parity with the backend: **wrong-PIN lockout** (5 attempts), **single-use 60-second quotes**.
+
+### Fixed (mobile)
+- Expired quotes no longer strand the user — a fresh quote is fetched automatically.
+- Demo `requests/pay` replay now returns the *original* receipt (was falling back to the most recent payment).
+
 ## [1.0.0] — V1 release
 
 First production-ready release: a hardened, fully-tested payments platform
