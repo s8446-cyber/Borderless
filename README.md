@@ -53,7 +53,7 @@ Run through these to exercise every feature. Each payment asks for the **PIN you
 
 - **Domestic (₹0 fee, instant):**
   - **To phone / To UPI ID / To bank** — enter any details + an amount → PIN → see the receipt.
-  - **Scan QR** — simulates scanning a merchant (Cafe Coffee Day) → enter an amount → PIN.
+  - **Scan QR** — **real camera scanning of any UPI QR** (`upi://pay…`): on a phone the mobile app asks for camera access in-context and auto-fills payee + amount; the web app scans with the camera in Chrome/Edge (BarcodeDetector). A **demo QR** button (Cafe Coffee Day) works everywhere — emulators, denied camera, unsupported browsers.
   - **Recharge** and **Pay bills** (Electricity / DTH / etc.) — pick a biller/operator + amount → PIN.
   - **Request money** — create a request; also a sample **incoming request (Rohan, ₹450)** is waiting on the home screen — tap **Pay** to clear it.
 - **International (0.5% fee, no FX markup):**
@@ -69,7 +69,7 @@ Run through these to exercise every feature. Each payment asks for the **PIN you
 ### Run the automated test suite
 ```bash
 cd backend
-npm test             # 71 tests: unit + security + auth + consent + hardening + observability + Postgres + full HTTP e2e
+npm test             # 75 tests: unit + security + auth + consent + UPI-QR + hardening + observability + Postgres + full HTTP e2e
 ```
 All 43 should pass. This is the strongest proof the wiring is correct.
 
@@ -159,7 +159,7 @@ Same FX math, fee policy, and dual-ledger logic across every client.
 Security and regulatory trust are first-class here. Key documents:
 
 - **[Security policy / responsible disclosure](./SECURITY.md)** — how to report a vulnerability.
-- **[Internal security audit report](./docs/SECURITY_AUDIT.md)** — STRIDE threat model, controls, and found-and-fixed findings (CI: 71 tests).
+- **[Internal security audit report](./docs/SECURITY_AUDIT.md)** — STRIDE threat model, controls, and found-and-fixed findings (CI: 75 tests).
 - **[Engineering threat model & controls](./backend/SECURITY.md)** — the in-code defenses.
 - **[Regulatory & compliance roadmap](./docs/COMPLIANCE.md)** — RBI PA-CB, FEMA/LRS, sponsor bank, FIU-IND/PMLA, DPDP Act 2023, PCI scope.
 - **[Production readiness checklist](./docs/PRODUCTION_READINESS.md)** — done vs. required before real-money launch.

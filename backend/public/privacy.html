@@ -40,7 +40,7 @@
     <tr><td>Transaction records (amount, payee you enter, timestamps)</td><td>Executing payments; tamper-evident receipts; legal record-keeping</td><td>Contract performance; statutory retention (PMLA/RBI when live)</td></tr>
     <tr><td>Bank account reference (masked; full reference encrypted)</td><td>Linking your bank account</td><td>Your consent; AES-256-GCM field encryption at rest</td></tr>
   </table>
-  <p><strong>We do not collect:</strong> your contacts, location, microphone, camera media, advertising identifiers, or any data unrelated to payments. We do not sell or share personal data for advertising. Device permissions are requested only when a feature genuinely needs them, at the moment of use.</p>
+  <p><strong>Camera:</strong> used only while you scan a payment QR, with your permission asked at that moment; the QR is decoded on your device and no photo or video is ever captured, stored, or uploaded. <strong>We do not collect:</strong> your contacts, location, microphone audio, photos, advertising identifiers, or any data unrelated to payments. We do not sell or share personal data for advertising. Device permissions are requested only when a feature genuinely needs them, at the moment of use.</p>
 
   <h2>3. How we protect it</h2>
   <p>Field-level AES-256-GCM encryption at rest, scrypt hashing for secrets, TLS in transit, tamper-evident hash-chained ledgers, device-bound sessions, and strict access controls. Our security posture is documented publicly in the project's security documentation.</p>

@@ -38,13 +38,13 @@ Companion docs: [`COMPLIANCE.md`](./COMPLIANCE.md), [`PRODUCTION_READINESS.md`](
 |---|---|---|---|
 | iOS | Face ID (`NSFaceIDUsageDescription`) | Unlock + payment authorization | ✅ declared with purpose string |
 | Android | `USE_BIOMETRIC`, `USE_FINGERPRINT` | Same | ✅ explicitly listed |
-| Android | `RECORD_AUDIO`, `READ/WRITE_EXTERNAL_STORAGE`, `SYSTEM_ALERT_WINDOW` | Not used | 🚫 **explicitly blocked** (`blockedPermissions`) so no library can sneak them in |
+| Both | **Camera** (`expo-camera` plugin, purpose string set) | **Scanning UPI payment QRs only** — asked in-context with a priming card; decode happens on-device; nothing captured, stored, or uploaded; denied → manual UPI-ID entry + demo QR still work | ✅ implemented with the full allow/deny flow |
+| Android | `RECORD_AUDIO`, `READ/WRITE_EXTERNAL_STORAGE`, `SYSTEM_ALERT_WINDOW` | Not used (camera is configured **without** audio) | 🚫 **explicitly blocked** (`blockedPermissions`) so no library can sneak them in |
 | Both | Contacts, location, ad identifiers | Not used, not collected | 🚫 never declared |
 
 ### Future features → the permission they'll add (ask-in-context copy ready)
 | Feature | Permission | In-context prompt (draft) |
 |---|---|---|
-| Real QR scanning | Camera | "Borderless Pay needs the camera only while you scan a payment QR. Photos are never stored." |
 | Pay-your-contacts | Contacts (read) | "Choose a contact to pay. We match numbers on your device — your contact list is never uploaded." (on-device matching or hashed-lookup design REQUIRED before this ships) |
 | Payment alerts | Notifications | "Get instant receipts and security alerts." (optional; app fully works without) |
 

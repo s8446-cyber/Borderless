@@ -91,6 +91,7 @@ const state = {
   domIntent: null,
   form: { ...EMPTY_FORM },
   scanning: false,
+  camActive: false,
 };
 
 // ---- helpers ----
@@ -137,6 +138,7 @@ function toast(msg) {
 }
 
 function go(screen) {
+  if (screen !== "scanDom") stopCam(); // never leave the camera running off-screen
   state.screen = screen;
   render();
 }
@@ -330,22 +332,34 @@ function screenHome() {
     </div>
     ${peopleRow}
     <div class="section">Recent</div>
-    ${historyList(state.history)}`;
+    ${historyList(state.history)}
+    <p class="api-note"><a href="#" data-action="close-account" style="color:var(--muted)">Close account &amp; erase my data</a> · <a href="/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy</a> · <a href="/terms.html" target="_blank" rel="noopener" style="color:var(--muted)">Terms</a></p>`;
 }
 
 function screenScanDom() {
+  const camSupported = Boolean(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.BarcodeDetector);
+  if (state.camActive) {
+    return `
+      <h2>Scan any UPI QR</h2>
+      <div class="scanner" id="cam-holder"><div class="spinner"></div></div>
+      <p class="api-note">Point at any UPI QR — payee and amount fill in automatically. Nothing is photographed or stored.</p>
+      <button class="btn secondary" data-action="cam-stop">Stop camera</button>
+      <button class="btn secondary" data-action="dom" data-arg="upiid">Enter UPI ID instead</button>`;
+  }
   return `
-    <h2>Scan any QR</h2>
+    <h2>Scan any UPI QR</h2>
     ${scanner()}
     ${
       state.scanning
         ? `<div class="spinner"></div>`
-        : `${card(
+        : `${camSupported ? `<button class="btn" data-action="cam-scan">📷 Scan a real QR with the camera</button>` : ""}
+          ${card(
             row("Merchant", "Cafe Coffee Day") +
               row("UPI ID", "ccd@bpl") +
-              row("Status", "✓ Verified merchant", { accent: true })
+              row("Status", "✓ Demo merchant", { accent: true })
           )}
-          ${primary("Enter amount", "scan-continue-dom")}`
+          ${primary("Enter amount (demo QR)", "scan-continue-dom")}
+          ${camSupported ? "" : `<p class="api-note">Live camera scanning needs a browser with BarcodeDetector (Chrome/Edge). The demo QR works everywhere.</p>`}`
     }`;
 }
 
@@ -612,8 +626,84 @@ async function handleLink() {
 function startScanDom() {
   state.flow = "domestic";
   state.scanning = true;
+  state.camActive = false;
   go("scanDom");
   setTimeout(() => { state.scanning = false; if (state.screen === "scanDom") render(); }, 1500);
+}
+
+// ---- real camera QR scanning (BarcodeDetector, where the browser has it) ----
+// UPI QR parsing — same validation rules as the mobile app (mobile/src/upi.js).
+function parseUpiQr(data) {
+  const s = String(data || "").trim();
+  if (!/^upi:\/\/pay\?/i.test(s)) return null;
+  const params = {};
+  for (const kv of s.slice(s.indexOf("?") + 1).split("&")) {
+    const eq = kv.indexOf("=");
+    if (eq <= 0) continue;
+    let val = kv.slice(eq + 1).replace(/\+/g, " ");
+    try { val = decodeURIComponent(val); } catch {}
+    params[kv.slice(0, eq).toLowerCase()] = val;
+  }
+  const vpa = (params.pa || "").trim();
+  if (!/^[a-z0-9][a-z0-9.\-_]{0,63}@[a-z][a-z0-9]{1,63}$/i.test(vpa)) return null;
+  if (params.cu && params.cu.toUpperCase() !== "INR") return null;
+  let amount = null;
+  if (params.am !== undefined && params.am !== "") {
+    const n = Number(params.am);
+    if (!Number.isFinite(n) || n <= 0 || n > 1e7) return null;
+    if (Math.round(n * 100) !== Number((n * 100).toFixed(6))) return null;
+    amount = n;
+  }
+  const clean = (v, max) => String(v || "").replace(/[\u0000-\u001f\u007f]/g, "").slice(0, max).trim();
+  return { vpa, name: clean(params.pn, 80) || vpa, amount, note: clean(params.tn, 120) };
+}
+
+let camStream = null;
+function stopCam() {
+  if (camStream) {
+    camStream.getTracks().forEach((t) => t.stop());
+    camStream = null;
+  }
+  state.camActive = false;
+}
+
+async function startCamScan() {
+  state.camActive = true;
+  render();
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+  } catch (e) {
+    stopCam();
+    render();
+    toast("Camera unavailable or denied — the demo QR still works");
+    return;
+  }
+  const holder = document.getElementById("cam-holder");
+  if (!holder || !camStream) { stopCam(); return; }
+  holder.innerHTML = `<video id="cam-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;border-radius:18px"></video>`;
+  const video = document.getElementById("cam-video");
+  video.srcObject = camStream;
+  const detector = new window.BarcodeDetector({ formats: ["qr_code"] });
+  let lastHint = 0;
+  const loop = async () => {
+    if (!camStream || state.screen !== "scanDom") { stopCam(); return; }
+    try {
+      const codes = await detector.detect(video);
+      for (const c of codes) {
+        const parsed = parseUpiQr(c.rawValue);
+        if (parsed) {
+          stopCam();
+          state.form = { ...EMPTY_FORM, payeeName: parsed.name, vpa: parsed.vpa, amount: parsed.amount ? String(parsed.amount) : "", note: parsed.note };
+          state.domIntent = { kind: "upiid", title: parsed.name, sub: parsed.vpa + " • Scanned QR" };
+          go("compose");
+          return;
+        }
+        if (Date.now() - lastHint > 2500) { lastHint = Date.now(); toast("Not a UPI payment QR — keep pointing at a upi://pay QR"); }
+      }
+    } catch (e) { /* detector hiccup — keep looping */ }
+    setTimeout(loop, 160);
+  };
+  video.addEventListener("loadedmetadata", () => setTimeout(loop, 250));
 }
 
 function startScanIntl() {
@@ -828,7 +918,30 @@ async function logout() {
   state.account = null;
   state.history = [];
   state.requests = [];
+  state.consent = false;
   toast("Logged out — session revoked server-side");
+  go("welcome");
+}
+
+// DPDP consent withdrawal: erase profile PII + revoke all sessions.
+// Transaction records are retained pseudonymously as required by law.
+async function closeAccount() {
+  const sure = window.confirm(
+    "Close your account?\n\nYour profile data is erased immediately and every session is revoked. " +
+    "Transaction records are retained pseudonymously as required by law. This cannot be undone."
+  );
+  if (!sure) return;
+  try {
+    await api("/api/account/close", { method: "POST" });
+  } catch (e) {
+    return toast("Could not close account: " + e.message);
+  }
+  state.token = null;
+  state.account = null;
+  state.history = [];
+  state.requests = [];
+  state.consent = false;
+  toast("Account closed — profile data erased");
   go("welcome");
 }
 
@@ -875,6 +988,9 @@ const ACTIONS = {
   "proceed-domestic": proceedDomestic,
   "quote-pay": openAuth,
   "verify-ledger": verifyLedger,
+  "cam-scan": startCamScan,
+  "cam-stop": () => { stopCam(); render(); },
+  "close-account": closeAccount,
   "verify-receipt": verifyReceipt,
   logout,
   "receipt-done": () => go("home"),
@@ -890,7 +1006,10 @@ document.addEventListener("click", (e) => {
   if (action === "newpin-key") return onPinKey("newpin", target.dataset.key);
   if (action === "pin-key") return onPinKey("pin", target.dataset.key);
   const fn = ACTIONS[action];
-  if (fn) fn(arg);
+  if (fn) {
+    if (target.tagName === "A") e.preventDefault();
+    fn(arg);
+  }
 });
 
 document.addEventListener("change", (e) => {
