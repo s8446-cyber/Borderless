@@ -4,6 +4,14 @@ All notable changes to Borderless Pay. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is
 [SemVer](https://semver.org/).
 
+## [1.3.0] — Real QR scanning (mobile 1.3.0)
+
+### Added
+- **Mobile: real camera QR scanning** (`expo-camera`) — scans actual UPI payment QRs (`upi://pay…`), auto-fills payee, amount, and note into the payment review. Permission asked **in-context** with a priming card ("camera only while you scan; nothing captured or stored"); denied → manual UPI-ID entry and a demo QR keep everything working (emulators/Expo Go/web included). Camera configured **without** microphone; `RECORD_AUDIO` remains blocked.
+- **Web app: real camera QR scanning** where the browser supports `BarcodeDetector` (Chrome/Edge/Android) — same UPI parsing rules; camera stream is always stopped on navigation; demo QR fallback everywhere else.
+- **Hardened UPI QR parser** (`mobile/src/upi.js`, mirrored in the web app): validates VPA format, refuses non-INR currency, rejects negative/absurd/sub-paisa amounts, strips control characters, caps display fields — QR contents are treated as hostile input. CI-guarded (14+ cases) including a lock-step check that web and mobile use the identical VPA rule.
+- **Web app: Close account & erase my data** link (DPDP parity with mobile) + Privacy/Terms footer links.
+
 ## [1.2.0] — Consent & data-rights architecture (DPDP Act 2023)
 
 ### Added

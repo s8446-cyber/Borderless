@@ -18,12 +18,14 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import * as LocalAuthentication from "expo-local-authentication";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import { C, TINTS, CORRIDORS, P2P_CURRENCIES, OPERATORS, BILL_CATEGORIES, BILLERS } from "./src/theme";
 import { fmtINR } from "./src/format";
 import { api, setSession } from "./src/api";
 import { CONFIG } from "./src/config";
 import { getDeviceId } from "./src/device";
 import { foldMerkleProof } from "./src/sha256";
+import { parseUpiQr } from "./src/upi";
 import { Brand, Card, Row, Pill, Badges, PrimaryButton, Chips, PinDots, PinPad, SectionHeader, Avatar } from "./src/ui";
 
 const SETTLE_STEPS = [
@@ -128,6 +130,9 @@ export default function App() {
   const [requests, setRequests] = useState([]);
   const [verifyResult, setVerifyResult] = useState(null);
   const [consent, setConsent] = useState(false);
+  const [camPerm, requestCamPerm] = useCameraPermissions();
+  const scanLock = useRef(false);
+  const lastBadQr = useRef(0);
 
   const checkScale = useRef(new Animated.Value(0)).current;
 
@@ -227,9 +232,39 @@ export default function App() {
   function startScanDomestic() {
     setForm(EMPTY_FORM);
     setFlow("domestic");
-    setScanning(true);
+    scanLock.current = false;
     setScreen("scanDom");
-    setTimeout(() => setScanning(false), 1500);
+  }
+
+  // Real QR handling: parse the (untrusted) QR payload as a UPI URI; valid →
+  // prefill the payment review screen; invalid → hint and keep scanning.
+  function onQrScanned({ data }) {
+    if (scanLock.current) return;
+    const parsed = parseUpiQr(data);
+    if (!parsed) {
+      if (Date.now() - lastBadQr.current > 2500) {
+        lastBadQr.current = Date.now();
+        Alert.alert("Not a UPI payment QR", "Point the camera at a UPI QR (it encodes upi://pay…). You can also enter the UPI ID manually.");
+      }
+      return;
+    }
+    scanLock.current = true;
+    setForm({
+      ...EMPTY_FORM,
+      payeeName: parsed.name,
+      vpa: parsed.vpa,
+      amount: parsed.amount ? String(parsed.amount) : "",
+      note: parsed.note,
+    });
+    setDomIntent({ kind: "upiid", title: parsed.name, sub: parsed.vpa + " • Scanned QR" });
+    setScreen("compose");
+  }
+
+  // Fallback for emulators / web / denied camera: the demo merchant QR.
+  function useDemoQr() {
+    setForm({ ...EMPTY_FORM, payeeName: "Cafe Coffee Day" });
+    setDomIntent({ kind: "merchant", title: "Cafe Coffee Day", sub: "ccd@bpl • Demo QR" });
+    setScreen("compose");
   }
 
   function startDom(kind) {
@@ -294,7 +329,7 @@ export default function App() {
     if (k === "bill") return { endpoint: "/api/bills/pay", body: { amount, biller: { category: form.billCategory, name: form.biller || form.billCategory, consumerId: form.consumerId } } };
     let payee;
     if (k === "bank") payee = { kind: "bank", type: "bank", name: form.payeeName || "Bank account", account: form.account, ifsc: form.ifsc };
-    else if (k === "upiid") payee = { kind: "upi", type: "upi", name: form.vpa || "UPI ID", vpa: form.vpa };
+    else if (k === "upiid") payee = { kind: "upi", type: "upi", name: form.payeeName || form.vpa || "UPI ID", vpa: form.vpa };
     else if (k === "phone") payee = { kind: "upi", type: "phone", name: form.payeeName || form.phone || "Payee", phone: form.phone };
     else if (k === "merchant") payee = { kind: "upi", type: "merchant", name: form.payeeName || "Merchant" };
     else payee = { kind: "upi", type: "contact", name: form.payeeName || "Payee", phone: form.phone, vpa: form.vpa };
@@ -762,32 +797,50 @@ export default function App() {
 
         {screen === "scanDom" && (
           <View>
-            <Text style={s.h2}>Scan any QR</Text>
-            <View style={s.scanner}>
-              <View style={s.scanline} />
-              <View style={s.qr}>
-                {Array.from({ length: 25 }).map((_, i) => (
-                  <View key={i} style={[s.qrCell, i % 3 === 0 && { backgroundColor: "#000" }, i % 5 === 0 && { backgroundColor: "#000" }]} />
-                ))}
+            <Text style={s.h2}>Scan any UPI QR</Text>
+            {camPerm && camPerm.granted ? (
+              <View>
+                <View style={s.scanner}>
+                  <CameraView
+                    style={[{ flex: 1, alignSelf: "stretch" }]}
+                    facing="back"
+                    barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+                    onBarcodeScanned={onQrScanned}
+                  />
+                  <View style={s.scanline} pointerEvents="none" />
+                </View>
+                <Text style={[s.apiNote, { marginTop: 10 }]}>
+                  Point at any UPI QR — payee and amount fill in automatically. Nothing is photographed or stored.
+                </Text>
+                <PrimaryButton title="Enter UPI ID instead" secondary onPress={() => startDom("upiid")} />
+                <PrimaryButton title="Use demo QR (no camera)" secondary onPress={useDemoQr} />
               </View>
-            </View>
-            {scanning ? (
-              <ActivityIndicator color={C.accent} size="large" style={[{ marginTop: 26 }]} />
+            ) : camPerm && !camPerm.canAskAgain ? (
+              <View>
+                <Card>
+                  <Text style={[{ color: C.text, fontWeight: "700", marginBottom: 6 }]}>Camera access is turned off</Text>
+                  <Text style={[{ color: C.muted, fontSize: 13, lineHeight: 19 }]}>
+                    You previously denied camera access, so scanning is unavailable. You can enable it in your device
+                    Settings, or continue without the camera — everything still works.
+                  </Text>
+                </Card>
+                <PrimaryButton title="Open device settings" onPress={() => Linking.openSettings()} />
+                <PrimaryButton title="Enter UPI ID instead" secondary onPress={() => startDom("upiid")} />
+                <PrimaryButton title="Use demo QR (no camera)" secondary onPress={useDemoQr} />
+              </View>
             ) : (
               <View>
-                <Card style={[{ marginTop: 16 }]}>
-                  <Row label="Merchant" value="Cafe Coffee Day" />
-                  <Row label="UPI ID" value="ccd@bpl" />
-                  <Row label="Status" value="✓ Verified merchant" accent />
+                <Card>
+                  <Text style={[{ color: C.text, fontWeight: "700", marginBottom: 6 }]}>📷 Camera — only while you scan</Text>
+                  <Text style={[{ color: C.muted, fontSize: 13, lineHeight: 19 }]}>
+                    Borderless Pay uses the camera solely to read the payment QR in front of you. No photos or video are
+                    captured, stored, or uploaded — the QR is decoded on your device. Deny it and you can still pay by
+                    entering a UPI ID.
+                  </Text>
                 </Card>
-                <PrimaryButton
-                  title="Enter amount"
-                  onPress={() => {
-                    setForm({ ...EMPTY_FORM, payeeName: "Cafe Coffee Day" });
-                    setDomIntent({ kind: "merchant", title: "Cafe Coffee Day", sub: "ccd@bpl • Verified merchant" });
-                    setScreen("compose");
-                  }}
-                />
+                <PrimaryButton title="Allow camera & scan" onPress={requestCamPerm} />
+                <PrimaryButton title="Enter UPI ID instead" secondary onPress={() => startDom("upiid")} />
+                <PrimaryButton title="Use demo QR (no camera)" secondary onPress={useDemoQr} />
               </View>
             )}
           </View>
