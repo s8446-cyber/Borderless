@@ -4,6 +4,21 @@ All notable changes to Borderless Pay. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is
 [SemVer](https://semver.org/).
 
+## [1.4.0] — Gap-closure audit: auth UI, silent renewal, CI smoke, offline consent
+
+Relentless full-repo audit; five gaps found and closed:
+
+### Added
+- **Web app: complete account-security UI** — the email+password/2FA system finally has a face: *Create account with email* (consent-gated), *Sign in* (with automatic TOTP step-up when the server demands it), *Forgot password* → single-use reset token → new password (revokes all sessions), and a **🔐 Security screen**: TOTP enrollment (secret + otpauth URI for Google Authenticator/Authy, verify-to-enable) and *Sign out of ALL devices*.
+- **Web app: silent session renewal** — expired sessions rotate the refresh token once and retry transparently; no more mid-demo stranding.
+- **CI: release smoke suite runs on every push** — boots a production-mode server on Postgres and runs all 19 live assertions; PWA client JS now syntax-checked in CI too.
+- **Offline consent** — `terms.html`/`privacy.html` precached by the service worker (cache v5).
+- **Marketing site**: DPDP-appropriate consent note under the waitlist form (what's stored, no sharing, deletion on request).
+
+### Fixed
+- Re-linking a bank account no longer stacks duplicate demo collect-requests (seed is once-per-user).
+- International scan screens now say "Demo corridor merchant" — no fake "verified" claims anywhere.
+
 ## [1.3.0] — Real QR scanning (mobile 1.3.0)
 
 ### Added

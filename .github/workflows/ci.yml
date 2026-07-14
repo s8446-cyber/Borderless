@@ -37,10 +37,24 @@ jobs:
         run: npm install
       - name: Syntax check
         run: for f in src/*.js test/*.js; do node --check "$f"; done
+      - name: Client syntax check (PWA)
+        run: for f in public/*.js; do node --check "$f"; done
       - name: Run tests (incl. Postgres persistence)
         env:
           BP_PG_TEST_URL: postgres://bp:bp_test@127.0.0.1:5432/borderless
         run: node --test
+      - name: Release smoke suite (live server, production mode)
+        run: |
+          BP_ENV=production \
+          BP_SIGNING_SECRET=$(openssl rand -hex 48) \
+          BP_ENC_KEY=$(openssl rand -hex 32) \
+          BP_METRICS_TOKEN=ci-metrics-token \
+          BP_PG_URL=postgres://bp:bp_test@127.0.0.1:5432/borderless \
+          PORT=4600 node src/server.js &
+          SERVER=$!
+          sleep 2
+          bash scripts/release-smoke.sh http://localhost:4600 ci-metrics-token
+          kill $SERVER
 
   docker:
     runs-on: ubuntu-latest

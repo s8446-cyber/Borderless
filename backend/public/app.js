@@ -74,8 +74,10 @@ const EMPTY_FORM = {
 const state = {
   screen: "welcome",
   token: null,
+  refreshToken: null,
   name: "",
   consent: false,
+  auth: { email: "", password: "", fullName: "", totp: "", totpNeeded: false, resetEmail: "", resetToken: "", newPassword: "", secret: "", otpauth: "", code: "", enabled: false },
   bank: "HDFC Bank",
   newPin: "",
   pin: "",
@@ -118,13 +120,34 @@ const DEVICE_ID = (() => {
   }
 })();
 
-async function api(path, { method = "GET", body, idempotencyKey } = {}) {
+async function api(path, { method = "GET", body, idempotencyKey, _retried } = {}) {
   const headers = { "content-type": "application/json", "x-device-id": DEVICE_ID };
   if (state.token) headers.authorization = "Bearer " + state.token;
   if (idempotencyKey) headers["idempotency-key"] = idempotencyKey;
   const res = await fetch(API + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.message || data.error || "Request failed");
+  if (!res.ok) {
+    // Silent session renewal (once): rotate the refresh token and retry.
+    if (res.status === 401 && !_retried && state.refreshToken &&
+        (data.error === "session_expired" || data.error === "unauthorized")) {
+      try {
+        const r = await fetch(API + "/api/sessions/refresh", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-device-id": DEVICE_ID },
+          body: JSON.stringify({ refreshToken: state.refreshToken, deviceId: DEVICE_ID }),
+        });
+        const rd = await r.json().catch(() => ({}));
+        if (r.ok && rd.token) {
+          state.token = rd.token;
+          state.refreshToken = rd.refreshToken;
+          return api(path, { method, body, idempotencyKey, _retried: true });
+        }
+      } catch (e) { /* fall through to the original error */ }
+    }
+    const err = new Error(data.message || data.error || "Request failed");
+    err.code = data.error;
+    throw err;
+  }
   return data;
 }
 
@@ -250,7 +273,100 @@ function screenWelcome() {
     </label>
     <p class="consent-links"><a href="/terms.html" target="_blank" rel="noopener">Read the Terms ↗</a> · <a href="/privacy.html" target="_blank" rel="noopener">Read the Privacy Policy ↗</a></p>
     ${primary("Verify identity (KYC) →", "start-kyc")}
-    <p class="api-note">Calls real POST /api/kyc/verify • your consent is recorded and versioned</p>`;
+    <p class="api-note">Calls real POST /api/kyc/verify • your consent is recorded and versioned</p>
+    <div class="auth-alt">
+      <span class="muted">— or use a full account —</span>
+      <button class="btn secondary" data-action="go-login">🔑 Sign in</button>
+      <button class="btn secondary" data-action="go-signup">✉️ Create account with email</button>
+    </div>`;
+}
+
+function screenSignup() {
+  const a = state.auth;
+  return `
+    ${brand()}
+    <h2>Create your account</h2>
+    <p class="sub">Email + password, protected by scrypt hashing, lockout, and optional two-factor authentication.</p>
+    <label>Full name</label>
+    <input data-model="auth.fullName" value="${esc(a.fullName)}" placeholder="Aarav Shah" autocapitalize="words" />
+    <label>Email</label>
+    <input data-model="auth.email" value="${esc(a.email)}" placeholder="you@example.com" type="email" autocapitalize="none" />
+    <label>Password (min 8 characters)</label>
+    <input data-model="auth.password" value="${esc(a.password)}" placeholder="••••••••" type="password" />
+    <label class="consent-row">
+      <input type="checkbox" id="consent-box" ${state.consent ? "checked" : ""} />
+      <span>I agree to the Terms of Service and Privacy Policy (v1.0)</span>
+    </label>
+    <p class="consent-links"><a href="/terms.html" target="_blank" rel="noopener">Read the Terms ↗</a> · <a href="/privacy.html" target="_blank" rel="noopener">Read the Privacy Policy ↗</a></p>
+    ${primary("Create account →", "do-signup")}
+    <button class="btn secondary" data-action="go-login">I already have an account</button>
+    <button class="btn secondary" data-action="go-welcome">← Back</button>`;
+}
+
+function screenLogin() {
+  const a = state.auth;
+  return `
+    ${brand()}
+    <h2>Sign in</h2>
+    <label>Email</label>
+    <input data-model="auth.email" value="${esc(a.email)}" placeholder="you@example.com" type="email" autocapitalize="none" />
+    <label>Password</label>
+    <input data-model="auth.password" value="${esc(a.password)}" placeholder="••••••••" type="password" />
+    ${a.totpNeeded ? `
+      <label>Two-factor code (from your authenticator app)</label>
+      <input data-model="auth.totp" value="${esc(a.totp)}" placeholder="123456" inputmode="numeric" maxlength="6" />` : ""}
+    ${primary("Sign in →", "do-login")}
+    <p class="consent-links" style="margin-left:2px"><a href="#" data-action="go-forgot">Forgot password?</a></p>
+    <button class="btn secondary" data-action="go-signup">Create an account</button>
+    <button class="btn secondary" data-action="go-welcome">← Back</button>`;
+}
+
+function screenForgot() {
+  const a = state.auth;
+  return `
+    ${brand()}
+    <h2>Reset your password</h2>
+    <p class="sub">Enter your account email. If it exists, a single-use reset token is issued (30-minute expiry). In production it arrives by email; in this demo environment it appears here directly.</p>
+    <label>Email</label>
+    <input data-model="auth.resetEmail" value="${esc(a.resetEmail)}" placeholder="you@example.com" type="email" autocapitalize="none" />
+    ${primary("Request reset →", "do-forgot")}
+    ${a.resetToken !== "" ? `
+      <label>Reset token</label>
+      <input data-model="auth.resetToken" value="${esc(a.resetToken)}" placeholder="prt_…" autocapitalize="none" />
+      <label>New password (min 8 characters)</label>
+      <input data-model="auth.newPassword" value="${esc(a.newPassword)}" placeholder="••••••••" type="password" />
+      ${primary("Set new password →", "do-reset")}
+      <p class="api-note">Completing a reset revokes every existing session on every device</p>` : ""}
+    <button class="btn secondary" data-action="go-login">← Back to sign in</button>`;
+}
+
+function screenSecurity() {
+  const a = state.auth;
+  return `
+    <h2>🔐 Security</h2>
+    <p class="sub">Two-factor authentication and session controls for your account.</p>
+    ${card(
+      a.enabled
+        ? `<div style="font-weight:700;color:var(--accent)">✓ Two-factor authentication is ON</div>
+           <p class="muted" style="font-size:13px;margin-top:6px">Every sign-in now requires a 6-digit code from your authenticator app.</p>`
+        : a.secret
+        ? `<div style="font-weight:700;margin-bottom:6px">Finish 2FA setup</div>
+           <span class="muted" style="font-size:12px">1. Add this secret to Google Authenticator / Authy (or paste the otpauth link):</span>
+           <div class="hashrow">${esc(a.secret)}</div>
+           <div class="hashrow" style="font-size:10px">${esc(a.otpauth)}</div>
+           <span class="muted" style="font-size:12px">2. Enter the 6-digit code it shows:</span>
+           <input data-model="auth.code" value="${esc(a.code)}" placeholder="123456" inputmode="numeric" maxlength="6" style="margin-top:8px" />
+           ${primary("Verify & enable 2FA", "do-enable-2fa")}`
+        : `<div style="font-weight:700;margin-bottom:6px">Two-factor authentication is off</div>
+           <p class="muted" style="font-size:13px;margin-bottom:10px">Add a second lock on your account: after your password, a 6-digit code from your phone is required. (Available for email accounts — the quick-demo flow has no password to protect.)</p>
+           ${primary("Set up 2FA", "do-setup-2fa")}`
+    )}
+    ${card(
+      `<div style="font-weight:700;margin-bottom:6px">Sessions</div>
+       <p class="muted" style="font-size:13px;margin-bottom:10px">Lost a device or something looks wrong? Sign out everywhere at once — every session and refresh token is revoked instantly.</p>
+       <button class="btn secondary" data-action="do-revoke-all">🚨 Sign out of ALL devices</button>`
+    )}
+    ${primary("← Back to home", "go-home")}`;
 }
 
 function screenLink() {
@@ -333,7 +449,7 @@ function screenHome() {
     ${peopleRow}
     <div class="section">Recent</div>
     ${historyList(state.history)}
-    <p class="api-note"><a href="#" data-action="close-account" style="color:var(--muted)">Close account &amp; erase my data</a> · <a href="/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy</a> · <a href="/terms.html" target="_blank" rel="noopener" style="color:var(--muted)">Terms</a></p>`;
+    <p class="api-note"><a href="#" data-action="go-security" style="color:var(--muted)">🔐 Security (2FA &amp; sessions)</a> · <a href="#" data-action="close-account" style="color:var(--muted)">Close account &amp; erase my data</a> · <a href="/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy</a> · <a href="/terms.html" target="_blank" rel="noopener" style="color:var(--muted)">Terms</a></p>`;
 }
 
 function screenScanDom() {
@@ -380,7 +496,7 @@ function screenScanIntl() {
         : `${card(
             row("Merchant", esc(c.merchant)) +
               row("Location", c.flag + " " + esc(c.country)) +
-              row("Status", "✓ Verified merchant", { accent: true })
+              row("Status", "✓ Demo corridor merchant", { accent: true })
           )}
           ${primary("Continue", "scan-continue-intl")}`
     }`;
@@ -545,6 +661,10 @@ function screenHistory() {
 
 const SCREENS = {
   welcome: screenWelcome,
+  signup: screenSignup,
+  login: screenLogin,
+  forgot: screenForgot,
+  security: screenSecurity,
   link: screenLink,
   home: screenHome,
   scanDom: screenScanDom,
@@ -558,7 +678,7 @@ const SCREENS = {
   history: screenHistory,
 };
 
-const TAB_SCREENS = ["home", "scanDom", "scanIntl", "send", "compose", "quote", "receipt", "history"];
+const TAB_SCREENS = ["home", "scanDom", "scanIntl", "send", "compose", "quote", "receipt", "history", "security"];
 
 function render() {
   const fn = SCREENS[state.screen] || screenWelcome;
@@ -606,10 +726,132 @@ async function handleKyc() {
       },
     });
     state.token = r.token;
+    state.refreshToken = r.refreshToken || null;
     go("link");
   } catch (e) {
     toast(e.message);
   }
+}
+
+// ---- email + password account flows ----
+async function doSignup() {
+  const a = state.auth;
+  if (!state.consent) return toast("Please accept the Terms & Privacy Policy first");
+  if (!a.email || !a.password) return toast("Enter your email and a password (8+ characters)");
+  try {
+    const r = await api("/api/auth/signup", {
+      method: "POST",
+      body: {
+        email: a.email, password: a.password, fullName: a.fullName || "Aarav Shah", country: "IN",
+        deviceId: DEVICE_ID, consent: { tosVersion: "1.0", privacyVersion: "1.0" },
+      },
+    });
+    state.token = r.token;
+    state.refreshToken = r.refreshToken || null;
+    state.name = a.fullName || a.email.split("@")[0];
+    state.auth.password = "";
+    toast("Account created — consent recorded");
+    go("link");
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function doLogin() {
+  const a = state.auth;
+  if (!a.email || !a.password) return toast("Enter your email and password");
+  try {
+    const body = { email: a.email, password: a.password, deviceId: DEVICE_ID };
+    if (a.totpNeeded) {
+      if (!a.totp) return toast("Enter the 6-digit code from your authenticator app");
+      body.totp = a.totp;
+    }
+    const r = await api("/api/auth/login", { method: "POST", body });
+    state.token = r.token;
+    state.refreshToken = r.refreshToken || null;
+    state.name = a.email.split("@")[0];
+    state.auth.password = "";
+    state.auth.totp = "";
+    state.auth.totpNeeded = false;
+    try {
+      await refresh();
+      go("home");
+    } catch (err) {
+      go("link"); // signed in but no bank linked yet
+    }
+  } catch (e) {
+    if (e.code === "totp_required") {
+      state.auth.totpNeeded = true;
+      render();
+      return toast("This account has 2FA — enter your authenticator code");
+    }
+    toast(e.message);
+  }
+}
+
+async function doForgot() {
+  const a = state.auth;
+  if (!a.resetEmail) return toast("Enter your account email");
+  try {
+    const r = await api("/api/auth/password/reset-request", { method: "POST", body: { email: a.resetEmail } });
+    // dev returns the token so the flow is fully demoable; prod delivers by email
+    state.auth.resetToken = r.resetToken || " ";
+    render();
+    toast(r.resetToken ? "Reset token issued (dev mode shows it here)" : "If that account exists, reset instructions were sent");
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function doReset() {
+  const a = state.auth;
+  if (!a.resetToken.trim() || !a.newPassword) return toast("Paste the reset token and choose a new password");
+  try {
+    await api("/api/auth/password/reset", { method: "POST", body: { token: a.resetToken.trim(), newPassword: a.newPassword } });
+    state.auth = { ...state.auth, resetToken: "", newPassword: "", password: "" };
+    toast("Password changed — all sessions revoked. Sign in again.");
+    go("login");
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function doSetup2fa() {
+  try {
+    const r = await api("/api/auth/2fa/setup", { method: "POST" });
+    state.auth.secret = r.secret;
+    state.auth.otpauth = r.otpauth;
+    state.auth.code = "";
+    render();
+  } catch (e) {
+    toast(e.code === "no_credentials" ? "2FA needs an email account — the quick-demo flow has no password to protect" : e.message);
+  }
+}
+
+async function doEnable2fa() {
+  try {
+    await api("/api/auth/2fa/enable", { method: "POST", body: { code: state.auth.code } });
+    state.auth.enabled = true;
+    state.auth.secret = "";
+    state.auth.otpauth = "";
+    render();
+    toast("✓ Two-factor authentication enabled");
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function doRevokeAll() {
+  if (!window.confirm("Sign out of ALL devices? Every session and refresh token is revoked instantly.")) return;
+  try {
+    const r = await api("/api/sessions/revoke-all", { method: "POST" });
+    toast("Revoked " + r.revoked + " sessions/tokens everywhere");
+  } catch (e) {
+    return toast(e.message);
+  }
+  state.token = null;
+  state.refreshToken = null;
+  go("welcome");
 }
 
 async function handleLink() {
@@ -915,10 +1157,12 @@ async function logout() {
     await api("/api/logout", { method: "POST" });
   } catch (e) {}
   state.token = null;
+  state.refreshToken = null;
   state.account = null;
   state.history = [];
   state.requests = [];
   state.consent = false;
+  state.auth = { ...state.auth, password: "", totp: "", totpNeeded: false, secret: "", otpauth: "", code: "", enabled: false };
   toast("Logged out — session revoked server-side");
   go("welcome");
 }
@@ -937,10 +1181,12 @@ async function closeAccount() {
     return toast("Could not close account: " + e.message);
   }
   state.token = null;
+  state.refreshToken = null;
   state.account = null;
   state.history = [];
   state.requests = [];
   state.consent = false;
+  state.auth = { ...state.auth, password: "", totp: "", totpNeeded: false, secret: "", otpauth: "", code: "", enabled: false };
   toast("Account closed — profile data erased");
   go("welcome");
 }
@@ -978,7 +1224,7 @@ const ACTIONS = {
   "scan-continue-dom": () => {
     state.flow = "domestic";
     state.form = { ...EMPTY_FORM, payeeName: "Cafe Coffee Day" };
-    state.domIntent = { kind: "merchant", title: "Cafe Coffee Day", sub: "ccd@bpl • Verified merchant" };
+    state.domIntent = { kind: "merchant", title: "Cafe Coffee Day", sub: "ccd@bpl • Demo QR" };
     go("compose");
   },
   dom: (arg) => startDom(arg),
@@ -991,6 +1237,19 @@ const ACTIONS = {
   "cam-scan": startCamScan,
   "cam-stop": () => { stopCam(); render(); },
   "close-account": closeAccount,
+  "go-welcome": () => go("welcome"),
+  "go-login": () => { state.auth.totpNeeded = false; go("login"); },
+  "go-signup": () => go("signup"),
+  "go-forgot": () => { state.auth.resetToken = ""; go("forgot"); },
+  "go-home": () => go("home"),
+  "go-security": () => go("security"),
+  "do-signup": doSignup,
+  "do-login": doLogin,
+  "do-forgot": doForgot,
+  "do-reset": doReset,
+  "do-setup-2fa": doSetup2fa,
+  "do-enable-2fa": doEnable2fa,
+  "do-revoke-all": doRevokeAll,
   "verify-receipt": verifyReceipt,
   logout,
   "receipt-done": () => go("home"),
