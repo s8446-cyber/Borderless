@@ -43,10 +43,12 @@ Open **http://localhost:4000** in your browser. For the best experience, open yo
 Stop the server with `Ctrl+C`.
 
 ### Demo login / what to enter
-There is **no signup or password**. The flow is:
-1. **Enter any name** → tap **Verify identity (KYC)** (auto-approves instantly).
+The fastest path has **no signup or password**:
+1. **Enter any name** → accept the **Terms/Privacy consent** → tap **Verify identity (KYC)** (auto-approves instantly).
 2. **Pick a bank** and **set a 4-digit PIN** → tap **Link account**. **Remember this PIN** — you'll use it to authorize every payment. You start with a balance of **₹2,50,000**.
 3. You're on the home screen.
+
+**Or exercise the full account system (web app):** *Create account with email* → email + password (scrypt-hashed, lockout-protected) → then from **home → 🔐 Security** enable **TOTP 2FA** (works with Google Authenticator/Authy), test *Sign out of ALL devices*, or run the *Forgot password* flow (reset revokes every session). Sessions renew silently via rotating refresh tokens.
 
 ### Tester walkthrough (try all of this)
 Run through these to exercise every feature. Each payment asks for the **PIN you set**.

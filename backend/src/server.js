@@ -399,10 +399,16 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore } = {}) {
       accountRefEnc: body.accountNumber ? encryptField(String(body.accountNumber)) : null,
     };
     if (body.pin) store.data.pins[userId] = hashPin(asPin(body.pin));
-    // seed a sample incoming collect request for demo realism
+    // seed a sample incoming collect request for demo realism (once per user —
+    // re-linking must not stack duplicates)
     store.data.requests = store.data.requests || {};
-    const rid = "req_" + randomUUID();
-    store.data.requests[rid] = { id: rid, userId, fromName: "Rohan Mehta", amountMinor: toMinor(450), note: "Dinner split", status: "pending", direction: "incoming", createdAt: Date.now() };
+    const alreadySeeded = Object.values(store.data.requests).some(
+      (r) => r.userId === userId && r.direction === "incoming"
+    );
+    if (!alreadySeeded) {
+      const rid = "req_" + randomUUID();
+      store.data.requests[rid] = { id: rid, userId, fromName: "Rohan Mehta", amountMinor: toMinor(450), note: "Dinner split", status: "pending", direction: "incoming", createdAt: Date.now() };
+    }
     audit.append("account_linked", { userId, bank });
     persist();
     const a = store.data.accounts[userId];

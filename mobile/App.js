@@ -718,7 +718,7 @@ export default function App() {
                 <Card style={[{ marginTop: 16 }]}>
                   <Row label="Merchant" value={c.merchant} />
                   <Row label="Location" value={c.flag + " " + c.country} />
-                  <Row label="Status" value="✓ Verified merchant" accent />
+                  <Row label="Status" value="✓ Demo corridor merchant" accent />
                 </Card>
                 <PrimaryButton title="Continue" onPress={getQuote} loading={busy} />
               </View>

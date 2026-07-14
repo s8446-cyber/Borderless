@@ -4,7 +4,7 @@
 //              cache from the network in the background, so users get UI
 //              updates on their NEXT load without a cache-name bump.
 // Bump CACHE on breaking shell changes to force a clean slate.
-const CACHE = "borderless-pay-v4";
+const CACHE = "borderless-pay-v5";
 const SHELL = [
   "/",
   "/index.html",
@@ -12,6 +12,8 @@ const SHELL = [
   "/app.js",
   "/verify.html",
   "/verify.js",
+  "/terms.html",
+  "/privacy.html",
   "/manifest.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

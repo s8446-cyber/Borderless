@@ -94,3 +94,5 @@ label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
 .consent-row a{color:var(--accent);text-decoration:none}
 .consent-links{font-size:12px;color:var(--muted);margin:2px 2px 6px 30px}
 .consent-links a{color:var(--accent);text-decoration:none}
+.auth-alt{display:flex;flex-direction:column;gap:4px;margin-top:18px;text-align:center}
+.auth-alt .muted{font-size:12px;color:var(--muted);margin-bottom:4px}
