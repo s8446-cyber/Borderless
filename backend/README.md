@@ -13,7 +13,7 @@ hardened for production.
 
 ```bash
 node src/server.js     # http://localhost:4000  (serves API + web client)
-npm test               # 68 tests (core + security + auth + hardening + observability + Postgres + HTTP e2e)
+npm test               # 71 tests (core + security + auth + consent + hardening + observability + Postgres + HTTP e2e)
 ```
 
 ### Persistence backends

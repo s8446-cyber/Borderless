@@ -69,7 +69,7 @@ Run through these to exercise every feature. Each payment asks for the **PIN you
 ### Run the automated test suite
 ```bash
 cd backend
-npm test             # 68 tests: unit + security + auth (incl. RFC 6238 vectors) + hardening + observability + Postgres + full HTTP e2e
+npm test             # 71 tests: unit + security + auth + consent + hardening + observability + Postgres + full HTTP e2e
 ```
 All 43 should pass. This is the strongest proof the wiring is correct.
 
@@ -159,7 +159,7 @@ Same FX math, fee policy, and dual-ledger logic across every client.
 Security and regulatory trust are first-class here. Key documents:
 
 - **[Security policy / responsible disclosure](./SECURITY.md)** — how to report a vulnerability.
-- **[Internal security audit report](./docs/SECURITY_AUDIT.md)** — STRIDE threat model, controls, and found-and-fixed findings (CI: 68 tests).
+- **[Internal security audit report](./docs/SECURITY_AUDIT.md)** — STRIDE threat model, controls, and found-and-fixed findings (CI: 71 tests).
 - **[Engineering threat model & controls](./backend/SECURITY.md)** — the in-code defenses.
 - **[Regulatory & compliance roadmap](./docs/COMPLIANCE.md)** — RBI PA-CB, FEMA/LRS, sponsor bank, FIU-IND/PMLA, DPDP Act 2023, PCI scope.
 - **[Production readiness checklist](./docs/PRODUCTION_READINESS.md)** — done vs. required before real-money launch.

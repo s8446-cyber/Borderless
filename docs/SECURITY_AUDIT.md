@@ -20,7 +20,7 @@
    API ↔ store, API ↔ ledger).
 2. **Manual source review** of all security-relevant modules.
 3. **Abuse-case testing** encoded as automated tests (`backend/test/*`), run on
-   every push via CI. Current suite: **68 tests, all passing** (unit + security + hardening +
+   every push via CI. Current suite: **71 tests, all passing** (unit + security + hardening +
    full HTTP end-to-end journey).
 4. **Severity** rated with CVSS v3.1 qualitative bands.
 

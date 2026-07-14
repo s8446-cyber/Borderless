@@ -34,10 +34,15 @@ echo "$H" | grep -qi "x-frame-options: DENY" || die "X-Frame-Options missing"
 echo "$H" | grep -qi "x-content-type-options: nosniff" || die "nosniff missing"
 ok "CSP + frame + sniff protections present"
 
-say "[3/9] Signup (email+password) & session"
+say "[3/9] Signup (email+password), consent & session"
 EMAIL="smoke-$(date +%s)@release.test"
+# consent is REQUIRED — signup without it must be refused
+CODE=$(req -o /dev/null -w '%{http_code}' -X POST "$BASE/api/auth/signup" -H 'content-type: application/json' \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"release-smoke-pw1\",\"fullName\":\"Release Smoke\"}")
+[ "$CODE" = "400" ] || die "signup without consent must be 400 (got $CODE)"
+ok "signup refused without Terms/Privacy consent"
 R=$(req -X POST "$BASE/api/auth/signup" -H 'content-type: application/json' \
-  -d "{\"email\":\"$EMAIL\",\"password\":\"release-smoke-pw1\",\"fullName\":\"Release Smoke\",\"deviceId\":\"smoke-device\"}")
+  -d "{\"email\":\"$EMAIL\",\"password\":\"release-smoke-pw1\",\"fullName\":\"Release Smoke\",\"consent\":true,\"deviceId\":\"smoke-device\"}")
 TOK=$(echo "$R" | json token); RTK=$(echo "$R" | json refreshToken)
 [ -n "$TOK" ] && [ -n "$RTK" ] || die "signup did not issue tokens: $R"
 [ "$(echo "$R" | json kyc.status)" = "verified" ] || die "kyc stub"
