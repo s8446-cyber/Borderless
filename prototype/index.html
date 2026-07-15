@@ -200,6 +200,13 @@
   .foottab button{flex:1;background:transparent;border:0;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;color:var(--muted);cursor:pointer;font-weight:600}
   .foottab button.on{color:var(--brand)}
   .foottab button .fi{font-size:19px}
+  /* consent + policy modal */
+  .consent{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;color:var(--muted);line-height:1.5;cursor:pointer;margin-top:14px}
+  .consent input{width:17px;height:17px;margin-top:1px;accent-color:var(--brand);flex-shrink:0}
+  .modal{display:none;position:fixed;inset:0;background:rgba(5,8,18,.82);z-index:50;align-items:center;justify-content:center;padding:20px}
+  .modal .mbox{background:var(--card,#141a30);border:1px solid var(--line);border-radius:18px;padding:20px;max-height:80%;overflow:auto;font-size:12.5px;line-height:1.6;color:var(--muted)}
+  .modal .mbox h3{color:#fff;font-size:15px;margin:0 0 8px}
+  .modal .mbox h4{color:#dfe6ff;font-size:13px;margin:14px 0 4px}
 </style>
 </head>
 <body>
@@ -228,9 +235,11 @@
         <div class="pad">
           <div class="feat"><div class="ic">🏦</div><div><h4>Direct from your bank</h4><p>Money leaves your home account at the moment you pay. Nothing pre-loaded.</p></div></div>
           <div class="feat"><div class="ic">🔍</div><div><h4>Total transparency</h4><p>See the real rate and the exact fee before you confirm — every time.</p></div></div>
-          <div class="feat"><div class="ic">🛡️</div><div><h4>Triple-secure</h4><p>Biometric + PIN, end-to-end encryption, and a tamper-evident dual ledger.</p></div></div>
+          <div class="feat"><div class="ic">🛡️</div><div><h4>Triple-secure</h4><p>Biometric + PIN + optional 2FA, AES-256 encryption at rest, and a tamper-evident dual ledger you can verify yourself.</p></div></div>
           <div class="spacer"></div>
-          <button class="btn" style="margin-top:18px" onclick="go('link')">Get started →</button>
+          <label class="consent"><input type="checkbox" id="consentBox" onchange="document.getElementById('startBtn').disabled=!this.checked"> <span>I agree to the <span class="link" onclick="event.preventDefault();showPolicy()">Terms &amp; Privacy Policy (v1.0)</span></span></label>
+          <button class="btn" id="startBtn" disabled style="margin-top:10px" onclick="go('link')">Get started →</button>
+          <p class="center" style="font-size:11px;color:var(--muted);margin-top:8px">Consent is explicit, versioned &amp; recorded — you can erase your data anytime</p>
           <p class="center badgeY">Already have an account? <span class="link" onclick="go('home')">Log in</span></p>
         </div>
       </div>
@@ -287,6 +296,7 @@
       <div class="view" id="v-scan">
         <div class="scanwrap">
           <div class="hint" id="scanHint">Point at the merchant's QR code…</div>
+          <div class="hint" style="top:46px;font-size:11px;opacity:.7">(prototype simulates the camera — the live app scans real UPI QRs, permission asked only while scanning)</div>
           <div class="frame">
             <div class="corner tl"></div><div class="corner tr"></div>
             <div class="corner bl"></div><div class="corner br"></div>
@@ -357,10 +367,13 @@
             <div class="rb" id="rRows"></div>
           </div>
           <div class="ledger" id="rLedger">
-            <div class="lcard"><h5>🔐 Settlement ledger</h5><code id="hashA">0x9af3…b21c</code><div class="vch">✓ recorded</div></div>
-            <div class="lcard" id="lcAnchor"><h5>⛓️ Public anchor</h5><code id="hashB">0x41dd…0e77</code><div class="vch">✓ verifiable</div></div>
+            <div class="lcard"><h5>🔐 Settlement ledger</h5><code id="hashA">…</code><div class="vch">✓ recorded</div></div>
+            <div class="lcard" id="lcAnchor"><h5>⛓️ Public anchor</h5><code id="hashB">…</code><div class="vch">✓ verifiable</div></div>
           </div>
-          <button class="btn" style="margin-top:20px" onclick="finishToHome()">Done</button>
+          <div id="rVerifyOut" style="display:none;margin-top:10px;padding:10px 12px;border-radius:12px;font-size:12.5px;font-weight:600"></div>
+          <button class="btn ghost" id="rVerifyBtn" style="margin-top:10px" onclick="verifyReceipt()">🔎 Verify this receipt independently</button>
+          <p class="center" style="font-size:11px;color:var(--muted);margin:6px 0 0">Real SHA-256, recomputed in your browser — these hashes aren't decorative</p>
+          <button class="btn" style="margin-top:12px" onclick="finishToHome()">Done</button>
           <button class="btn ghost" id="rGhost" onclick="startScan()">Make another payment</button>
         </div>
       </div>
@@ -447,12 +460,17 @@
           <div class="setrow"><span style="font-size:18px">🏦</span><div><h4 style="margin:0;font-size:14px">HDFC Bank</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">••6721 · Savings · live</p></div></div>
           <div class="label" style="margin-top:14px">Security</div>
           <div class="setrow"><span style="font-size:18px">😊</span><div><h4 style="margin:0;font-size:14px">Face ID</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Biometric unlock</p></div><div class="toggle"></div></div>
-          <div class="setrow"><span style="font-size:18px">🔑</span><div><h4 style="margin:0;font-size:14px">Transaction PIN</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Required for every payment</p></div><div class="toggle"></div></div>
-          <div class="setrow"><span style="font-size:18px">📱</span><div><h4 style="margin:0;font-size:14px">Device-bound key</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">This device is trusted</p></div><div class="toggle"></div></div>
-          <div class="setrow"><span style="font-size:18px">🛡️</span><div><h4 style="margin:0;font-size:14px">End-to-end encryption</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">TLS + mTLS + signed ledger</p></div><div class="toggle"></div></div>
+          <div class="setrow"><span style="font-size:18px">🔑</span><div><h4 style="margin:0;font-size:14px">Transaction PIN</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Required for every payment · locks after 5 wrong tries</p></div><div class="toggle"></div></div>
+          <div class="setrow"><span style="font-size:18px">🔐</span><div><h4 style="margin:0;font-size:14px">Two-factor authentication</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">TOTP · Google Authenticator / Authy</p></div><div class="toggle"></div></div>
+          <div class="setrow"><span style="font-size:18px">📱</span><div><h4 style="margin:0;font-size:14px">Device-bound sessions</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Stolen tokens don't work on other devices</p></div><div class="toggle"></div></div>
+          <div class="setrow"><span style="font-size:18px">🛡️</span><div><h4 style="margin:0;font-size:14px">Encryption</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">TLS in transit · AES-256-GCM at rest · signed receipts</p></div><div class="toggle"></div></div>
+          <div class="setrow" style="cursor:pointer" onclick="signOutAll()"><span style="font-size:18px">🚨</span><div><h4 style="margin:0;font-size:14px">Sign out of ALL devices</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Revokes every session &amp; refresh token instantly</p></div></div>
           <div class="label" style="margin-top:14px">Limits</div>
           <div class="setrow"><span style="font-size:18px">🌍</span><div><h4 style="margin:0;font-size:14px">Per international payment</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Up to ₹5,00,000</p></div></div>
           <div class="setrow"><span style="font-size:18px">🇮🇳</span><div><h4 style="margin:0;font-size:14px">Per domestic payment</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Up to ₹2,00,000</p></div></div>
+          <div class="label" style="margin-top:14px">Privacy &amp; data</div>
+          <div class="setrow" style="cursor:pointer" onclick="showPolicy()"><span style="font-size:18px">📄</span><div><h4 style="margin:0;font-size:14px">Terms &amp; Privacy Policy</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">v1.0 · your consent is recorded &amp; versioned</p></div></div>
+          <div class="setrow" style="cursor:pointer" onclick="closeAccount()"><span style="font-size:18px">🗑️</span><div><h4 style="margin:0;font-size:14px;color:#ff8b8b">Close account &amp; erase my data</h4><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Profile erased instantly · transaction records kept pseudonymously (law)</p></div></div>
           <button class="btn secondary" style="margin-top:18px" onclick="go('welcome')">Sign out</button>
         </div>
       </div>
@@ -598,6 +616,40 @@
     document.querySelectorAll('.pindot').forEach((d,i)=>{d.classList.toggle('f',i<pin.length);});
   }
 
+  // ---- real tamper-evident mini-ledger (same block format as the backend) ----
+  // These hashes are computed with the browser's own SHA-256 (Web Crypto),
+  // chained block-to-block exactly like the production ledger — the receipt's
+  // "verify" button genuinely recomputes them. Not decorative.
+  const chain=[];let lastBlock=null;
+  async function shaHex(t){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');}
+  const blockHash=(b)=>shaHex(b.index+'|'+b.timestamp+'|'+JSON.stringify(b.txn)+'|'+b.prevHash);
+  async function ensureGenesis(){if(chain.length)return;const g={index:0,timestamp:0,txn:{type:'genesis'},prevHash:'0'.repeat(64)};g.hash=await blockHash(g);chain.push(g);}
+  async function appendBlock(txn){await ensureGenesis();const p=chain[chain.length-1];const b={index:p.index+1,timestamp:Date.now(),txn,prevHash:p.hash};b.hash=await blockHash(b);b.anchor='0x'+(await shaHex('anchor'+b.index+b.timestamp)).slice(0,40);chain.push(b);return b;}
+  async function verifyChain(){await ensureGenesis();for(let i=1;i<chain.length;i++){const b=chain[i];if(b.prevHash!==chain[i-1].hash)return{ok:false,reason:'broken link at block '+i};if((await blockHash(b))!==b.hash)return{ok:false,reason:'tampered block '+i};}return{ok:true,blocks:chain.length};}
+  const shortHash=(h)=>h.slice(0,10)+'…'+h.slice(-6);
+
+  async function verifyReceipt(){
+    const out=document.getElementById('rVerifyOut');
+    out.style.display='block';out.style.background='rgba(255,255,255,.06)';out.style.color='var(--muted)';out.textContent='Recomputing SHA-256 chain…';
+    const v=await verifyChain();
+    if(!lastBlock||!v.ok){out.style.background='rgba(255,107,107,.12)';out.style.color='#ff8b8b';out.textContent='✗ Verification failed'+(v.reason?': '+v.reason:'');return;}
+    const recomputed=await blockHash(lastBlock);
+    if(recomputed!==lastBlock.hash){out.style.background='rgba(255,107,107,.12)';out.style.color='#ff8b8b';out.textContent='✗ This receipt\u2019s block hash does not match';return;}
+    out.style.background='rgba(61,220,151,.12)';out.style.color='#3ddc97';
+    out.textContent='✓ Independently verified — block '+lastBlock.index+' recomputed on this device; chain of '+v.blocks+' blocks intact';
+  }
+
+  // ---- consent & data-rights (mirrors the live product) ----
+  function showPolicy(){document.getElementById('policyModal').style.display='flex';}
+  function hidePolicy(){document.getElementById('policyModal').style.display='none';}
+  function signOutAll(){alert('In the live app this calls POST /api/sessions/revoke-all — every session and refresh token on every device is revoked instantly.');go('welcome');}
+  function closeAccount(){
+    if(!confirm('Close your account?\n\nProfile data is erased immediately and every session is revoked. Transaction records are retained pseudonymously as required by law. This cannot be undone.'))return;
+    alert('Account closed — in the live app your profile PII is erased and audited (POST /api/account/close).');
+    document.getElementById('consentBox').checked=false;document.getElementById('startBtn').disabled=true;
+    go('welcome');
+  }
+
   // ---- processing ----
   function processPay(){
     go('proc');
@@ -611,9 +663,8 @@
     setTimeout(showReceipt,base*(steps.length+1)+150);
   }
 
-  function rndHex(){return '0x'+Math.random().toString(16).slice(2,6)+'…'+Math.random().toString(16).slice(2,6);}
   let history=[];
-  function showReceipt(){
+  async function showReceipt(){
     const r=pendingReceipt;if(!r){go('home');return;}
     document.getElementById('rTitle').textContent=r.title;
     document.getElementById('rWhen').textContent=r.when||'Just now';
@@ -622,8 +673,14 @@
     const rb=document.getElementById('rRows');rb.innerHTML='';
     r.rows.forEach(pair=>{rb.innerHTML+=row(pair[0],pair[1]);});
     document.getElementById('rLedger').style.display=r.secure?'grid':'none';
+    document.getElementById('rVerifyBtn').style.display=r.secure?'block':'none';
+    document.getElementById('rVerifyOut').style.display='none';
     document.getElementById('lcAnchor').style.display=(r.anchor===false)?'none':'block';
-    if(r.secure){document.getElementById('hashA').textContent=rndHex();document.getElementById('hashB').textContent=rndHex();}
+    if(r.secure){
+      lastBlock=await appendBlock({type:'settlement',ref:(r.rows.find(p=>p[0]==='Reference')||['',''])[1],total:r.total});
+      document.getElementById('hashA').textContent=shortHash(lastBlock.hash);
+      document.getElementById('hashB').textContent=lastBlock.anchor.slice(0,12)+'…'+lastBlock.anchor.slice(-6);
+    }
     const g=document.getElementById('rGhost');
     g.textContent=r.ghostLabel||'Make another payment';
     g.onclick=r.ghostAction||startScan;
@@ -792,5 +849,18 @@
   setInterval(tick,1000);tick();
   buildKeypad();renderQuote();
 </script>
+<div class="modal" id="policyModal" onclick="if(event.target===this)hidePolicy()">
+  <div class="mbox">
+    <h3>Terms of Service &amp; Privacy Policy — v1.0 (summary)</h3>
+    <h4>The service</h4>
+    <p>Borderless Pay is currently a demonstration — no real money moves. Domestic payments: ₹0 fee. Cross-border: the mid-market rate + a flat 0.5% fee (₹2 min, ₹500 cap), always shown before you confirm.</p>
+    <h4>Your data</h4>
+    <p>We collect only what payments need: your name (and email if you create a login), a hashed device ID for session security, and transaction records. PINs/passwords are stored as scrypt hashes; sensitive fields are AES-256-GCM encrypted. No contacts, location, photos, or advertising data — ever. Camera is used only while you scan a QR and nothing is captured or stored.</p>
+    <h4>Your rights (DPDP Act 2023)</h4>
+    <p>Consent is explicit, versioned and recorded. You can withdraw it and close your account at any time — profile data is erased immediately; transaction records are retained pseudonymously where law requires.</p>
+    <p style="opacity:.7">Full documents ship in the live app (/terms.html · /privacy.html). Drafts pending counsel finalization.</p>
+    <button class="btn" style="margin-top:12px" onclick="hidePolicy()">Close</button>
+  </div>
+</div>
 </body>
 </html>

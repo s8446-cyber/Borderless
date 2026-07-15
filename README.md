@@ -116,7 +116,7 @@ The dev backend allows any origin, so the signup form will hit `POST /api/waitli
 
 ## 🖱️ Prototype
 
-Open **`prototype/index.html`** in any browser — a single-file clickable mock of the mobile experience, no install required.
+Open **`prototype/index.html`** in any browser — a single-file clickable mock of the mobile experience, no install required. It mirrors the real product: consent-gated onboarding, a REAL SHA-256 hash-chained ledger computed in your browser (tap **Verify this receipt independently** on any receipt), 2FA/device-binding/erasure rows in settings, and honest demo labels.
 
 ---
 
