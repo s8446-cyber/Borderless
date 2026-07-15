@@ -4,6 +4,19 @@ All notable changes to Borderless Pay. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is
 [SemVer](https://semver.org/).
 
+## [1.4.1] — Prototype parity
+
+The single-file prototype (`prototype/index.html`) had been frozen since day one while the product evolved through 13 PRs. Brought to full parity:
+
+### Added (prototype)
+- **Real cryptography**: receipts now append to a genuine SHA-256 hash-chained mini-ledger (browser Web Crypto, same block format as the backend) — the old `rndHex()` decorative hashes are gone. New **"Verify this receipt independently"** button recomputes the chain on-device with a green/red verdict; tamper detection verified.
+- **Consent-gated onboarding**: versioned Terms/Privacy checkbox (unchecked by default) with an in-prototype policy summary modal; "Get started" disabled until accepted.
+- **Settings parity**: 2FA (TOTP) row, device-bound sessions row, PIN-lockout note, "Sign out of ALL devices", "Close account & erase my data" (double-confirmed), Terms/Privacy row.
+- Camera honesty note on the scan screen (prototype simulates; live app scans real UPI QRs, permission asked in-context).
+
+### Fixed (prototype)
+- Over-claiming security copy corrected: "end-to-end encryption / mTLS" → "TLS in transit · AES-256-GCM at rest · signed receipts" (matches `SECURITY.md`).
+
 ## [1.4.0] — Gap-closure audit: auth UI, silent renewal, CI smoke, offline consent
 
 Relentless full-repo audit; five gaps found and closed:
