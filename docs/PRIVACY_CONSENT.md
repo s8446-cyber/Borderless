@@ -38,15 +38,19 @@ Companion docs: [`COMPLIANCE.md`](./COMPLIANCE.md), [`PRODUCTION_READINESS.md`](
 |---|---|---|---|
 | iOS | Face ID (`NSFaceIDUsageDescription`) | Unlock + payment authorization | ✅ declared with purpose string |
 | Android | `USE_BIOMETRIC`, `USE_FINGERPRINT` | Same | ✅ explicitly listed |
-| Both | **Camera** (`expo-camera` plugin, purpose string set) | **Scanning UPI payment QRs only** — asked in-context with a priming card; decode happens on-device; nothing captured, stored, or uploaded; denied → manual UPI-ID entry + demo QR still work | ✅ implemented with the full allow/deny flow |
-| Android | `RECORD_AUDIO`, `READ/WRITE_EXTERNAL_STORAGE`, `SYSTEM_ALERT_WINDOW` | Not used (camera is configured **without** audio) | 🚫 **explicitly blocked** (`blockedPermissions`) so no library can sneak them in |
-| Both | Contacts, location, ad identifiers | Not used, not collected | 🚫 never declared |
+| Both | **Camera** (`expo-camera`) | Scanning UPI payment QRs only — in-context priming card → OS Allow/Deny; decode on-device; denied → manual entry | ✅ full allow/deny flow |
+| Both | **Contacts** (`expo-contacts`, read-only) | Only when the user taps "Pay a contact from my phone" — priming Alert explains on-device matching → OS Allow/Deny pop-up; denied → demo contacts + manual entry still work; `WRITE_CONTACTS` **blocked** | ✅ full allow/deny flow |
+| Both | **Notifications** (`expo-notifications`) | Payment receipts + security alerts — offered ONCE after the first successful payment (never at launch), OS Allow/Deny pop-up; fully optional | ✅ full allow/deny flow |
+| Android | `RECORD_AUDIO`, `READ/WRITE_EXTERNAL_STORAGE`, `SYSTEM_ALERT_WINDOW`, `WRITE_CONTACTS` | Not used | 🚫 **explicitly blocked** so no library can add them |
+| Both | Location, ad identifiers | Not used, not collected | 🚫 never declared |
 
-### Future features → the permission they'll add (ask-in-context copy ready)
-| Feature | Permission | In-context prompt (draft) |
-|---|---|---|
-| Pay-your-contacts | Contacts (read) | "Choose a contact to pay. We match numbers on your device — your contact list is never uploaded." (on-device matching or hashed-lookup design REQUIRED before this ships) |
-| Payment alerts | Notifications | "Get instant receipts and security alerts." (optional; app fully works without) |
+Each permission fires its **own** OS Allow/Deny dialog, at the moment the feature is used, preceded by a plain-language reason — the pattern the founder specified and that Google Play / App Store reviewers require.
+
+### Payment authorization (re-audited)
+The payment gate is **two independent factors, enforced in order**:
+1. **Biometric** (`expo-local-authentication`) — Face ID / fingerprint prompt. A failed or cancelled biometric now genuinely **blocks the PIN pad** (previously the result was ignored). Devices with no enrolled biometric skip straight to the PIN.
+2. **PIN** — verified **server-side** (scrypt, constant-time), with 5-attempt lockout. The client never decides correctness.
+Double-submit is prevented by an in-flight guard AND per-attempt idempotency keys, so a fumbled tap can never double-charge.
 
 ## 3. Store-submission mapping (prepared answers)
 

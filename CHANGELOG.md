@@ -4,6 +4,17 @@ All notable changes to Borderless Pay. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is
 [SemVer](https://semver.org/).
 
+## [1.5.0] — Contacts & notifications permission pop-ups + payment-auth re-audit (mobile)
+
+### Added (mobile)
+- **Contacts permission — real OS Allow/Deny pop-up**, in-context: tapping "From phone" in the People row shows a priming explanation, then the system contacts dialog (`expo-contacts`). Granted → a contact picker (matched on-device, nothing uploaded); denied → demo contacts + manual entry still work; permanently denied → open-settings guidance. `WRITE_CONTACTS` is blocked.
+- **Notifications permission — real OS Allow/Deny pop-up**, offered once after the first successful payment (never at launch), fully optional (`expo-notifications`).
+- Each permission fires its **own** system dialog at point-of-use with a plain-language reason — camera, contacts, and notifications now all follow this pattern.
+
+### Fixed (mobile) — payment authentication re-audit
+- **Biometric gate was cosmetic**: `authenticateAsync()` was called but its result ignored — a failed/cancelled Face ID still let you enter the PIN. Now a failed biometric **blocks the PIN pad** with retry/cancel; success (or no enrolled biometric) unlocks it. Clear "checking / failed / passed" states shown.
+- **Double-charge hardening**: PIN entry moved out of an impure `setState` updater (which could double-fire under React's dev double-invocation and mint two idempotency keys) into a pure updater + a single `useEffect` trigger guarded by an in-flight ref; failures reset the guard for a clean retry.
+
 ## [1.4.2] — Mobile runtime fixes: dead policy links in demo, stale-build visibility (mobile 1.4.2 → shown on-screen)
 
 ### Fixed (mobile)

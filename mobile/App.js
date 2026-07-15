@@ -19,6 +19,8 @@ import {
 import { StatusBar } from "expo-status-bar";
 import * as LocalAuthentication from "expo-local-authentication";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import * as Contacts from "expo-contacts";
+import * as Notifications from "expo-notifications";
 import { C, TINTS, CORRIDORS, P2P_CURRENCIES, OPERATORS, BILL_CATEGORIES, BILLERS } from "./src/theme";
 import { fmtINR } from "./src/format";
 import { api, setSession } from "./src/api";
@@ -136,6 +138,7 @@ export default function App() {
   const [requests, setRequests] = useState([]);
   const [verifyResult, setVerifyResult] = useState(null);
   const [consent, setConsent] = useState(false);
+  const [phoneContacts, setPhoneContacts] = useState([]);
   const [camPerm, requestCamPerm] = useCameraPermissions();
   const scanLock = useRef(false);
   const lastBadQr = useRef(0);
@@ -294,6 +297,76 @@ export default function App() {
     setScreen("compose");
   }
 
+  // Real OS contacts permission — asked IN-CONTEXT, only when the user taps
+  // "Pay a contact from my phone". A priming Alert explains why BEFORE the OS
+  // Allow/Deny dialog; deny → the built-in demo contacts remain usable, so the
+  // feature degrades gracefully and never nags.
+  async function payFromPhoneContacts() {
+    const { status, canAskAgain } = await Contacts.getPermissionsAsync();
+    if (status !== "granted") {
+      if (!canAskAgain) {
+        return Alert.alert(
+          "Contacts access is off",
+          "You've turned off contacts access. Enable it in Settings to pick a contact, or just enter a UPI ID / phone number instead.",
+          [{ text: "Enter manually", onPress: () => startDom("phone") }, { text: "Open settings", onPress: () => Linking.openSettings() }, { text: "Cancel", style: "cancel" }]
+        );
+      }
+      Alert.alert(
+        "Pay a contact",
+        "Borderless Pay will read your contacts only to let you pick who to pay. Matching happens on your device — your contact list is never uploaded or stored.",
+        [
+          { text: "Not now", style: "cancel" },
+          {
+            text: "Continue",
+            onPress: async () => {
+              const res = await Contacts.requestPermissionsAsync(); // the real OS Allow/Deny pop-up
+              if (res.status === "granted") loadPhoneContacts();
+              else Alert.alert("No problem", "You can still pay by entering a UPI ID or phone number.", [{ text: "OK", onPress: () => startDom("phone") }]);
+            },
+          },
+        ]
+      );
+      return;
+    }
+    loadPhoneContacts();
+  }
+
+  async function loadPhoneContacts() {
+    try {
+      const { data } = await Contacts.getContactsAsync({ fields: [Contacts.Fields.PhoneNumbers] });
+      const withPhones = (data || []).filter((c) => c.name && c.phoneNumbers && c.phoneNumbers.length);
+      if (!withPhones.length) return Alert.alert("No contacts found", "Enter a UPI ID or phone number instead.", [{ text: "OK", onPress: () => startDom("phone") }]);
+      setPhoneContacts(withPhones.slice(0, 50));
+      setScreen("contacts");
+    } catch (e) {
+      Alert.alert("Could not read contacts", "Enter a UPI ID or phone number instead.", [{ text: "OK", onPress: () => startDom("phone") }]);
+    }
+  }
+
+  function payPhoneContact(c) {
+    const phone = c.phoneNumbers[0].number;
+    setForm({ ...EMPTY_FORM, payeeName: c.name, phone });
+    setDomIntent({ kind: "phone", title: "Pay " + c.name, sub: phone });
+    setScreen("compose");
+  }
+
+  // Real OS notifications permission — offered ONCE after the first successful
+  // payment (never at launch), and fully optional.
+  async function maybeOfferNotifications() {
+    try {
+      const { status, canAskAgain } = await Notifications.getPermissionsAsync();
+      if (status === "granted" || !canAskAgain) return;
+      Alert.alert(
+        "Payment alerts?",
+        "Get an instant receipt and a security alert for every payment. Optional — the app works fully without it.",
+        [
+          { text: "No thanks", style: "cancel" },
+          { text: "Enable alerts", onPress: () => Notifications.requestPermissionsAsync() }, // real OS Allow/Deny pop-up
+        ]
+      );
+    } catch (e) { /* notifications unavailable — silently skip */ }
+  }
+
   function payIncomingRequest(r) {
     setForm({ ...EMPTY_FORM, amount: String(r.amount) });
     setDomIntent({ kind: "payrequest", requestId: r.id, title: "Pay request", sub: r.fromName + (r.note ? " • " + r.note : "") });
@@ -358,30 +431,63 @@ export default function App() {
     }
   }
 
+  // ---- payment authorization (biometric gate → PIN) ----
+  // bioState: "checking" → biometric prompt in progress (PIN pad hidden)
+  //           "passed"   → biometric OK (or none enrolled) — PIN pad active
+  //           "failed"   → user failed/cancelled — must retry or go back
+  const [bioState, setBioState] = useState("checking");
+  const authInFlight = useRef(false);
+
+  function authExitScreen() {
+    return flow === "domestic" ? (domIntent && domIntent.kind !== "payrequest" ? "compose" : "home") : "quote";
+  }
+
   async function openAuth() {
     setPin("");
+    authInFlight.current = false;
+    setBioState("checking");
     setScreen("auth");
+    await runBiometric();
+  }
+
+  async function runBiometric() {
+    setBioState("checking");
     try {
       const has = await LocalAuthentication.hasHardwareAsync();
       const enrolled = has && (await LocalAuthentication.isEnrolledAsync());
-      if (enrolled) {
-        await LocalAuthentication.authenticateAsync({
-          promptMessage: "Authorize your payment",
-          fallbackLabel: "Use PIN",
-        });
+      if (!enrolled) {
+        setBioState("passed"); // no biometrics on this device — PIN is the factor
+        return;
       }
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: "Authorize your payment",
+        cancelLabel: "Cancel",
+        disableDeviceFallback: false,
+      });
+      // THE GATE IS REAL: a failed or cancelled biometric blocks the PIN pad.
+      setBioState(result.success ? "passed" : "failed");
     } catch (e) {
-      // biometrics optional; PIN still required
+      // hardware error → don't strand the user; PIN (server-verified) remains
+      setBioState("passed");
     }
   }
 
+  // PIN entry: the state updater stays PURE (no side effects inside setState —
+  // impure updaters can double-fire under React dev double-invocation, which
+  // for a payment would mean two idempotency keys = a possible double charge).
+  // The 4th digit triggers authorization exactly once via this effect.
   function onPinKey(k) {
-    setPin((prev) => {
-      const v = k === "del" ? prev.slice(0, -1) : prev.length < 4 ? prev + k : prev;
-      if (v.length === 4) setTimeout(() => authorize(v), 150);
-      return v;
-    });
+    if (bioState !== "passed") return; // pad is inert until the biometric gate opens
+    setPin((prev) => (k === "del" ? prev.slice(0, -1) : prev.length < 4 ? prev + k : prev));
   }
+
+  useEffect(() => {
+    if (screen !== "auth" || bioState !== "passed" || pin.length !== 4) return;
+    if (authInFlight.current) return;
+    authInFlight.current = true;
+    const t = setTimeout(() => authorize(pin), 150);
+    return () => clearTimeout(t);
+  }, [pin, screen, bioState]);
 
   async function authorize(enteredPin) {
     setScreen("settle");
@@ -407,8 +513,11 @@ export default function App() {
         setReceipt(r.receipt);
         await refresh();
         setScreen("receipt");
+        maybeOfferNotifications(); // in-context, after a real successful payment
       }, steps.length * 520 + 300);
     } catch (e) {
+      authInFlight.current = false; // allow a clean retry after any failure
+      setPin("");
       // A 60-second quote can lapse while the user hesitates — recover by
       // fetching a fresh one instead of stranding them on a dead quote.
       if (/expired/i.test(e.message || "") && flow !== "domestic") {
@@ -418,7 +527,7 @@ export default function App() {
         return;
       }
       Alert.alert("Could not complete", e.message);
-      setScreen(flow === "domestic" ? (domIntent && domIntent.kind !== "payrequest" ? "compose" : "home") : "quote");
+      setScreen(authExitScreen());
     }
   }
 
@@ -552,7 +661,7 @@ export default function App() {
     }
   }, [screen]);
 
-  const showTabs = ["home", "scan", "scanDom", "send", "compose", "history", "quote", "receipt"].includes(screen);
+  const showTabs = ["home", "scan", "scanDom", "send", "compose", "history", "quote", "receipt", "contacts"].includes(screen);
 
   return (
     <SafeAreaView style={s.app}>
@@ -692,6 +801,10 @@ export default function App() {
               <View>
                 <SectionHeader title="People" />
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[{ marginBottom: 8 }]}>
+                  <TouchableOpacity style={s.person} activeOpacity={0.8} onPress={payFromPhoneContacts}>
+                    <View style={[s.personAdd]}><Text style={[{ fontSize: 22, color: C.accent }]}>👤+</Text></View>
+                    <Text style={s.personName} numberOfLines={1}>From phone</Text>
+                  </TouchableOpacity>
                   {contacts.map((ct) => (
                     <TouchableOpacity key={ct.vpa || ct.phone} style={s.person} activeOpacity={0.8} onPress={() => payContact(ct)}>
                       <Avatar initials={ct.initials} size={52} />
@@ -937,10 +1050,29 @@ export default function App() {
         {screen === "auth" && (
           <View>
             <Text style={[s.h2, { textAlign: "center" }]}>🔒 Authorize</Text>
-            <Text style={[s.sub, { textAlign: "center" }]}>Face ID + enter your PIN</Text>
-            <Text style={[{ fontSize: 64, textAlign: "center", marginVertical: 10 }]}>👤</Text>
-            <PinDots filled={pin.length} />
-            <PinPad onKey={onPinKey} />
+            {bioState === "checking" && (
+              <View>
+                <Text style={[s.sub, { textAlign: "center" }]}>Confirm it's you with Face ID / fingerprint…</Text>
+                <Text style={[{ fontSize: 64, textAlign: "center", marginVertical: 10 }]}>👤</Text>
+                <ActivityIndicator color={C.accent} />
+              </View>
+            )}
+            {bioState === "failed" && (
+              <View>
+                <Text style={[s.sub, { textAlign: "center" }]}>Biometric authentication failed or was cancelled. Payments stay locked until you verify.</Text>
+                <Text style={[{ fontSize: 64, textAlign: "center", marginVertical: 10 }]}>🚫</Text>
+                <PrimaryButton title="Try biometrics again" onPress={runBiometric} />
+                <PrimaryButton title="Cancel payment" secondary onPress={() => setScreen(authExitScreen())} />
+              </View>
+            )}
+            {bioState === "passed" && (
+              <View>
+                <Text style={[s.sub, { textAlign: "center" }]}>Now enter your 4-digit payment PIN</Text>
+                <Text style={[{ fontSize: 64, textAlign: "center", marginVertical: 10 }]}>✅</Text>
+                <PinDots filled={pin.length} />
+                <PinPad onKey={onPinKey} />
+              </View>
+            )}
           </View>
         )}
 
@@ -1013,6 +1145,26 @@ export default function App() {
           <View>
             <Text style={s.h2}>Activity</Text>
             <HistoryList history={history} />
+          </View>
+        )}
+
+        {screen === "contacts" && (
+          <View>
+            <Text style={s.h2}>Pay a contact</Text>
+            <Text style={s.sub}>Matched on your device — nothing is uploaded. Pick who to pay.</Text>
+            {phoneContacts.map((c, i) => (
+              <TouchableOpacity key={c.id || i} style={s.txn} activeOpacity={0.8} onPress={() => payPhoneContact(c)}>
+                <View style={[{ flexDirection: "row", alignItems: "center" }]}>
+                  <Avatar initials={initials(c.name)} size={40} />
+                  <View style={[{ marginLeft: 10 }]}>
+                    <Text style={[{ color: C.text, fontWeight: "600" }]}>{c.name}</Text>
+                    <Text style={[{ color: C.muted, fontSize: 12 }]}>{c.phoneNumbers[0].number}</Text>
+                  </View>
+                </View>
+                <Text style={[{ color: C.accent, fontSize: 20 }]}>›</Text>
+              </TouchableOpacity>
+            ))}
+            <PrimaryButton title="← Back" secondary onPress={() => setScreen("home")} />
           </View>
         )}
       </ScrollView>
@@ -1126,6 +1278,7 @@ const s = StyleSheet.create({
   tileLbl: { color: C.muted, fontSize: 11, textAlign: "center" },
   person: { alignItems: "center", marginRight: 16, width: 60 },
   personName: { color: C.muted, fontSize: 12, marginTop: 6 },
+  personAdd: { width: 52, height: 52, borderRadius: 26, borderWidth: 1, borderColor: C.accent, borderStyle: "dashed", alignItems: "center", justifyContent: "center" },
   consentRow: { flexDirection: "row", alignItems: "flex-start", marginTop: 6, marginBottom: 4 },
   consentBox: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: "#33406b", alignItems: "center", justifyContent: "center", marginRight: 10, marginTop: 1 },
   consentBoxOn: { backgroundColor: C.accent, borderColor: C.accent },
