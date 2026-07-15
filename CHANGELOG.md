@@ -4,6 +4,16 @@ All notable changes to Borderless Pay. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is
 [SemVer](https://semver.org/).
 
+## [1.4.2] — Mobile runtime fixes: dead policy links in demo, stale-build visibility (mobile 1.4.2 → shown on-screen)
+
+### Fixed (mobile)
+- **Demo mode opened dead policy URLs**: "Read the Terms / Privacy Policy" launched the browser at the (nonexistent) backend URL because Android reports http links as openable — the inline-summary fallback never fired. Demo mode now shows the informed-consent summary directly; real-backend mode opens the hosted documents with the same fallback.
+- **Stale native config = missing camera permission**: the one-step `run-on-phone` scripts now run `expo prebuild --clean`, guaranteeing new native config (like the camera-permission plugin) is always applied over an old generated `android/` folder.
+
+### Added (mobile)
+- **Build stamp on the welcome screen** (`v1.4.2 · demo mode / live backend: <url>`): instantly reveals a stale installed build — the #1 cause of "my updates aren't showing on the phone".
+- README: a prominent **"Seeing an OLD version?"** rescue box (uninstall old APK, `npm install` after pull, `prebuild:clean`, Metro `-c`) with a one-command full reset.
+
 ## [1.4.1] — Prototype parity
 
 The single-file prototype (`prototype/index.html`) had been frozen since day one while the product evolved through 13 PRs. Brought to full parity:

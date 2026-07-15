@@ -18,7 +18,10 @@ adb devices || echo "Note: 'adb' not on PATH (it's in \$ANDROID_HOME/platform-to
 
 # Works with ANY JDK 17+ (17/21/22/23/24 ...): generate the native project,
 # then auto-align the Gradle wrapper with whatever Java you have installed.
-npx expo prebuild
+# --clean guarantees new native config (e.g. the camera permission plugin)
+# is ALWAYS applied — a stale android/ folder is the #1 cause of 'my updates
+# aren't showing on the phone'.
+npx expo prebuild --clean
 node scripts/java-compat.js
 
 npx expo run:android --variant release
