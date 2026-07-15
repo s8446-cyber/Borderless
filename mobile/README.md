@@ -11,6 +11,30 @@ both demo mode (the built-in simulator keeps a real hash chain) and real-backend
 mode. Wrong-PIN lockout (5 attempts), single-use 60-second quotes, idempotent
 payments, and server-side logout all behave the same in demo and real mode.
 
+> ## 🔄 Seeing an OLD version? (your changes/updates not showing on the phone)
+>
+> The welcome screen shows a **build stamp** (e.g. `v1.4.1 · demo mode`). If it
+> doesn't match `mobile/package.json`, you're running a **stale build**. In order
+> of likelihood:
+>
+> 1. **Old APK still installed** — a previously built release app does NOT
+>    update itself. Uninstall it on the phone (long-press → uninstall, or
+>    `adb uninstall com.borderlesspay.app`), then rebuild: `npm run phone`.
+> 2. **Dependencies not installed after pulling** — new features add packages
+>    (e.g. `expo-camera`). Always run **`npm install`** after `git pull`.
+> 3. **Stale native project** — new native config (like the camera permission)
+>    lives in the generated `android/` folder. The one-step scripts now run
+>    `expo prebuild --clean` automatically; if building manually, run
+>    **`npm run prebuild:clean`** after pulling changes that touch `app.json`.
+> 4. **Metro cache** (Expo Go / dev builds) — restart with **`npx expo start -c`**.
+>
+> Quick full reset that fixes all of the above:
+> ```bash
+> cd mobile
+> adb uninstall com.borderlesspay.app   # if a release build was installed
+> npm install && npm run prebuild:clean && npm run phone
+> ```
+
 > ## ⚡ Seeing the red _"Unable to load script" / "Could not connect to development server"_ screen?
 >
 > That's a **debug** build trying to download JavaScript from **Metro** (`localhost:8081`).

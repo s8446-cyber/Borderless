@@ -26,6 +26,12 @@ import { CONFIG } from "./src/config";
 import { getDeviceId } from "./src/device";
 import { foldMerkleProof } from "./src/sha256";
 import { parseUpiQr } from "./src/upi";
+
+// Version stamp (from package.json, inlined by Metro). Shown on the welcome
+// screen so it's always obvious WHICH build is installed — if the number on
+// screen doesn't match the repo, you're running a stale build (see README:
+// "Seeing an old version?").
+const APP_VERSION = require("./package.json").version;
 import { Brand, Card, Row, Pill, Badges, PrimaryButton, Chips, PinDots, PinPad, SectionHeader, Avatar } from "./src/ui";
 
 const SETTLE_STEPS = [
@@ -436,9 +442,16 @@ export default function App() {
     }
   }
 
-  // Open the hosted policy document; if unreachable (standalone demo, no
-  // backend), show the key points inline so consent is still informed.
+  // Open the hosted policy document. In DEMO mode there is no backend to
+  // serve it — canOpenURL would still say "yes" and strand the user on a dead
+  // browser tab, so we show the key points inline instead (informed consent
+  // either way). Real-backend mode opens the served document, with the same
+  // inline fallback if it can't.
   async function openPolicy(doc, title, summary) {
+    if (CONFIG.DEMO_MODE) {
+      Alert.alert(title + " (v1.0)", summary);
+      return;
+    }
     try {
       const supported = await Linking.canOpenURL(CONFIG.API_BASE + "/" + doc);
       if (!supported) throw new Error("unavailable");
@@ -583,6 +596,7 @@ export default function App() {
             </View>
             <PrimaryButton title="Verify identity (KYC) →" onPress={handleKyc} loading={busy} />
             <Text style={s.apiNote}>Calls real POST /api/kyc/verify • consent recorded & versioned</Text>
+            <Text style={s.buildStamp}>v{APP_VERSION} · {CONFIG.DEMO_MODE ? "demo mode (standalone)" : "live backend: " + CONFIG.API_BASE}</Text>
           </View>
         )}
 
@@ -1117,4 +1131,5 @@ const s = StyleSheet.create({
   consentBoxOn: { backgroundColor: C.accent, borderColor: C.accent },
   consentTxt: { color: C.muted, fontSize: 13, lineHeight: 19, flex: 1 },
   consentLink: { color: C.accent, fontSize: 12, fontWeight: "600" },
+  buildStamp: { color: C.muted2, fontSize: 10, textAlign: "center", marginTop: 6 },
 });
