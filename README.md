@@ -182,6 +182,7 @@ Security and regulatory trust are first-class here. Key documents:
 - **[Engineering threat model & controls](./backend/SECURITY.md)** — the in-code defenses.
 - **[Regulatory & compliance roadmap](./docs/COMPLIANCE.md)** — RBI PA-CB, FEMA/LRS, sponsor bank, FIU-IND/PMLA, DPDP Act 2023, PCI scope.
 - **[Production readiness checklist](./docs/PRODUCTION_READINESS.md)** — done vs. required before real-money launch.
+- **[Full-system verification report](./docs/VERIFICATION.md)** — 19/19 executed check groups, zero defects.
 - **[Operations & incident response runbook](./docs/RUNBOOK.md)** — observability surface, alert rules, per-scenario playbooks.
 - **[Mobile hardening posture](./mobile/SECURITY.md)** — implemented controls vs. native-build-time items.
 - **[Sponsor bank & PA-CB engagement pack](./docs/BANK_ENGAGEMENT_PACK.md)** — the document to open the bank conversation.
