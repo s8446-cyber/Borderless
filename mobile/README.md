@@ -1,8 +1,15 @@
-# 📱 Borderless Pay — Mobile App (React Native / Expo)
+# 📱 Borderless Pay — Mobile App (React Native / Expo) · v1.0
 
 The native **Android + iOS** app for Borderless Pay: pay at home and abroad
 straight from your bank at the real mid-market rate with a flat 0.5% fee,
-secured by biometrics + PIN and a cryptographic dual ledger.
+secured by biometrics + PIN (with optional TOTP 2FA) and a cryptographic dual
+ledger.
+
+**What's in v1.0:** cross-border pay/send, domestic UPI (phone/VPA/bank/**real
+camera QR scan**), bills, recharge, request money · biometric-gated PIN
+authorization · on-device receipt verification · enforced consent + in-app
+account erasure · in-context OS permission prompts (camera / contacts /
+notifications) · runs on **any JDK 17+**.
 
 **Trust features on-device:** every receipt carries a settlement-ledger hash and
 public anchor, and the **🔎 Verify this receipt independently** button recomputes
@@ -13,7 +20,7 @@ payments, and server-side logout all behave the same in demo and real mode.
 
 > ## 🔄 Seeing an OLD version? (your changes/updates not showing on the phone)
 >
-> The welcome screen shows a **build stamp** (e.g. `v1.4.1 · demo mode`). If it
+> The welcome screen shows a **build stamp** (e.g. `v1.0.0 · demo mode`). If it
 > doesn't match `mobile/package.json`, you're running a **stale build**. In order
 > of likelihood:
 >
