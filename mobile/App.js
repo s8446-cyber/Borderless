@@ -18,7 +18,7 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import * as LocalAuthentication from "expo-local-authentication";
-import { CameraView, useCameraPermissions } from "./src/scanner";
+import { CameraView, useCameraPermissions, WebQrScanner, webCameraCapable } from "./src/scanner";
 import * as Contacts from "expo-contacts";
 import * as Notifications from "expo-notifications";
 import { appAlert, AlertHost, simulateBiometric, getSimPerm, requestSimPerm } from "./src/alert";
@@ -147,7 +147,7 @@ export default function App() {
   const [verifyResult, setVerifyResult] = useState(null);
   const [consent, setConsent] = useState(false);
   const [phoneContacts, setPhoneContacts] = useState([]);
-  const [webScanning, setWebScanning] = useState(false); // web-sim camera scan animation
+  const [webScan, setWebScan] = useState("idle"); // web-sim scanner: idle | live (real camera) | sim (simulated)
   const [camPerm, requestCamPerm] = useCameraPermissions();
   const scanLock = useRef(false);
   const lastBadQr = useRef(0);
@@ -251,15 +251,27 @@ export default function App() {
     setForm(EMPTY_FORM);
     setFlow("domestic");
     scanLock.current = false;
-    setWebScanning(false);
+    setWebScan("idle");
     setScreen("scanDom");
   }
 
-  // Web sim: demonstrate the camera-permission prompt + a scanning animation,
-  // then auto-detect a demo UPI QR (the live camera + jsQR decoder is a
-  // real-device feature — see src/scanner.web.js). Like the OS, the simulated
-  // permission is asked once and remembered for the session.
+  // A real merchant UPI QR payload for the simulated scanner — it goes through
+  // the SAME hardened upi:// parser as a physical QR, so the full pipeline
+  // (parse → validate → prefill) is exercised even without a camera.
+  const DEMO_UPI_QR = "upi://pay?pa=ccd@bpl&pn=Cafe%20Coffee%20Day";
+
+  // Web: scan the way a phone browser would. If the browser can open a camera
+  // (secure context + getUserMedia — e.g. the sim opened on a phone, or a
+  // laptop with a webcam), use the REAL camera: the browser shows its own
+  // in-context permission prompt and frames are decoded on-device
+  // (BarcodeDetector on phones, bundled jsQR elsewhere). Only when no camera
+  // API exists do we fall back to a clearly-simulated scan.
   async function startWebScan() {
+    if (webCameraCapable()) {
+      scanLock.current = false;
+      setWebScan("live"); // <WebQrScanner/> mounts → browser permission prompt
+      return;
+    }
     if (getSimPerm("camera") === "denied") {
       return appAlert(
         "Camera access is turned off",
@@ -274,11 +286,33 @@ export default function App() {
     if (!ok) {
       return appAlert("Camera off", "No problem — use the demo QR, or enter a UPI ID instead.");
     }
-    setWebScanning(true);
+    simScan();
+  }
+
+  // Simulated scan: brief scanning animation, then a demo UPI QR payload is
+  // fed through the real onQrScanned → parseUpiQr pipeline.
+  function simScan() {
+    setWebScan("sim");
     setTimeout(() => {
-      setWebScanning(false);
-      useDemoQr();
+      setWebScan("idle");
+      onQrScanned({ data: DEMO_UPI_QR });
     }, 1700);
+  }
+
+  // The real web camera failed to start.
+  function onWebCamError(e) {
+    setWebScan("idle");
+    const name = e && e.name;
+    if (name === "NotAllowedError" || name === "SecurityError") {
+      appAlert(
+        "Camera access is turned off",
+        "You denied the browser's camera permission, so live scanning is unavailable. Enable it in your browser's site settings, or continue with the demo QR / manual entry."
+      );
+    } else {
+      appAlert("Camera unavailable", "No usable camera was found — continuing with the simulated scanner.", [
+        { text: "OK", onPress: simScan },
+      ]);
+    }
   }
 
   // Real QR handling: parse the (untrusted) QR payload as a UPI URI; valid →
@@ -1016,7 +1050,20 @@ export default function App() {
         {screen === "scanDom" && (IS_WEB ? (
           <View>
             <Text style={s.h2}>Scan any UPI QR</Text>
-            {webScanning ? (
+            {webScan === "live" ? (
+              <View>
+                <View style={s.scanner}>
+                  <WebQrScanner onScanned={onQrScanned} onError={onWebCamError} />
+                  <View style={s.scanline} pointerEvents="none" />
+                </View>
+                <Text style={[s.apiNote, { marginTop: 10 }]}>
+                  Live camera — point at any UPI QR (it encodes upi://pay…). Decoded on your device; nothing is photographed, stored, or uploaded.
+                </Text>
+                <PrimaryButton title="Stop camera" secondary onPress={() => setWebScan("idle")} />
+                <PrimaryButton title="Enter UPI ID instead" secondary onPress={() => startDom("upiid")} />
+                <PrimaryButton title="Use demo QR (no camera)" secondary onPress={useDemoQr} />
+              </View>
+            ) : webScan === "sim" ? (
               <View>
                 <View style={s.scanner}>
                   <View style={[{ flex: 1, alignItems: "center", justifyContent: "center" }]}>
@@ -1026,7 +1073,7 @@ export default function App() {
                   <View style={s.scanline} pointerEvents="none" />
                 </View>
                 <Text style={[s.apiNote, { marginTop: 10 }]}>
-                  Simulated camera (browser build). On a real device this is the live camera decoding the QR on-device. Detecting a demo UPI QR…
+                  Simulated camera (no camera available here). Detecting a demo UPI QR — it runs through the same upi:// parser as a real scan.
                 </Text>
               </View>
             ) : (
@@ -1035,8 +1082,10 @@ export default function App() {
                   <Text style={[{ color: C.text, fontWeight: "700", marginBottom: 6 }]}>📷 Camera — only while you scan</Text>
                   <Text style={[{ color: C.muted, fontSize: 13, lineHeight: 19 }]}>
                     Borderless Pay uses the camera solely to read the payment QR in front of you. No photos or video are
-                    captured, stored, or uploaded. Live camera scanning runs on a real device; in this browser build the
-                    camera and QR are simulated so you can walk the whole flow.
+                    captured, stored, or uploaded — the QR is decoded on your device.
+                    {webCameraCapable()
+                      ? " Your browser will ask for camera access in-context, like the app does on a phone."
+                      : " No camera is available in this browser session, so the scan is simulated."}
                   </Text>
                 </Card>
                 <PrimaryButton title="Allow camera & scan" onPress={startWebScan} />
