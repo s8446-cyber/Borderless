@@ -4,6 +4,22 @@ All notable changes to Borderless Pay. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is
 [SemVer](https://semver.org/).
 
+## [1.5.1] — Mobile build hardening: preflight doctor, clean dependency matrix, zero prebuild warnings
+
+Goal: a tester with any JDK 17+ can build and launch with **no errors to clear first**.
+
+### Fixed (mobile)
+- **`expo-notifications` version drift**: was `^0.28.19` (caret) where Expo SDK 51 pins `~0.28.19` — the exact kind of mismatch that triggers Expo's "some dependencies should be updated" warning at startup. All 10 dependencies now match the SDK 51 matrix **exactly** (verified against Expo's offline `bundledNativeModules.json`).
+- **`userInterfaceStyle` prebuild warning**: `app.json` requested dark mode but `expo-system-ui` wasn't installed, so `expo prebuild` printed a warning. Added `expo-system-ui@~3.0.7`; prebuild now finishes with **zero warnings**.
+
+### Added (mobile)
+- **Preflight doctor** (`npm run doctor`, also auto-run before every build): checks Node 18+, dependencies, **any JDK 17+** (17/21/22/23/24), Android SDK, and a connected device — printing an exact fix for each issue **before** the long Gradle build starts, so testers never face a cryptic mid-build stack trace.
+- README: 2-second `npm run doctor` setup check up front.
+
+### Verified
+- Generated Android manifest: correct granted permissions; RECORD_AUDIO / storage / overlay / WRITE_CONTACTS all stripped (`tools:node="remove"`).
+- `expo prebuild` clean; all JS parses; JDK 17/21/24 accepted & auto-aligned, JDK 11 clearly rejected; demo runtime + receipt verification intact.
+
 ## [1.5.0] — Contacts & notifications permission pop-ups + payment-auth re-audit (mobile)
 
 ### Added (mobile)
