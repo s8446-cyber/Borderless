@@ -11,16 +11,17 @@ import {
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   Animated,
   StyleSheet,
   Linking,
+  Platform,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import * as LocalAuthentication from "expo-local-authentication";
-import { CameraView, useCameraPermissions } from "expo-camera";
+import { CameraView, useCameraPermissions } from "./src/scanner";
 import * as Contacts from "expo-contacts";
 import * as Notifications from "expo-notifications";
+import { appAlert, AlertHost, simulateOSPrompt, simulateBiometric } from "./src/alert";
 import { C, TINTS, CORRIDORS, P2P_CURRENCIES, OPERATORS, BILL_CATEGORIES, BILLERS } from "./src/theme";
 import { fmtINR } from "./src/format";
 import { api, setSession } from "./src/api";
@@ -36,6 +37,12 @@ import { rs, CONTENT } from "./src/responsive";
 // "Seeing an old version?").
 const APP_VERSION = require("./package.json").version;
 import { Brand, Card, Row, Pill, Badges, PrimaryButton, Chips, PinDots, PinPad, SectionHeader, Avatar } from "./src/ui";
+
+// On web (react-native-web / `npm run sim`) the native OS layer — alerts,
+// biometric sheet, permission prompts, live camera — isn't available, so those
+// interactions are faithfully simulated on screen. Native devices use the real
+// thing. This flag is the single switch between the two.
+const IS_WEB = Platform.OS === "web";
 
 const SETTLE_STEPS = [
   "Debit home bank account",
@@ -140,6 +147,7 @@ export default function App() {
   const [verifyResult, setVerifyResult] = useState(null);
   const [consent, setConsent] = useState(false);
   const [phoneContacts, setPhoneContacts] = useState([]);
+  const [webScanning, setWebScanning] = useState(false); // web-sim camera scan animation
   const [camPerm, requestCamPerm] = useCameraPermissions();
   const scanLock = useRef(false);
   const lastBadQr = useRef(0);
@@ -153,7 +161,7 @@ export default function App() {
 
   async function handleKyc() {
     if (!consent) {
-      return Alert.alert("Consent needed", "Please read and accept the Terms of Service and Privacy Policy to continue.");
+      return appAlert("Consent needed", "Please read and accept the Terms of Service and Privacy Policy to continue.");
     }
     setBusy(true);
     try {
@@ -168,14 +176,14 @@ export default function App() {
       setSession(r);
       setScreen("link");
     } catch (e) {
-      Alert.alert("Verification failed", e.message);
+      appAlert("Verification failed", e.message);
     } finally {
       setBusy(false);
     }
   }
 
   async function handleLink() {
-    if (newPin.length !== 4) return Alert.alert("Set a PIN", "Choose a 4-digit payment PIN first.");
+    if (newPin.length !== 4) return appAlert("Set a PIN", "Choose a 4-digit payment PIN first.");
     setBusy(true);
     try {
       await api("/api/accounts/link", {
@@ -185,7 +193,7 @@ export default function App() {
       await refresh();
       setScreen("home");
     } catch (e) {
-      Alert.alert("Could not link", e.message);
+      appAlert("Could not link", e.message);
     } finally {
       setBusy(false);
     }
@@ -223,7 +231,7 @@ export default function App() {
 
   async function getTransferQuote() {
     const amt = Number(sendAmount);
-    if (!(amt > 0)) return Alert.alert("Enter an amount", "How much would you like to send?");
+    if (!(amt > 0)) return appAlert("Enter an amount", "How much would you like to send?");
     setBusy(true);
     try {
       const q = await api("/api/transfers/quote", {
@@ -233,7 +241,7 @@ export default function App() {
       setQuote(q);
       setScreen("quote");
     } catch (e) {
-      Alert.alert("Quote failed", e.message);
+      appAlert("Quote failed", e.message);
     } finally {
       setBusy(false);
     }
@@ -243,7 +251,27 @@ export default function App() {
     setForm(EMPTY_FORM);
     setFlow("domestic");
     scanLock.current = false;
+    setWebScanning(false);
     setScreen("scanDom");
+  }
+
+  // Web sim: demonstrate the camera-permission prompt + a scanning animation,
+  // then auto-detect a demo UPI QR (the live camera + jsQR decoder is a
+  // real-device feature — see src/scanner.web.js).
+  async function startWebScan() {
+    const ok = await simulateOSPrompt({
+      icon: "📷",
+      title: "“Borderless Pay” Would Like to Access the Camera",
+      message: "Borderless Pay uses the camera only while you scan a payment QR code. Photos and video are never captured or stored.",
+    });
+    if (!ok) {
+      return appAlert("Camera off", "No problem — use the demo QR, or enter a UPI ID instead.");
+    }
+    setWebScanning(true);
+    setTimeout(() => {
+      setWebScanning(false);
+      useDemoQr();
+    }, 1700);
   }
 
   // Real QR handling: parse the (untrusted) QR payload as a UPI URI; valid →
@@ -254,7 +282,7 @@ export default function App() {
     if (!parsed) {
       if (Date.now() - lastBadQr.current > 2500) {
         lastBadQr.current = Date.now();
-        Alert.alert("Not a UPI payment QR", "Point the camera at a UPI QR (it encodes upi://pay…). You can also enter the UPI ID manually.");
+        appAlert("Not a UPI payment QR", "Point the camera at a UPI QR (it encodes upi://pay…). You can also enter the UPI ID manually.");
       }
       return;
     }
@@ -303,16 +331,29 @@ export default function App() {
   // Allow/Deny dialog; deny → the built-in demo contacts remain usable, so the
   // feature degrades gracefully and never nags.
   async function payFromPhoneContacts() {
+    // Web sim: show the OS-style contacts prompt, then (on allow) load the
+    // built-in directory as if it were the phone's contacts.
+    if (IS_WEB) {
+      const ok = await simulateOSPrompt({
+        icon: "👥",
+        title: "“Borderless Pay” Would Like to Access Your Contacts",
+        message: "Borderless Pay reads your contacts only to let you pick who to pay. Matching happens on your device — your contact list is never uploaded or stored.",
+      });
+      if (!ok) {
+        return appAlert("No problem", "You can still pay by entering a UPI ID or phone number.", [{ text: "Enter manually", onPress: () => startDom("phone") }, { text: "OK", style: "cancel" }]);
+      }
+      return loadPhoneContactsWeb();
+    }
     const { status, canAskAgain } = await Contacts.getPermissionsAsync();
     if (status !== "granted") {
       if (!canAskAgain) {
-        return Alert.alert(
+        return appAlert(
           "Contacts access is off",
           "You've turned off contacts access. Enable it in Settings to pick a contact, or just enter a UPI ID / phone number instead.",
           [{ text: "Enter manually", onPress: () => startDom("phone") }, { text: "Open settings", onPress: () => Linking.openSettings() }, { text: "Cancel", style: "cancel" }]
         );
       }
-      Alert.alert(
+      appAlert(
         "Pay a contact",
         "Borderless Pay will read your contacts only to let you pick who to pay. Matching happens on your device — your contact list is never uploaded or stored.",
         [
@@ -322,7 +363,7 @@ export default function App() {
             onPress: async () => {
               const res = await Contacts.requestPermissionsAsync(); // the real OS Allow/Deny pop-up
               if (res.status === "granted") loadPhoneContacts();
-              else Alert.alert("No problem", "You can still pay by entering a UPI ID or phone number.", [{ text: "OK", onPress: () => startDom("phone") }]);
+              else appAlert("No problem", "You can still pay by entering a UPI ID or phone number.", [{ text: "OK", onPress: () => startDom("phone") }]);
             },
           },
         ]
@@ -336,11 +377,25 @@ export default function App() {
     try {
       const { data } = await Contacts.getContactsAsync({ fields: [Contacts.Fields.PhoneNumbers] });
       const withPhones = (data || []).filter((c) => c.name && c.phoneNumbers && c.phoneNumbers.length);
-      if (!withPhones.length) return Alert.alert("No contacts found", "Enter a UPI ID or phone number instead.", [{ text: "OK", onPress: () => startDom("phone") }]);
+      if (!withPhones.length) return appAlert("No contacts found", "Enter a UPI ID or phone number instead.", [{ text: "OK", onPress: () => startDom("phone") }]);
       setPhoneContacts(withPhones.slice(0, 50));
       setScreen("contacts");
     } catch (e) {
-      Alert.alert("Could not read contacts", "Enter a UPI ID or phone number instead.", [{ text: "OK", onPress: () => startDom("phone") }]);
+      appAlert("Could not read contacts", "Enter a UPI ID or phone number instead.", [{ text: "OK", onPress: () => startDom("phone") }]);
+    }
+  }
+
+  // Web sim: build a phone-contacts list (expo-contacts shape) from the
+  // built-in demo directory so the "pick a contact" screen works in a browser.
+  async function loadPhoneContactsWeb() {
+    try {
+      const { contacts } = await api("/api/contacts");
+      const mapped = (contacts || []).map((ct, i) => ({ id: "demo-" + i, name: ct.name, phoneNumbers: [{ number: ct.phone }] }));
+      if (!mapped.length) return appAlert("No contacts found", "Enter a UPI ID or phone number instead.", [{ text: "OK", onPress: () => startDom("phone") }]);
+      setPhoneContacts(mapped);
+      setScreen("contacts");
+    } catch (e) {
+      appAlert("Could not read contacts", "Enter a UPI ID or phone number instead.", [{ text: "OK", onPress: () => startDom("phone") }]);
     }
   }
 
@@ -354,10 +409,20 @@ export default function App() {
   // Real OS notifications permission — offered ONCE after the first successful
   // payment (never at launch), and fully optional.
   async function maybeOfferNotifications() {
+    // Web sim: offer the OS-style notifications prompt once after a payment.
+    if (IS_WEB) {
+      const ok = await simulateOSPrompt({
+        icon: "🔔",
+        title: "“Borderless Pay” Would Like to Send You Notifications",
+        message: "Get an instant receipt and a security alert for every payment. Optional — the app works fully without it.",
+      });
+      if (ok) appAlert("Alerts on", "You'll get a receipt and a security alert for each payment.");
+      return;
+    }
     try {
       const { status, canAskAgain } = await Notifications.getPermissionsAsync();
       if (status === "granted" || !canAskAgain) return;
-      Alert.alert(
+      appAlert(
         "Payment alerts?",
         "Get an instant receipt and a security alert for every payment. Optional — the app works fully without it.",
         [
@@ -377,7 +442,7 @@ export default function App() {
 
   async function submitRequest() {
     const amount = Number(form.amount);
-    if (!(amount > 0)) return Alert.alert("Enter an amount", "How much do you want to request?");
+    if (!(amount > 0)) return appAlert("Enter an amount", "How much do you want to request?");
     setBusy(true);
     try {
       await api("/api/requests", {
@@ -385,10 +450,10 @@ export default function App() {
         body: { amount, fromName: form.payeeName || form.phone || "Someone", note: form.note },
       });
       await refresh();
-      Alert.alert("Request sent", "We'll notify you when it's paid.");
+      appAlert("Request sent", "We'll notify you when it's paid.");
       setScreen("home");
     } catch (e) {
-      Alert.alert("Could not send request", e.message);
+      appAlert("Could not send request", e.message);
     } finally {
       setBusy(false);
     }
@@ -396,7 +461,7 @@ export default function App() {
 
   function proceedDomestic() {
     const amount = Number(form.amount);
-    if (!(amount > 0)) return Alert.alert("Enter an amount", "How much do you want to pay?");
+    if (!(amount > 0)) return appAlert("Enter an amount", "How much do you want to pay?");
     setFlow("domestic");
     openAuth();
   }
@@ -426,7 +491,7 @@ export default function App() {
       setQuote(q);
       setScreen("quote");
     } catch (e) {
-      Alert.alert("Quote failed", e.message);
+      appAlert("Quote failed", e.message);
     } finally {
       setBusy(false);
     }
@@ -453,6 +518,14 @@ export default function App() {
 
   async function runBiometric() {
     setBioState("checking");
+    // Web sim: browsers have no biometric API, so show a simulated Face ID
+    // sheet. The gate is still real — cancelling blocks the PIN pad, exactly
+    // as a failed biometric does on a device.
+    if (IS_WEB) {
+      const result = await simulateBiometric("Confirm it's you to authorize this payment");
+      setBioState(result.success ? "passed" : "failed");
+      return;
+    }
     try {
       const has = await LocalAuthentication.hasHardwareAsync();
       const enrolled = has && (await LocalAuthentication.isEnrolledAsync());
@@ -522,12 +595,12 @@ export default function App() {
       // A 60-second quote can lapse while the user hesitates — recover by
       // fetching a fresh one instead of stranding them on a dead quote.
       if (/expired/i.test(e.message || "") && flow !== "domestic") {
-        Alert.alert("Quote expired", "Rates lock for 60 seconds — fetching you a fresh quote.");
+        appAlert("Quote expired", "Rates lock for 60 seconds — fetching you a fresh quote.");
         if (flow === "send") getTransferQuote();
         else getQuote();
         return;
       }
-      Alert.alert("Could not complete", e.message);
+      appAlert("Could not complete", e.message);
       setScreen(authExitScreen());
     }
   }
@@ -559,7 +632,7 @@ export default function App() {
   // inline fallback if it can't.
   async function openPolicy(doc, title, summary) {
     if (CONFIG.DEMO_MODE) {
-      Alert.alert(title + " (v1.0)", summary);
+      appAlert(title + " (v1.0)", summary);
       return;
     }
     try {
@@ -567,7 +640,7 @@ export default function App() {
       if (!supported) throw new Error("unavailable");
       await Linking.openURL(CONFIG.API_BASE + "/" + doc);
     } catch {
-      Alert.alert(title + " (v1.0)", summary);
+      appAlert(title + " (v1.0)", summary);
     }
   }
 
@@ -577,14 +650,14 @@ export default function App() {
     "Demo product — no real money moves. ₹0 domestic fee; cross-border at the mid-market rate + flat 0.5% (₹2 min, ₹500 cap), always shown before you confirm. Receipts are recorded on a tamper-evident ledger. Keep your PIN and 2FA codes secret. Full terms: terms.html on the web app.";
 
   function confirmLogout() {
-    Alert.alert("Account", "Log out, or close your account permanently?", [
+    appAlert("Account", "Log out, or close your account permanently?", [
       { text: "Cancel", style: "cancel" },
       { text: "Log out", onPress: logout },
       {
         text: "Close account",
         style: "destructive",
         onPress: () =>
-          Alert.alert(
+          appAlert(
             "Close your account?",
             "Your profile data is erased immediately and every session is revoked. Transaction records are retained pseudonymously as required by law. This cannot be undone.",
             [
@@ -599,9 +672,9 @@ export default function App() {
   async function closeAccount() {
     try {
       await api("/api/account/close", { method: "POST" });
-      Alert.alert("Account closed", "Your profile data has been erased and all sessions revoked.");
+      appAlert("Account closed", "Your profile data has been erased and all sessions revoked.");
     } catch (e) {
-      Alert.alert("Could not close account", e.message);
+      appAlert("Could not close account", e.message);
       return;
     }
     await resetLocal();
@@ -635,12 +708,12 @@ export default function App() {
   async function verifyLedger() {
     try {
       const v = await api("/api/ledger/verify");
-      Alert.alert(
+      appAlert(
         v.ok ? "✓ Ledger intact" : "✗ Tampering detected",
         v.ok ? v.blocks + " blocks • " + v.anchors + " anchors verified" : String(v.reason)
       );
     } catch (e) {
-      Alert.alert("Error", e.message);
+      appAlert("Error", e.message);
     }
   }
 
@@ -923,7 +996,39 @@ export default function App() {
           </View>
         )}
 
-        {screen === "scanDom" && (
+        {screen === "scanDom" && (IS_WEB ? (
+          <View>
+            <Text style={s.h2}>Scan any UPI QR</Text>
+            {webScanning ? (
+              <View>
+                <View style={s.scanner}>
+                  <View style={[{ flex: 1, alignItems: "center", justifyContent: "center" }]}>
+                    <Text style={[{ fontSize: 52 }]}>🎯</Text>
+                    <Text style={[{ color: C.muted, marginTop: 8, fontWeight: "600" }]}>Scanning — hold steady…</Text>
+                  </View>
+                  <View style={s.scanline} pointerEvents="none" />
+                </View>
+                <Text style={[s.apiNote, { marginTop: 10 }]}>
+                  Simulated camera (browser build). On a real device this is the live camera decoding the QR on-device. Detecting a demo UPI QR…
+                </Text>
+              </View>
+            ) : (
+              <View>
+                <Card>
+                  <Text style={[{ color: C.text, fontWeight: "700", marginBottom: 6 }]}>📷 Camera — only while you scan</Text>
+                  <Text style={[{ color: C.muted, fontSize: 13, lineHeight: 19 }]}>
+                    Borderless Pay uses the camera solely to read the payment QR in front of you. No photos or video are
+                    captured, stored, or uploaded. Live camera scanning runs on a real device; in this browser build the
+                    camera and QR are simulated so you can walk the whole flow.
+                  </Text>
+                </Card>
+                <PrimaryButton title="Allow camera & scan" onPress={startWebScan} />
+                <PrimaryButton title="Enter UPI ID instead" secondary onPress={() => startDom("upiid")} />
+                <PrimaryButton title="Use demo QR (no camera)" secondary onPress={useDemoQr} />
+              </View>
+            )}
+          </View>
+        ) : (
           <View>
             <Text style={s.h2}>Scan any UPI QR</Text>
             {camPerm && camPerm.granted ? (
@@ -972,7 +1077,7 @@ export default function App() {
               </View>
             )}
           </View>
-        )}
+        ))}
 
         {screen === "compose" && domIntent && (
           <View>
@@ -1187,6 +1292,8 @@ export default function App() {
           </View>
         </View>
       )}
+
+      <AlertHost />
     </SafeAreaView>
   );
 }
