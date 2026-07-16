@@ -3,6 +3,7 @@
 import React, { useRef } from "react";
 import { View, Text, TouchableOpacity, Pressable, Animated, StyleSheet, ActivityIndicator } from "react-native";
 import { C } from "./theme";
+import { rs } from "./responsive";
 
 export function Brand({ subtitle }) {
   return (
@@ -159,11 +160,11 @@ export function PinPad({ onKey }) {
 const u = StyleSheet.create({
   brandRow: { flexDirection: "row", alignItems: "center", gap: 11, marginBottom: 22 },
   logo: {
-    width: 42, height: 42, borderRadius: 13, backgroundColor: C.accent,
+    width: rs(42), height: rs(42), borderRadius: rs(13), backgroundColor: C.accent,
     alignItems: "center", justifyContent: "center",
     shadowColor: C.accent, shadowOpacity: 0.5, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 6,
   },
-  brandTxt: { color: C.text, fontSize: 19, fontWeight: "800", letterSpacing: 0.2 },
+  brandTxt: { color: C.text, fontSize: rs(19), fontWeight: "800", letterSpacing: 0.2 },
   brandSub: { color: C.muted, fontSize: 12, marginTop: 1 },
   card: {
     backgroundColor: C.card, borderColor: C.border, borderWidth: 1, borderRadius: 20, padding: 18, marginBottom: 14,
@@ -175,8 +176,8 @@ const u = StyleSheet.create({
   sectionAction: { color: C.accent, fontSize: 13, fontWeight: "700" },
   row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 9 },
   rowTotal: { borderTopWidth: 1, borderTopColor: "#2b3a6b", marginTop: 6, paddingTop: 14 },
-  rowLbl: { color: C.muted, fontSize: 15 },
-  rowVal: { color: C.text, fontSize: 15, fontWeight: "600" },
+  rowLbl: { color: C.muted, fontSize: rs(15) },
+  rowVal: { color: C.text, fontSize: rs(15), fontWeight: "600" },
   pill: { alignSelf: "flex-start", backgroundColor: "#143a2e", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
   pillTxt: { color: C.accent, fontSize: 12, fontWeight: "700" },
   badges: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
@@ -184,19 +185,19 @@ const u = StyleSheet.create({
   badgeTxt: { color: C.accent2, fontSize: 11, fontWeight: "600" },
   avatar: { backgroundColor: C.accent, alignItems: "center", justifyContent: "center" },
   btn: {
-    backgroundColor: C.accent, borderRadius: 15, padding: 16, alignItems: "center", marginTop: 10,
+    backgroundColor: C.accent, borderRadius: 15, padding: rs(16), alignItems: "center", marginTop: 10,
     shadowColor: C.accent, shadowOpacity: 0.35, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 5,
   },
   btnSecondary: { backgroundColor: "transparent", borderWidth: 1, borderColor: "#33406b", shadowOpacity: 0, elevation: 0 },
-  btnTxt: { color: "#04122b", fontSize: 16, fontWeight: "800" },
+  btnTxt: { color: "#04122b", fontSize: rs(16), fontWeight: "800" },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 },
   chip: { backgroundColor: C.card2, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderColor: C.border },
   chipActive: { backgroundColor: C.accent, borderColor: C.accent },
   chipTxt: { color: C.text, fontSize: 13, fontWeight: "600" },
   dots: { flexDirection: "row", gap: 16, justifyContent: "center", marginVertical: 20 },
-  dot: { width: 16, height: 16, borderRadius: 8, borderWidth: 2, borderColor: "#33406b" },
+  dot: { width: rs(16), height: rs(16), borderRadius: rs(8), borderWidth: 2, borderColor: "#33406b" },
   dotFilled: { backgroundColor: C.accent, borderColor: C.accent },
   pad: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", marginTop: 10 },
-  key: { width: "31%", backgroundColor: C.card2, borderRadius: 16, paddingVertical: 18, alignItems: "center", marginBottom: 12 },
-  keyTxt: { color: C.text, fontSize: 24, fontWeight: "600" },
+  key: { width: "31%", backgroundColor: C.card2, borderRadius: 16, paddingVertical: rs(18), alignItems: "center", marginBottom: rs(12) },
+  keyTxt: { color: C.text, fontSize: rs(24), fontWeight: "600" },
 });

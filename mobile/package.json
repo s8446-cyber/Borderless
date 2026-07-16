@@ -4,6 +4,8 @@
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
     "start": "expo start",
+    "live": "node scripts/live.js",
+    "live:check": "node scripts/live.js --check",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",

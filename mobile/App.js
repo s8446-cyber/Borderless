@@ -28,6 +28,7 @@ import { CONFIG } from "./src/config";
 import { getDeviceId } from "./src/device";
 import { foldMerkleProof } from "./src/sha256";
 import { parseUpiQr } from "./src/upi";
+import { rs, CONTENT } from "./src/responsive";
 
 // Version stamp (from package.json, inlined by Metro). Shown on the welcome
 // screen so it's always obvious WHICH build is installed — if the number on
@@ -1171,6 +1172,7 @@ export default function App() {
 
       {showTabs && (
         <View style={s.tabbar}>
+          <View style={s.tabbarInner}>
           <Tab label="Home" icon="🏠" active={screen === "home"} onPress={() => setScreen("home")} />
           <Tab label="Scan" icon="📷" active={screen === "scanDom" || screen === "scan"} onPress={startScanDomestic} />
           <Tab
@@ -1182,6 +1184,7 @@ export default function App() {
               setScreen("history");
             }}
           />
+          </View>
         </View>
       )}
     </SafeAreaView>
@@ -1238,23 +1241,23 @@ function HistoryList({ history }) {
 
 const s = StyleSheet.create({
   app: { flex: 1, backgroundColor: C.bg },
-  scroll: { padding: 22, paddingBottom: 110 },
-  h1: { color: C.text, fontSize: 27, fontWeight: "800", marginBottom: 8, letterSpacing: -0.6 },
-  h2: { color: C.text, fontSize: 21, fontWeight: "800", marginBottom: 12, letterSpacing: -0.3 },
-  sub: { color: C.muted, fontSize: 14, lineHeight: 21, marginBottom: 20 },
+  scroll: { padding: rs(22), paddingBottom: rs(110), ...CONTENT },
+  h1: { color: C.text, fontSize: rs(27), fontWeight: "800", marginBottom: 8, letterSpacing: -0.6 },
+  h2: { color: C.text, fontSize: rs(21), fontWeight: "800", marginBottom: 12, letterSpacing: -0.3 },
+  sub: { color: C.muted, fontSize: rs(14), lineHeight: rs(21), marginBottom: 20 },
   label: { color: C.muted, fontSize: 13, marginBottom: 6, fontWeight: "500" },
-  input: { backgroundColor: C.card2, borderColor: "#2b3a6b", borderWidth: 1, borderRadius: 13, padding: 14, color: C.text, fontSize: 15, marginBottom: 12 },
+  input: { backgroundColor: C.card2, borderColor: "#2b3a6b", borderWidth: 1, borderRadius: 13, padding: rs(14), color: C.text, fontSize: rs(15), marginBottom: 12 },
   muted: { color: C.muted, fontSize: 13 },
   apiNote: { color: C.muted2, fontSize: 11, textAlign: "center", marginTop: 14 },
   topbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 18 },
   greet: { color: C.muted, fontSize: 13 },
-  greetName: { color: C.text, fontSize: 22, fontWeight: "800", letterSpacing: -0.3 },
-  balance: { color: C.text, fontSize: 36, fontWeight: "800", marginVertical: 6, letterSpacing: -1 },
+  greetName: { color: C.text, fontSize: rs(22), fontWeight: "800", letterSpacing: -0.3 },
+  balance: { color: C.text, fontSize: rs(36), fontWeight: "800", marginVertical: 6, letterSpacing: -1 },
   balanceRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   verifyChip: { backgroundColor: "#16233f", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
   verifyChipTxt: { color: C.accent2, fontSize: 12, fontWeight: "700" },
   savings: { color: C.accent, fontSize: 12, textAlign: "center", marginVertical: 6 },
-  scanner: { height: 230, borderRadius: 20, backgroundColor: "#0e1730", borderWidth: 2, borderColor: C.border, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  scanner: { height: rs(230), borderRadius: 20, backgroundColor: "#0e1730", borderWidth: 2, borderColor: C.border, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   scanline: { position: "absolute", left: 16, right: 16, top: "20%", height: 2, backgroundColor: C.accent, opacity: 0.7 },
   qr: { width: 124, height: 124, backgroundColor: "#fff", borderRadius: 12, flexDirection: "row", flexWrap: "wrap", padding: 8 },
   qrCell: { width: "20%", height: "20%", backgroundColor: "#fff" },
@@ -1262,19 +1265,20 @@ const s = StyleSheet.create({
   stepDot: { width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: "#33406b", alignItems: "center", justifyContent: "center", marginRight: 12 },
   stepDotDone: { backgroundColor: C.accent, borderColor: C.accent },
   stepTxt: { color: C.muted, fontSize: 15, flex: 1 },
-  check: { width: 84, height: 84, borderRadius: 42, backgroundColor: C.accent, alignItems: "center", justifyContent: "center", alignSelf: "center", marginVertical: 16, shadowColor: C.accent, shadowOpacity: 0.5, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
+  check: { width: rs(84), height: rs(84), borderRadius: rs(42), backgroundColor: C.accent, alignItems: "center", justifyContent: "center", alignSelf: "center", marginVertical: 16, shadowColor: C.accent, shadowOpacity: 0.5, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
   hashLbl: { color: C.muted, fontSize: 12, marginTop: 8 },
   hash: { color: C.muted, fontSize: 11, fontFamily: "monospace", backgroundColor: "#0c1430", padding: 9, borderRadius: 9, marginTop: 4 },
   txn: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#1b2546" },
   txnIc: { width: 40, height: 40, borderRadius: 12, backgroundColor: C.card2, alignItems: "center", justifyContent: "center", marginRight: 10 },
-  tabbar: { position: "absolute", bottom: 0, left: 0, right: 0, height: 78, backgroundColor: "#0a1024", borderTopWidth: 1, borderTopColor: "#1b2546", flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingBottom: 10 },
+  tabbar: { position: "absolute", bottom: 0, left: 0, right: 0, height: rs(78), backgroundColor: "#0a1024", borderTopWidth: 1, borderTopColor: "#1b2546", paddingBottom: 10 },
+  tabbarInner: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-around", ...CONTENT },
   tab: { alignItems: "center" },
   tabInner: { width: 44, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   tabInnerActive: { backgroundColor: "#16233f" },
   tabTxt: { color: C.muted, fontSize: 11, marginTop: 2 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   tile: { width: "22%", alignItems: "center", marginBottom: 8 },
-  tileIcon: { width: 56, height: 56, borderRadius: 18, backgroundColor: C.card2, alignItems: "center", justifyContent: "center", marginBottom: 6 },
+  tileIcon: { width: rs(56), height: rs(56), borderRadius: rs(18), backgroundColor: C.card2, alignItems: "center", justifyContent: "center", marginBottom: 6 },
   tileLbl: { color: C.muted, fontSize: 11, textAlign: "center" },
   person: { alignItems: "center", marginRight: 16, width: 60 },
   personName: { color: C.muted, fontSize: 12, marginTop: 6 },
