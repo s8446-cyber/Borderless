@@ -1,10 +1,11 @@
-# Borderless Pay — Backend & Web Client
+# Borderless Pay — Backend & Web Client (v1.0)
 
 A secure payments platform that lets a user pay **directly from their home bank**
 — both **cross-border** (real mid-market FX, flat 0.5% fee, no hidden markup) and
 **domestic** (UPI-style: pay contacts, scan, bills, recharge, request money — zero
-fee). Built with **zero runtime dependencies** (Node.js built-ins only) and
-hardened for production.
+fee). Email+password accounts with **TOTP 2FA**, device-bound sessions, and
+enforced DPDP consent. Built with a **zero-dependency core** (Node.js built-ins;
+`pg` is an optional driver) and hardened for production.
 
 > Companion apps: a React Native (Expo) mobile app and an installable PWA web
 > client (in `public/`).
@@ -40,8 +41,11 @@ src/
   payments.js   orchestration: auth, idempotency, limits, ledger, audit
   store.js      atomic file-backed JSON store (reference persistence)
   store-pg.js   PostgreSQL persistence: snapshot + append-only ledger/audit mirrors
-public/         installable PWA web client
-test/           core.test.js + security.test.js
+  metrics.js    zero-dependency Prometheus metrics registry
+public/         installable PWA web client (+ /verify.html public proof explorer, /terms.html, /privacy.html)
+db/schema.sql   PostgreSQL target schema
+scripts/        release-smoke.sh (live end-to-end smoke suite)
+test/           core · security · auth · consent · upi · hardening · sessions · metrics · pg · api (75 tests)
 ```
 
 ## Security highlights
@@ -66,7 +70,14 @@ See **SECURITY.md** for the full threat model and **DEPLOYMENT.md** for shipping
 | --- | --- | --- |
 | GET | `/api/health` | liveness |
 | GET | `/api/ready` | readiness + ledger/audit integrity |
-| POST | `/api/kyc/verify` | KYC + create user (returns token) |
+| GET | `/api/metrics` | Prometheus metrics (token-gated in prod) |
+| GET | `/api/policies` | current Terms/Privacy versions |
+| POST | `/api/kyc/verify` | quick-demo KYC + create user (consent required) |
+| POST | `/api/auth/signup` · `/api/auth/login` | email+password accounts (consent required) |
+| POST | `/api/auth/2fa/setup` · `/api/auth/2fa/enable` | TOTP two-factor |
+| POST | `/api/auth/password/reset-request` · `/api/auth/password/reset` | password reset |
+| POST | `/api/sessions/refresh` · `/api/sessions/revoke-all` · `/api/logout` | session lifecycle |
+| POST | `/api/account/close` | consent withdrawal + PII erasure |
 | POST | `/api/accounts/link` | link bank, set PIN |
 | POST | `/api/quotes` · `/api/payments` | cross-border quote + pay |
 | POST | `/api/transfers/quote` · `/api/transfers` | cross-border P2P |
@@ -74,6 +85,7 @@ See **SECURITY.md** for the full threat model and **DEPLOYMENT.md** for shipping
 | POST | `/api/requests` · `/api/requests/pay` | request / pay money |
 | POST | `/api/waitlist` · GET `/api/waitlist/count` | marketing-site early-access signups |
 | GET | `/api/ledger` · `/api/ledger/verify` · `/api/audit/verify` | integrity |
+| GET | `/api/ledger/proof/:index` | public Merkle inclusion proof (PII-free) |
 
 Money-moving endpoints accept an `Idempotency-Key` header.
 

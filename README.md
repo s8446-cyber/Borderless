@@ -1,10 +1,10 @@
 # Borderless Pay
 
-**One app to pay, send, and request money — at home in India and across borders — at the real mid-market exchange rate with a flat 0.5% fee and zero hidden FX markup.**
+**Version 1.0** · One app to pay, send, and request money — at home in India and across borders — at the real mid-market exchange rate with a flat 0.5% fee and zero hidden FX markup.
 
 Borderless Pay lets an Indian traveler pay a foreign merchant or send money abroad directly from their home bank account, with the recipient receiving local currency. Domestic India-to-India payments work too, at ₹0 fee. Every transaction is recorded on a tamper-evident dual ledger and protected by triple-layer security.
 
-> **For testers:** nothing here moves real money. Everything runs locally with demo data. Jump to **[Testing guide](#-testing-guide-read-this-first)**.
+> **For testers:** nothing here moves real money. Everything runs locally with demo data. Jump to **[Testing guide](#-testing-guide-read-this-first)**. Full change history: [`CHANGELOG.md`](./CHANGELOG.md).
 
 ---
 
@@ -73,7 +73,7 @@ Run through these to exercise every feature. Each payment asks for the **PIN you
 cd backend
 npm test             # 75 tests: unit + security + auth + consent + UPI-QR + hardening + observability + Postgres + full HTTP e2e
 ```
-All 43 should pass. This is the strongest proof the wiring is correct.
+All 75 should pass. This is the strongest proof the wiring is correct.
 
 ---
 
@@ -85,6 +85,7 @@ Full, step-by-step instructions (Android Studio, Xcode, and Expo Go) are in **[`
 ```bash
 cd mobile
 npm install
+npm run doctor       # verifies your environment (Node, Java 17+, SDK) with exact fixes
 npm start            # scan the QR code with the Expo Go app
 ```
 
@@ -142,7 +143,9 @@ Same FX math, fee policy, and dual-ledger logic across every client.
 - **Mid-market FX** — the same rate you see on Google, no markup baked in.
 - **Flat 0.5% fee** on cross-border (₹2 floor, ₹500 cap); **₹0** on domestic UPI.
 - **Full transparency** — every receipt shows the rate used, the fee, and "FX markup: none".
-- **Triple security** — biometric + device-bound key + PIN on the client; TLS in transit; signed, hash-chained dual ledger at rest.
+- **Triple security** — biometric + device-bound key + PIN on the client (plus optional TOTP 2FA on email accounts); TLS in transit; signed, hash-chained dual ledger at rest.
+- **Your data, your control** — explicit versioned consent (DPDP Act 2023); close your account in-app to erase your profile anytime.
+- **Least-privilege permissions** — camera, contacts, and notifications are each requested only in-context, with an OS Allow/Deny prompt; nothing else is collected.
 
 ---
 

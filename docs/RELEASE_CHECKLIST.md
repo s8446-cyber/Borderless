@@ -8,7 +8,7 @@ demo-data product (real rails/KYC come with the sponsor-bank integration).
 ---
 
 ## A. Code & build — DONE ✅ (verified this release)
-- [x] **68/68 automated tests** pass (unit + security + auth + hardening + observability + Postgres + full HTTP journey)
+- [x] **75/75 automated tests** pass (unit + security + auth + consent + UPI-QR + hardening + observability + Postgres + full HTTP journey)
 - [x] All source files syntax-checked (`npm run check`)
 - [x] **Release smoke suite** (`npm run smoke <url>`) — 18 live assertions pass against a production-mode server
 - [x] **Fail-closed** verified: production boot refuses without `BP_SIGNING_SECRET` + `BP_ENC_KEY`
