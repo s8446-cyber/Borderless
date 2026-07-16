@@ -504,7 +504,7 @@ export default function App() {
         body: { amount, fromName: form.payeeName || form.phone || "Someone", note: form.note },
       });
       await refresh();
-      appAlert("Request sent", "We'll notify you when it's paid.");
+      appAlert("Request sent", "We'll notify you when it's paid. Track it anytime under Activity → Requests.");
       setScreen("home");
     } catch (e) {
       appAlert("Could not send request", e.message);
@@ -1353,6 +1353,41 @@ export default function App() {
         {screen === "history" && (
           <View>
             <Text style={s.h2}>Activity</Text>
+            {requests.length > 0 && (
+              <View>
+                <SectionHeader title="Requests" />
+                {requests.map((r) => (
+                  <View key={r.id} style={s.txn}>
+                    <View style={[{ flexDirection: "row", alignItems: "center", flex: 1 }]}>
+                      <View style={s.txnIc}>
+                        <Text style={[{ fontSize: 18 }]}>{r.direction === "incoming" ? "📥" : "📤"}</Text>
+                      </View>
+                      <View style={[{ flex: 1, marginRight: 8 }]}>
+                        <Text style={[{ color: C.text, fontWeight: "600" }]} numberOfLines={1}>
+                          {r.direction === "incoming" ? r.fromName + " requested you" : "You requested " + r.fromName}
+                        </Text>
+                        <Text style={[{ color: C.muted, fontSize: 12 }]} numberOfLines={1}>
+                          {(r.note ? r.note + " • " : "") + new Date(r.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={[{ alignItems: "flex-end" }]}>
+                      <Text style={[{ color: C.text, fontWeight: "700" }]}>{fmtINR(r.amount)}</Text>
+                      {r.direction === "incoming" && r.status === "pending" ? (
+                        <TouchableOpacity onPress={() => payIncomingRequest(r)} activeOpacity={0.7}>
+                          <Text style={[{ color: C.accent, fontWeight: "800", fontSize: 12, marginTop: 3 }]}>Pay now →</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <Text style={[{ color: r.status === "paid" ? C.good : C.warn, fontSize: 11, fontWeight: "800", marginTop: 3 }]}>
+                          {r.status === "paid" ? "✓ PAID" : "PENDING"}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                ))}
+                <SectionHeader title="Payments" />
+              </View>
+            )}
             <HistoryList history={history} />
           </View>
         )}

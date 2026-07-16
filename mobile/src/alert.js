@@ -121,7 +121,7 @@ export function AlertHost() {
   const isOS = current.kind === "os" || current.kind === "bio";
 
   return (
-    <Modal transparent animationType="fade" visible onRequestClose={() => dismiss(cancelBtn)}>
+    <Modal transparent animationType="none" visible onRequestClose={() => dismiss(cancelBtn)}>
       <View style={a.backdrop}>
         <View style={a.sheet}>
           {current.icon ? <Text style={a.icon}>{current.icon}</Text> : null}
