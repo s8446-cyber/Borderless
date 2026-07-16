@@ -715,12 +715,13 @@ async function refresh() {
 
 // ---- flows ----
 async function handleKyc() {
+  if (!(state.name || "").trim()) return toast("Please enter your name to continue");
   if (!state.consent) return toast("Please accept the Terms & Privacy Policy first");
   try {
     const r = await api("/api/kyc/verify", {
       method: "POST",
       body: {
-        fullName: state.name || "Aarav Shah", documentId: "P" + Date.now(), country: "IN",
+        fullName: state.name.trim(), documentId: "P" + Date.now(), country: "IN",
         deviceId: DEVICE_ID,
         consent: { tosVersion: "1.0", privacyVersion: "1.0" },
       },
