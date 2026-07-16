@@ -18,6 +18,18 @@ both demo mode (the built-in simulator keeps a real hash chain) and real-backend
 mode. Wrong-PIN lockout (5 attempts), single-use 60-second quotes, idempotent
 payments, and server-side logout all behave the same in demo and real mode.
 
+> ## 🖥️ Run it in a BROWSER — no phone, no Android Studio, no install
+>
+> The real app runs in any browser via `react-native-web` (same `App.js`):
+> ```bash
+> cd mobile && npm install && npm run sim
+> ```
+> Opens at **http://localhost:8080** — onboard, pay, verify a receipt (real
+> on-device SHA-256), all in demo mode. Use the browser's phone/responsive
+> mode for the true phone shape. (Live camera scanning needs a real device;
+> the demo-QR button works in the browser.) `npm run web` gives the
+> hot-reload dev version instead.
+
 > ## 🔌 Want the app to hit the REAL backend? (two terminals)
 >
 > ```bash

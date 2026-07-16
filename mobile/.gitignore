@@ -33,3 +33,4 @@ yarn-error.*
 *.pem
 .idea/
 .vscode/
+/dist

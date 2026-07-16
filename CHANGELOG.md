@@ -6,6 +6,10 @@ All notable changes to Borderless Pay. Format loosely follows
 
 ## [1.0.0] — Version 1
 
+### Run in a browser (dev/testing convenience — no version bump)
+- **`cd mobile && npm run sim`** compiles the real React Native `App.js` to web via `react-native-web` and serves it — zero install, full demo flow including on-device receipt verification. `npm run web` runs the hot-reload dev server. Verified end-to-end headlessly (onboarding → domestic + cross-border payment → receipt → independent Merkle verification) against the exported build.
+
+
 The complete Version 1 of Borderless Pay: a hardened, fully-tested payments
 platform running on **demo/simulated rails** (no real money — real bank rails
 and licensed KYC arrive with the sponsor-bank integration, tracked in

@@ -9,6 +9,8 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
+    "sim": "expo export --platform web && node scripts/serve-web.js",
+    "sim:build": "expo export --platform web",
     "java:check": "node scripts/java-compat.js --check",
     "doctor": "node scripts/doctor.js",
     "prebuild": "node scripts/doctor.js --soft && expo prebuild && node scripts/java-compat.js",
@@ -19,6 +21,7 @@
     "run:ios": "expo run:ios"
   },
   "dependencies": {
+    "@expo/metro-runtime": "~3.2.3",
     "expo": "~51.0.28",
     "expo-camera": "~15.0.16",
     "expo-contacts": "~13.0.5",
@@ -28,7 +31,13 @@
     "expo-status-bar": "~1.12.1",
     "expo-system-ui": "~3.0.7",
     "react": "18.2.0",
-    "react-native": "0.74.5"
+    "react-dom": "^18.2.0",
+    "react-native": "0.74.5",
+    "react-native-web": "^0.19.13"
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "@babel/core": "^7.20.0",
+    "@babel/types": "^7.20.0"
+  }
 }
