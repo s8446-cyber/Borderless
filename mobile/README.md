@@ -18,6 +18,19 @@ both demo mode (the built-in simulator keeps a real hash chain) and real-backend
 mode. Wrong-PIN lockout (5 attempts), single-use 60-second quotes, idempotent
 payments, and server-side logout all behave the same in demo and real mode.
 
+> ## 🔌 Want the app to hit the REAL backend? (two terminals)
+>
+> ```bash
+> # Terminal 1                      # Terminal 2
+> cd backend && npm start           cd mobile && npm run live
+> ```
+> `npm run live` auto-discovers the backend on your LAN (physical phones on the
+> same Wi-Fi included), verifies `/api/health`, switches **demo mode OFF**, and
+> starts Expo — zero configuration. The welcome screen's build stamp confirms
+> it: `live backend: http://<your-ip>:4000`. Backend not running? The script
+> tells you exactly what to start. (`npm run live:check` = probe only.)
+> Different port: `BP_PORT=4100 npm run live`.
+
 > ## 🔄 Seeing an OLD version? (your changes/updates not showing on the phone)
 >
 > The welcome screen shows a **build stamp** (e.g. `v1.0.0 · demo mode`). If it

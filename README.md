@@ -89,6 +89,20 @@ npm run doctor       # verifies your environment (Node, Java 17+, SDK) with exac
 npm start            # scan the QR code with the Expo Go app
 ```
 
+### 🔌 Test the mobile app against the REAL backend (two terminals)
+This is how you exercise **everything we've built** — the mobile UI driving the real API, ledger, auth, and consent, end to end:
+
+```bash
+# Terminal 1 — the backend
+cd backend
+npm start                    # API on :4000; prints its LAN URLs
+
+# Terminal 2 — the mobile app, wired to it
+cd mobile
+npm run live                 # auto-finds the backend, turns demo mode OFF, starts Expo
+```
+`npm run live` probes your LAN IP first (so a **physical phone on the same Wi-Fi** can reach the backend), verifies `/api/health`, and launches Expo with the right settings — no env vars, no code edits. If the backend isn't running it tells you exactly what to do. **Verify you're live:** the welcome screen's build stamp reads `live backend: http://<your-ip>:4000` instead of `demo mode`. Quick connectivity check without launching: `npm run live:check`.
+
 **Native build in Android Studio:**
 ```bash
 cd mobile
