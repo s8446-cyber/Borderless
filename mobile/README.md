@@ -183,6 +183,13 @@ java -version   # 17 or newer
 
 ### Prerequisites (one-time)
 1. **Node.js 18+** and **Git**.
+
+> **✅ Check your setup in 2 seconds:** `cd mobile && npm install && npm run doctor`
+> — it verifies Node, Java (any 17+), the Android SDK, and a connected
+> device/emulator, and prints an exact fix for anything missing **before** you
+> start a build. `npm run phone` runs it automatically too, so testers never
+> hit a cryptic Gradle error with no explanation.
+
 2. **Android Studio** (Hedgehog or newer). During setup, install via
    *Settings → Languages & Frameworks → Android SDK*:
    - **Android SDK Platform** (API 34)

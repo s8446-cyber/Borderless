@@ -34,6 +34,7 @@ if (-not (Test-Path "node_modules")) {
 # --clean guarantees new native config (e.g. the camera permission plugin)
 # is ALWAYS applied - a stale android/ folder is the #1 cause of 'my updates
 # aren't showing on the phone'.
+node scripts/doctor.js --soft
 npx expo prebuild --clean
 node scripts/java-compat.js
 
