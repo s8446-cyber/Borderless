@@ -36,3 +36,4 @@ data/
 *.sqlite
 *.db
 coverage/
+package-lock.json
