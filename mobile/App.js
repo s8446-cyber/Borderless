@@ -153,6 +153,9 @@ export default function App() {
   const incomingRequest = requests.find((r) => r.direction === "incoming" && r.status === "pending");
 
   async function handleKyc() {
+    if (!name.trim()) {
+      return Alert.alert("Enter your name", "We verify against a name — please enter yours to continue.");
+    }
     if (!consent) {
       return Alert.alert("Consent needed", "Please read and accept the Terms of Service and Privacy Policy to continue.");
     }
@@ -161,7 +164,7 @@ export default function App() {
       const r = await api("/api/kyc/verify", {
         method: "POST",
         body: {
-          fullName: name || "Aarav Shah", documentId: "P" + Date.now(), country: "IN",
+          fullName: name.trim(), documentId: "P" + Date.now(), country: "IN",
           deviceId: await getDeviceId(),
           consent: { tosVersion: "1.0", privacyVersion: "1.0" },
         },
@@ -901,7 +904,14 @@ export default function App() {
               <Row label="Total from bank" value={fmtINR(quote.total)} accent big />
             </Card>
             <Text style={s.savings}>Real rate, no markup — they get every rupee converted fairly.</Text>
-            <PrimaryButton title="Slide to send 🔒" onPress={openAuth} />
+            {account && quote.total > account.balance ? (
+              <View>
+                <Text style={s.shortfall}>Insufficient balance. You have {fmtINR(account.balance)} — this transfer needs {fmtINR(quote.total)}.</Text>
+                <PrimaryButton title="Change amount" secondary onPress={() => setScreen("send")} />
+              </View>
+            ) : (
+              <PrimaryButton title="Slide to send 🔒" onPress={openAuth} />
+            )}
           </View>
         )}
 
@@ -920,7 +930,14 @@ export default function App() {
             <Text style={s.savings}>
               You save ~{fmtINR(quote.amount * 0.035 + 200 - quote.fee)} vs a typical bank card
             </Text>
-            <PrimaryButton title="Slide to pay 🔒" onPress={openAuth} />
+            {account && quote.total > account.balance ? (
+              <View>
+                <Text style={s.shortfall}>Insufficient balance. You have {fmtINR(account.balance)} — this payment needs {fmtINR(quote.total)}.</Text>
+                <PrimaryButton title="Back" secondary onPress={() => setScreen("scan")} />
+              </View>
+            ) : (
+              <PrimaryButton title="Slide to pay 🔒" onPress={openAuth} />
+            )}
           </View>
         )}
 
@@ -1057,6 +1074,8 @@ export default function App() {
 
             {domIntent.kind === "request" ? (
               <PrimaryButton title="Send request" onPress={submitRequest} loading={busy} />
+            ) : account && Number(form.amount) > account.balance ? (
+              <Text style={s.shortfall}>Insufficient balance. You have {fmtINR(account.balance)}.</Text>
             ) : (
               <PrimaryButton title={"Proceed to pay " + fmtINR(Number(form.amount) || 0)} onPress={proceedDomestic} />
             )}
@@ -1272,6 +1291,7 @@ const s = StyleSheet.create({
   verifyChip: { backgroundColor: "#16233f", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
   verifyChipTxt: { color: C.accent2, fontSize: 12, fontWeight: "700" },
   savings: { color: C.accent, fontSize: 12, textAlign: "center", marginVertical: 6 },
+  shortfall: { color: "#ff8b8b", fontSize: 13, textAlign: "center", fontWeight: "600", backgroundColor: "rgba(255,107,107,0.1)", borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14, marginVertical: 8, lineHeight: 19 },
   scanner: { height: rs(230), borderRadius: 20, backgroundColor: "#0e1730", borderWidth: 2, borderColor: C.border, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   scanline: { position: "absolute", left: 16, right: 16, top: "20%", height: 2, backgroundColor: C.accent, opacity: 0.7 },
   qr: { width: 124, height: 124, backgroundColor: "#fff", borderRadius: 12, flexDirection: "row", flexWrap: "wrap", padding: 8 },
