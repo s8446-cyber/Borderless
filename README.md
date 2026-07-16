@@ -81,6 +81,15 @@ All 75 should pass. This is the strongest proof the wiring is correct.
 
 Full, step-by-step instructions (Android Studio, Xcode, and Expo Go) are in **[`mobile/README.md`](./mobile/README.md)**. Short version:
 
+### 🖥️ Run the mobile app in a browser — zero install (fastest of all)
+The **actual** React Native app runs in any browser via `react-native-web` — the real `App.js`, not a copy. Perfect for a quick look, a demo, or an investor who won't install anything:
+```bash
+cd mobile
+npm install
+npm run sim          # builds the app for web and serves it at http://localhost:8080
+```
+Open **http://localhost:8080** and use device/responsive mode (F12 → phone icon) for the phone-shaped view. Runs in demo mode — onboard, pay, and tap **Verify this receipt independently** (real on-device SHA-256). *(Live camera QR scanning needs a real device; the demo QR button works here.)*
+
 **Easiest — on your own phone with Expo Go (no Android Studio):**
 ```bash
 cd mobile
