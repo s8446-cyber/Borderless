@@ -55,6 +55,24 @@ export function simulateOSPrompt({ icon = "🔐", title, message, allowText = "A
   });
 }
 
+// Web-only: simulated permission STATE. A real OS remembers Allow/Deny and
+// never re-asks; the sim mirrors that for the session (a page reload is a
+// "fresh install"). Keeps the in-context, ask-once, never-nag behavior honest.
+const simPermState = {}; // name -> "granted" | "denied"
+
+export function getSimPerm(name) {
+  return simPermState[name] || "undetermined";
+}
+
+// Ask once, remember the answer. Returns true when granted (now or earlier).
+export async function requestSimPerm(name, promptOpts) {
+  if (simPermState[name] === "granted") return true;
+  if (simPermState[name] === "denied") return false;
+  const ok = await simulateOSPrompt(promptOpts);
+  simPermState[name] = ok ? "granted" : "denied";
+  return ok;
+}
+
 // Web-only: a biometric (Face ID / fingerprint) sheet. Resolves in the same
 // shape as expo-local-authentication's `authenticateAsync` ({ success }).
 export function simulateBiometric(promptMessage = "Authorize your payment") {

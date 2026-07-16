@@ -21,7 +21,7 @@ import * as LocalAuthentication from "expo-local-authentication";
 import { CameraView, useCameraPermissions } from "./src/scanner";
 import * as Contacts from "expo-contacts";
 import * as Notifications from "expo-notifications";
-import { appAlert, AlertHost, simulateOSPrompt, simulateBiometric } from "./src/alert";
+import { appAlert, AlertHost, simulateBiometric, getSimPerm, requestSimPerm } from "./src/alert";
 import { C, TINTS, CORRIDORS, P2P_CURRENCIES, OPERATORS, BILL_CATEGORIES, BILLERS } from "./src/theme";
 import { fmtINR } from "./src/format";
 import { api, setSession } from "./src/api";
@@ -257,9 +257,16 @@ export default function App() {
 
   // Web sim: demonstrate the camera-permission prompt + a scanning animation,
   // then auto-detect a demo UPI QR (the live camera + jsQR decoder is a
-  // real-device feature — see src/scanner.web.js).
+  // real-device feature — see src/scanner.web.js). Like the OS, the simulated
+  // permission is asked once and remembered for the session.
   async function startWebScan() {
-    const ok = await simulateOSPrompt({
+    if (getSimPerm("camera") === "denied") {
+      return appAlert(
+        "Camera access is turned off",
+        "You declined camera access this session, so scanning is unavailable. You can still pay with the demo QR or by entering a UPI ID. (Reload the page to be asked again.)"
+      );
+    }
+    const ok = await requestSimPerm("camera", {
       icon: "📷",
       title: "“Borderless Pay” Would Like to Access the Camera",
       message: "Borderless Pay uses the camera only while you scan a payment QR code. Photos and video are never captured or stored.",
@@ -332,9 +339,17 @@ export default function App() {
   // feature degrades gracefully and never nags.
   async function payFromPhoneContacts() {
     // Web sim: show the OS-style contacts prompt, then (on allow) load the
-    // built-in directory as if it were the phone's contacts.
+    // built-in directory as if it were the phone's contacts. Asked once and
+    // remembered for the session, like the OS.
     if (IS_WEB) {
-      const ok = await simulateOSPrompt({
+      if (getSimPerm("contacts") === "denied") {
+        return appAlert(
+          "Contacts access is off",
+          "You declined contacts access this session. Enter a UPI ID / phone number instead, or reload the page to be asked again.",
+          [{ text: "Enter manually", onPress: () => startDom("phone") }, { text: "Cancel", style: "cancel" }]
+        );
+      }
+      const ok = await requestSimPerm("contacts", {
         icon: "👥",
         title: "“Borderless Pay” Would Like to Access Your Contacts",
         message: "Borderless Pay reads your contacts only to let you pick who to pay. Matching happens on your device — your contact list is never uploaded or stored.",
@@ -409,9 +424,11 @@ export default function App() {
   // Real OS notifications permission — offered ONCE after the first successful
   // payment (never at launch), and fully optional.
   async function maybeOfferNotifications() {
-    // Web sim: offer the OS-style notifications prompt once after a payment.
+    // Web sim: offer the OS-style notifications prompt ONCE after the first
+    // successful payment — the answer is remembered, so it never nags.
     if (IS_WEB) {
-      const ok = await simulateOSPrompt({
+      if (getSimPerm("notifications") !== "undetermined") return;
+      const ok = await requestSimPerm("notifications", {
         icon: "🔔",
         title: "“Borderless Pay” Would Like to Send You Notifications",
         message: "Get an instant receipt and a security alert for every payment. Optional — the app works fully without it.",
@@ -1140,9 +1157,13 @@ export default function App() {
             )}
 
             <Card>
-              <Row label="You pay" value={fmtINR(Number(form.amount) || 0)} accent big />
+              <Row label={domIntent.kind === "request" ? "You request" : "You pay"} value={fmtINR(Number(form.amount) || 0)} accent big />
               <Row label="Fee" value="₹0 • Free" accent />
-              <Row label="Speed" value="Instant" />
+              {domIntent.kind === "request" ? (
+                <Row label="Status" value="Pending until paid" />
+              ) : (
+                <Row label="Speed" value="Instant" />
+              )}
             </Card>
 
             {domIntent.kind === "request" ? (
