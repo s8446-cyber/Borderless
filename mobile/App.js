@@ -15,10 +15,11 @@ import {
   Animated,
   StyleSheet,
   Linking,
+  Platform,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import * as LocalAuthentication from "expo-local-authentication";
-import { CameraView, useCameraPermissions } from "expo-camera";
+import { CameraView, useCameraPermissions } from "./src/camera";
 import * as Contacts from "expo-contacts";
 import * as Notifications from "expo-notifications";
 import { C, TINTS, CORRIDORS, P2P_CURRENCIES, OPERATORS, BILL_CATEGORIES, BILLERS } from "./src/theme";
@@ -926,7 +927,21 @@ export default function App() {
         {screen === "scanDom" && (
           <View>
             <Text style={s.h2}>Scan any UPI QR</Text>
-            {camPerm && camPerm.granted ? (
+            {Platform.OS === "web" ? (
+              // On web (incl. the browser demo) native camera QR scanning isn't
+              // reliable, so we go straight to the manual / demo-QR path — no
+              // camera mount, no external decoder dependency.
+              <View>
+                <Card>
+                  <Text style={[{ color: C.text, fontWeight: "700", marginBottom: 6 }]}>📷 Camera scanning is a mobile feature</Text>
+                  <Text style={[{ color: C.muted, fontSize: 13, lineHeight: 19 }]}>
+                    Live QR scanning runs on the Android / iOS app. In the browser preview, enter a UPI ID or use the demo QR — every other feature works exactly the same.
+                  </Text>
+                </Card>
+                <PrimaryButton title="Enter UPI ID instead" onPress={() => startDom("upiid")} />
+                <PrimaryButton title="Use demo QR" secondary onPress={useDemoQr} />
+              </View>
+            ) : camPerm && camPerm.granted ? (
               <View>
                 <View style={s.scanner}>
                   <CameraView

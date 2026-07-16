@@ -8,6 +8,7 @@ All notable changes to Borderless Pay. Format loosely follows
 
 ### Run in a browser (dev/testing convenience — no version bump)
 - **`cd mobile && npm run sim`** compiles the real React Native `App.js` to web via `react-native-web` and serves it — zero install, full demo flow including on-device receipt verification. `npm run web` runs the hot-reload dev server. Verified end-to-end headlessly (onboarding → domestic + cross-border payment → receipt → independent Merkle verification) against the exported build.
+- **Web camera path cleaned up**: a platform-specific camera module (`src/camera.js` / `src/camera.web.js`) keeps `expo-camera` out of the web bundle entirely — eliminates a load-time page error (its QR decoder fetched from a CDN) and shows a clean "camera scanning is a mobile feature" message on web, with manual UPI-ID + demo-QR paths. Native Android/iOS camera scanning is unchanged (CAMERA permission still declared; verified in prebuild).
 
 
 The complete Version 1 of Borderless Pay: a hardened, fully-tested payments
