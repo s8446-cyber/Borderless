@@ -26,9 +26,29 @@ payments, and server-side logout all behave the same in demo and real mode.
 > ```
 > Opens at **http://localhost:8080** — onboard, pay, verify a receipt (real
 > on-device SHA-256), all in demo mode. Use the browser's phone/responsive
-> mode for the true phone shape. (Live camera scanning needs a real device;
-> the demo-QR button works in the browser.) `npm run web` gives the
-> hot-reload dev version instead.
+> mode for the true phone shape. `npm run web` gives the hot-reload dev
+> version instead.
+>
+> **The whole experience is testable in the browser.** Native-only OS
+> interactions that a browser can't provide are faithfully **simulated on
+> screen** (clearly labelled *"simulated in browser"*): the Face ID / biometric
+> authorization sheet, and the in-context permission prompts for contacts and
+> notifications. So you can walk auth, the permission UX, the consent checkbox,
+> log out / close account, and both domestic and cross-border payments end to
+> end — no phone required.
+>
+> **QR scanning is REAL in the browser too.** If the browser has a camera
+> (your laptop's webcam, or a phone's camera), **Scan QR** opens the live
+> camera — the browser asks for permission in-context — and decodes any
+> physical UPI QR on-device (native `BarcodeDetector` on phones, a locally
+> bundled `jsqr` everywhere else; no CDN, works offline) through the same
+> hardened `upi://pay…` parser as the native app. No camera at all? The scan
+> is simulated with a demo UPI QR routed through that same parser.
+> **Tip — live camera from a phone's browser:** cameras need a secure context
+> (https or localhost), so plain `http://<pc-ip>:8080` won't offer one. With
+> the phone on USB: `adb reverse tcp:8080 tcp:8080`, then open
+> `http://localhost:8080` on the phone — the phone's real camera scans real
+> UPI QRs inside the sim.
 
 > ## 🔌 Want the app to hit the REAL backend? (two terminals)
 >
