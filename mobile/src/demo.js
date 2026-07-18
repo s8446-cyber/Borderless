@@ -188,7 +188,7 @@ export async function simulate(path, { method = "GET", body = {}, idempotencyKey
     const opening = body.openingBalance ?? 250000;
     db.account = {
       bank: body.bank,
-      maskedNumber: "\u2022\u2022\u2022\u2022" + Math.floor(1000 + Math.random() * 9000),
+      maskedNumber: "••••" + Math.floor(1000 + Math.random() * 9000),
       balance: opening,
       balanceMinor: Math.round(opening * 100),
     };
