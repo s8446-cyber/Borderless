@@ -1,6 +1,6 @@
 # Borderless Pay
 
-**Version 1.0** · One app to pay, send, and request money — at home in India and across borders — at the real mid-market exchange rate with a flat 0.5% fee and zero hidden FX markup.
+**Version 1.1** · One app to pay, send, and request money — at home in India and across borders — at the real mid-market exchange rate with a flat 0.5% fee and zero hidden FX markup.
 
 Borderless Pay lets an Indian traveler pay a foreign merchant or send money abroad directly from their home bank account, with the recipient receiving local currency. Domestic India-to-India payments work too, at ₹0 fee. Every transaction is recorded on a tamper-evident dual ledger and protected by triple-layer security.
 
@@ -71,9 +71,9 @@ Run through these to exercise every feature. Each payment asks for the **PIN you
 ### Run the automated test suite
 ```bash
 cd backend
-npm test             # 75 tests: unit + security + auth + consent + UPI-QR + hardening + observability + Postgres + full HTTP e2e
+npm test             # 85 tests: unit + security + auth + consent + UPI-QR + mailer + hardening + observability + Postgres + full HTTP e2e
 ```
-All 75 should pass. This is the strongest proof the wiring is correct.
+All 85 should pass (4 Postgres tests self-skip without a live database). This is the strongest proof the wiring is correct.
 
 ---
 
@@ -187,7 +187,7 @@ Same FX math, fee policy, and dual-ledger logic across every client.
 Security and regulatory trust are first-class here. Key documents:
 
 - **[Security policy / responsible disclosure](./SECURITY.md)** — how to report a vulnerability.
-- **[Internal security audit report](./docs/SECURITY_AUDIT.md)** — STRIDE threat model, controls, and found-and-fixed findings (CI: 75 tests).
+- **[Internal security audit report](./docs/SECURITY_AUDIT.md)** — STRIDE threat model, controls, and found-and-fixed findings (CI: 85 backend + 14 mobile tests).
 - **[Engineering threat model & controls](./backend/SECURITY.md)** — the in-code defenses.
 - **[Regulatory & compliance roadmap](./docs/COMPLIANCE.md)** — RBI PA-CB, FEMA/LRS, sponsor bank, FIU-IND/PMLA, DPDP Act 2023, PCI scope.
 - **[Production readiness checklist](./docs/PRODUCTION_READINESS.md)** — done vs. required before real-money launch.
