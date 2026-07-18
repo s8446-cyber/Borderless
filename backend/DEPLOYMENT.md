@@ -16,7 +16,7 @@ The server **refuses to start in production** without both (fail-closed).
 
 ```bash
 node src/server.js              # http://localhost:4000
-npm test                        # 75 tests
+npm test                        # 85 tests
 ```
 
 In development, ephemeral secrets are auto-generated and CORS is open (`*`).
@@ -34,6 +34,16 @@ In development, ephemeral secrets are auto-generated and CORS is open (`*`).
   the Prometheus scrape endpoint `GET /api/metrics` (bearer-token gated; the
   endpoint stays hidden in production if unset). Alert rules and playbooks:
   [`docs/RUNBOOK.md`](../docs/RUNBOOK.md).
+- **Transactional email (password-reset delivery):** set
+  `BP_EMAIL_PROVIDER=resend` (or `sendgrid`) + `BP_EMAIL_API_KEY`, plus
+  `BP_EMAIL_FROM` (a domain you've verified with the provider — SPF/DKIM) and
+  `BP_APP_ORIGIN` (the public web-app URL used inside emails). Without a
+  provider, production boots with a loud warning and reset tokens are
+  undeliverable. `console` (the dev default) is refused in production because
+  it logs message bodies.
+- **KYC provider:** `BP_KYC_PROVIDER` defaults to `sandbox` (auto-approves —
+  demos/staging only; production logs a prominent boot warning). A licensed
+  vendor integrates as a registry adapter in `src/kyc.js`.
 
 ## 2. Docker (single host)
 

@@ -40,7 +40,7 @@ Simulated bank rails / KYC / anchor writer (await sponsor-bank licensing — `do
 
 ## How to re-run the essentials
 ```bash
-cd backend && npm test                          # 75 tests
+cd backend && npm test                          # 85 tests (+ cd mobile && npm test — 14 more)
 npm run smoke http://localhost:4000 [token]     # 19 live assertions vs a running server
 cd ../mobile && npm run doctor                  # environment preflight
 npm run live:check                              # backend connectivity probe

@@ -34,6 +34,24 @@ function resolveEncKey() {
 }
 const encKey = resolveEncKey();
 
+// --- transactional email (password reset delivery) ---
+// In production, "console" (which logs message bodies) is refused, and a real
+// provider requires its API key — both fail-closed at boot, like the secrets.
+const emailProvider = (process.env.BP_EMAIL_PROVIDER || "").trim().toLowerCase() || (isProd ? null : "console");
+if (isProd && emailProvider === "console") {
+  throw new Error("FATAL config: BP_EMAIL_PROVIDER=console logs email bodies and is not allowed in production");
+}
+const emailApiKey = (process.env.BP_EMAIL_API_KEY || "").trim() || null;
+if (isProd && emailProvider && !emailApiKey) {
+  throw new Error("FATAL config: BP_EMAIL_PROVIDER=" + emailProvider + " requires BP_EMAIL_API_KEY in production");
+}
+
+// --- KYC provider selection ---
+// "sandbox" simulates document/liveness/sanctions checks (auto-approve). A
+// licensed provider adapter registers itself in kyc.js under a new name and is
+// selected here — no other code changes needed.
+const kycProvider = (process.env.BP_KYC_PROVIDER || "sandbox").trim().toLowerCase();
+
 // --- CORS ---
 const corsRaw = process.env.BP_CORS_ORIGINS;
 const corsOrigins = corsRaw
@@ -51,6 +69,11 @@ export const config = {
   corsOrigins,
   trustProxy: process.env.BP_TRUST_PROXY === "true",
   metricsToken: (process.env.BP_METRICS_TOKEN || "").trim() || null,
+  emailProvider,
+  emailApiKey,
+  emailFrom: (process.env.BP_EMAIL_FROM || "").trim() || "Borderless Pay <no-reply@borderlesspay.app>",
+  appOrigin: (process.env.BP_APP_ORIGIN || "").trim() || null, // public URL used in emails
+  kycProvider,
   bodyLimitBytes: intEnv("BP_BODY_LIMIT", 1048576),
   sessionTtlMs: intEnv("BP_SESSION_TTL_MS", 86400000),
   refreshTtlMs: intEnv("BP_REFRESH_TTL_MS", 2592000000), // refresh-token lifetime (30 days)
@@ -85,5 +108,7 @@ export function configSummary() {
     trustProxy: config.trustProxy,
     signingSecretSet: Boolean(process.env.BP_SIGNING_SECRET),
     encKeySet: Boolean(process.env.BP_ENC_KEY),
+    emailProvider: config.emailProvider || "none",
+    kycProvider: config.kycProvider,
   };
 }

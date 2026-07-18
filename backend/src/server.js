@@ -9,7 +9,7 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { dirname, join, extname, normalize } from "node:path";
+import { dirname, join, extname, normalize, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { networkInterfaces } from "node:os";
 
@@ -21,7 +21,8 @@ import { DualLedger } from "./ledger.js";
 import { AuditLog } from "./audit.js";
 import { PaymentService } from "./payments.js";
 import { checkTxnLimits } from "./limits.js";
-import { runKyc } from "./kyc.js";
+import { runKyc, KYC_PROVIDER } from "./kyc.js";
+import { createMailer, buildResetEmail } from "./mailer.js";
 import { hashPin, newToken, newRefreshToken, newResetToken, verifyPin } from "./auth.js";
 import { encryptField, decryptField } from "./crypto.js";
 import { generateTotpSecret, verifyTotp, otpauthUri } from "./totp.js";
@@ -60,10 +61,13 @@ const OPERATORS = ["Airtel", "Jio", "Vi", "BSNL"];
 // policy change can re-prompt users whose accepted version is older.
 const POLICY_VERSIONS = { tos: "1.0", privacy: "1.0" };
 
-export function buildApp({ dbPath = DB_PATH, store: injectedStore } = {}) {
+export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injectedMailer } = {}) {
   // Persistence backend: an injected store (e.g. PgStore) wins; otherwise the
   // file-backed reference store.
   const store = injectedStore || new Store(dbPath);
+  // Outbound email (password-reset delivery). Injected in tests; built from
+  // config otherwise (console transport in dev, real provider in prod).
+  const mailer = injectedMailer || createMailer(config, { log: logger });
   const ledger = new DualLedger(store.data.ledger);
   const audit = new AuditLog(store.data.audit);
   const guard = new LoginGuard(store, config.lockout);
@@ -283,9 +287,11 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore } = {}) {
   });
 
   // Password reset. The response is uniform whether or not the account exists
-  // (no enumeration). In production the token is delivered by the mailer
-  // integration and NEVER returned by the API; in development it is returned
-  // so the full flow is testable without an email provider.
+  // (no enumeration). The token is DELIVERED by the mailer (Resend/SendGrid in
+  // production, console transport in dev) and never returned by the API in
+  // production; in development it is additionally returned so the full flow is
+  // testable without an email provider. A delivery failure is logged and
+  // audited but never changes the response (no delivery oracle).
   add("POST", /^\/api\/auth\/password\/reset-request$/, async (req, body) => {
     const email = asEmail(body.email);
     const cred = store.data.credentials[email];
@@ -295,7 +301,20 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore } = {}) {
       store.data.resets[token] = { email, exp: Date.now() + 1800000 }; // 30 min
       audit.append("password_reset_requested", { userId: cred.userId });
       logger.info("password_reset_token_issued", { userId: cred.userId }); // token itself never logged
-      if (!config.isProd) out.resetToken = token; // mailer integration point in prod
+      if (mailer.active) {
+        const msg = buildResetEmail({ origin: config.appOrigin, token, ttlMinutes: 30 });
+        const r = await mailer.send({ to: email, ...msg });
+        if (r.sent) {
+          audit.append("password_reset_email_sent", { userId: cred.userId, provider: r.provider });
+        } else {
+          logger.error("password_reset_email_failed", { userId: cred.userId, provider: r.provider, error: r.error });
+          audit.append("password_reset_email_failed", { userId: cred.userId, provider: r.provider, error: r.error });
+        }
+      } else if (config.isProd) {
+        // No mailer in production: the token exists but cannot reach the user.
+        logger.error("password_reset_email_undeliverable", { userId: cred.userId, hint: "set BP_EMAIL_PROVIDER + BP_EMAIL_API_KEY" });
+      }
+      if (!config.isProd) out.resetToken = token; // dev convenience only
       persist();
     }
     return out;
@@ -769,7 +788,9 @@ const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css
 async function serveStatic(res, pathname) {
   const rel = pathname === "/" ? "/index.html" : pathname;
   const full = normalize(join(PUBLIC, rel));
-  if (!full.startsWith(PUBLIC)) { res.statusCode = 403; return res.end("forbidden"); }
+  // Boundary-exact prefix check: PUBLIC + sep, so a sibling directory whose
+  // name merely STARTS with "public" (e.g. public-backup/) can never be read.
+  if (full !== PUBLIC && !full.startsWith(PUBLIC + sep)) { res.statusCode = 403; return res.end("forbidden"); }
   try {
     const data = await readFile(full);
     res.statusCode = 200;
@@ -809,6 +830,15 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   app.server.listen(PORT, () => {
     const lan = lanUrls(PORT);
     logger.info("server_listening", { port: PORT, localUrl: `http://localhost:${PORT}`, lanUrls: lan, ...configSummary() });
+    // Loud, honest boot warnings: these are the two integrations that MUST be
+    // real before real-money launch. The process still runs (demo/staging
+    // deployments are legitimate) but nobody can miss the state.
+    if (config.isProd && KYC_PROVIDER === "sandbox") {
+      logger.warn("kyc_sandbox_in_production", { message: "BP_KYC_PROVIDER=sandbox auto-approves KYC — do NOT launch real money on this. Integrate a licensed provider (see src/kyc.js)." });
+    }
+    if (config.isProd && !config.emailProvider) {
+      logger.warn("email_not_configured", { message: "No BP_EMAIL_PROVIDER set — password-reset tokens cannot be delivered. Set BP_EMAIL_PROVIDER=resend|sendgrid with BP_EMAIL_API_KEY." });
+    }
     if (lan.length) {
       logger.info("mobile_hint", {
         message: "On a phone (same Wi-Fi), set EXPO_PUBLIC_API_BASE to one of lanUrls and run the app with EXPO_PUBLIC_DEMO=false",
