@@ -24,7 +24,7 @@ These go into the EAS/native build **before store release**, with verification
 on the physical-device matrix:
 
 1. **Certificate pinning / network security config**
-   - Android: `expo-build-properties` → `android.networkSecurityConfig` pinning the API's leaf/intermediate SPKI hashes; `usesCleartextTraffic: false` in release.
+   - Android: `android.networkSecurityConfig` pinning the API's leaf/intermediate SPKI hashes; flip `usesCleartextTraffic` back to **false**. (It is currently **explicitly enabled for all variants** via `plugins/with-cleartext-http.js` so LAN/pilot phones can reach the plain-http dev backend — Expo's template only enabled it for debug, which silently broke live mode in release builds. Once the backend is behind HTTPS, delete that plugin and pin.)
    - iOS: `NSAppTransportSecurity` with pinned certificates (or TrustKit via config plugin).
    - Ship a pin-rotation plan (dual pins: current + next) *before* enabling — a bad pin bricks the app.
 2. **Root / jailbreak detection** — `jail-monkey` (dev client / prebuild required). Policy: warn + disable payments on compromised devices, never silently degrade.

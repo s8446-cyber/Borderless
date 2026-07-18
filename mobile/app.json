@@ -38,6 +38,7 @@
     },
     "web": { "favicon": "./assets/favicon.png" },
     "plugins": [
+      "./plugins/with-cleartext-http.js",
       "expo-local-authentication",
       "expo-secure-store",
       [
