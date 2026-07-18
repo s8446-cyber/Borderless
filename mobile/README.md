@@ -463,8 +463,26 @@ src/api.js          API client (real backend or simulator)
 src/demo.js         standalone simulator (mirrors the backend)
 src/ui.js           native UI primitives (Card, Row, PinPad, Avatar, …)
 src/format.js       currency formatting
+test/               automated tests (see below)
 assets/             app icon + splash
 ```
+
+## Automated tests
+
+The security-critical pure logic has its own test suite — no Expo, emulator,
+or even `npm install` required:
+
+```bash
+cd mobile
+npm test        # node --test — 14 tests
+```
+
+Covered: the **UPI QR parser** (hostile-input matrix: malformed VPAs, non-INR
+currencies, bad amounts, control characters, broken percent-encoding), the
+**on-device SHA-256** (FIPS 180-4 vectors + cross-checked against
+`node:crypto`), the **Merkle proof fold** (must reproduce the backend's exact
+math — this is what makes "Verify this receipt independently" honest), and
+**INR formatting**. CI runs these on every push.
 
 ## Troubleshooting
 

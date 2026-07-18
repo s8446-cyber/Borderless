@@ -8,7 +8,7 @@ demo-data product (real rails/KYC come with the sponsor-bank integration).
 ---
 
 ## A. Code & build — DONE ✅ (verified this release)
-- [x] **75/75 automated tests** pass (unit + security + auth + consent + UPI-QR + hardening + observability + Postgres + full HTTP journey)
+- [x] **85/85 backend + 14/14 mobile automated tests** pass (unit + security + auth + consent + UPI-QR + mailer + hardening + observability + Postgres + full HTTP journey)
 - [x] All source files syntax-checked (`npm run check`)
 - [x] **Release smoke suite** (`npm run smoke <url>`) — 18 live assertions pass against a production-mode server
 - [x] **Fail-closed** verified: production boot refuses without `BP_SIGNING_SECRET` + `BP_ENC_KEY`
@@ -16,7 +16,7 @@ demo-data product (real rails/KYC come with the sponsor-bank integration).
 - [x] Security headers (CSP, HSTS, frame/sniff/COOP/CORP) present on every response
 - [x] Auth: email+password (scrypt, enumeration-safe, lockout), TOTP 2FA (RFC-vector tested), password reset with session revocation
 - [x] Trust: public Merkle proof endpoint + standalone `/verify.html` verifier
-- [x] Versions stamped **1.0.0** (backend, mobile, `app.json`); PWA cache `v4`
+- [x] Versions stamped: backend **1.1.0**; mobile **1.0.0** (`package.json` + `app.json`); PWA cache `v4`
 - [x] CI at repo root runs tests + Postgres service + Docker build on every push
 
 ## B. Deploy-time — founder actions (each has an exact command/pointer)
@@ -35,6 +35,7 @@ openssl rand -hex 32   # → BP_METRICS_TOKEN    (Prometheus scrape auth)
 - [ ] `BP_CORS_ORIGINS=https://your-real-frontend` (empty = same-origin only; never `*` in prod)
 - [ ] `BP_TRUST_PROXY=true` (behind Fly/Render/Nginx so rate limiting reads `X-Forwarded-For`)
 - [ ] Persistence: **`BP_PG_URL`** → managed **India-region** Postgres (RBI data-localisation). Build the image with `--build-arg WITH_PG=true`. Without it, `BP_DB` file store is used (single-instance only).
+- [ ] Email: `BP_EMAIL_PROVIDER=resend|sendgrid` + `BP_EMAIL_API_KEY` + `BP_EMAIL_FROM` (SPF/DKIM-verified domain) + `BP_APP_ORIGIN` — password-reset tokens are undeliverable without this (loud boot warning)
 
 ### B3. Database (if using Postgres — recommended)
 - [ ] Provision managed Postgres in an India region; enable encryption at rest + PITR backups
