@@ -4,6 +4,44 @@ All notable changes to Borderless Pay. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is
 [SemVer](https://semver.org/).
 
+## [1.1.0] — Deploy-ready hardening
+
+Closes every remaining code-completable item on the production-readiness
+checklist; what's left before real money is exclusively partner/credential
+work (sponsor bank, licensed KYC vendor, email-provider account, pen test).
+
+### Added
+- **Transactional email delivery** (`backend/src/mailer.js`, zero-dependency):
+  password-reset tokens are now actually delivered — `BP_EMAIL_PROVIDER=resend`
+  or `sendgrid` (HTTPS JSON APIs via built-in `fetch`), `console` transport for
+  development. Fail-closed in production: `console` is refused, a real provider
+  without `BP_EMAIL_API_KEY` refuses to boot. Delivery failures are logged +
+  audited but never change the API response (no enumeration/delivery oracle).
+  New env: `BP_EMAIL_PROVIDER`, `BP_EMAIL_API_KEY`, `BP_EMAIL_FROM`,
+  `BP_APP_ORIGIN`.
+- **KYC provider registry** (`backend/src/kyc.js`): the provider is selected
+  with `BP_KYC_PROVIDER` (default `sandbox`); unknown names are fatal at boot;
+  production running the sandbox logs a prominent warning. A licensed vendor
+  (Onfido/Sumsub/HyperVerge/IDfy…) integrates as a one-entry registry adapter.
+- **Mobile automated test suite** (`mobile/test/`, `npm test`): 14 tests pin
+  the security-critical pure logic — the UPI QR parser (hostile-input matrix),
+  the on-device SHA-256 against FIPS 180-4 + `node:crypto` vectors, the Merkle
+  proof fold against the backend's exact math, and INR formatting.
+- **CI**: new `mobile` job (runs the mobile tests, no Expo install needed) and
+  a runtime **dependency-audit gate** (`npm audit --omit=dev --audit-level=high`).
+
+### Fixed / hardened
+- **Static file serving** now uses a boundary-exact prefix check
+  (`public/ + sep`), so a sibling directory whose name merely starts with
+  "public" can never be served; regression-tested with encoded traversal probes.
+- **Boot honesty**: production startup loudly warns when KYC is still the
+  sandbox or no email provider is configured.
+
+### Tests
+- Backend 75 → **85** (mailer unit + provider payloads + fail-never-throw +
+  e2e reset-by-email journey + no-oracle check + traversal probes); mobile
+  0 → **14**. Total **99**.
+
 ### UX hardening (from running the real app through edge cases)
 - **Balance-aware confirmation** (mobile): the cross-border pay/send confirm screens and the domestic compose screen now detect when the total exceeds your balance and show a clear "Insufficient balance — you have ₹X" message with a "Change amount" action, instead of letting you authorize and *then* failing at the server ("fail early, not late"). The backend guard remains the source of truth.
 - **Name required at onboarding** (mobile + web): identity verification no longer proceeds with a blank name (it previously substituted a hidden default, causing a "there 👋 / AS" greeting mismatch). The greeting and avatar are now always consistent with the entered name.
