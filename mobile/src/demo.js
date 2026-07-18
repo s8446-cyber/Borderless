@@ -4,7 +4,7 @@
 // so the in-app "verify this receipt" cryptography is genuine even offline.
 // Also mirrors the backend's security behaviors: wrong-PIN lockout (5 fails)
 // and 60-second single-use quotes.
-import { sha256 } from "./sha256";
+import { sha256 } from "./sha256.js"; // explicit extension: Metro and Node's test runner both resolve it
 
 const RATES = { AED: 23.2, SGD: 64.1, EUR: 90.4, NPR: 0.625, USD: 83.4, GBP: 105.7 };
 
@@ -33,7 +33,7 @@ function freshDb() {
   return {
     user: null,
     account: null,
-    pin: null,
+    pinHash: null, // sha256 of the PIN — demo money, but no plaintext at rest
     payments: [],
     requests: {},
     quotes: {},
@@ -100,7 +100,7 @@ function checkPin(pin) {
   if (db.lockUntil > now) {
     throw new Error("Too many failed attempts. Try again in " + Math.ceil((db.lockUntil - now) / 1000) + "s");
   }
-  if (String(pin) !== db.pin) {
+  if (sha256(String(pin)) !== db.pinHash) {
     db.pinFails += 1;
     if (db.pinFails >= LOCK_AFTER_FAILS) {
       db.lockUntil = now + LOCK_MS;
@@ -184,7 +184,7 @@ export async function simulate(path, { method = "GET", body = {}, idempotencyKey
   }
 
   if (path === "/api/accounts/link") {
-    db.pin = String(body.pin);
+    db.pinHash = sha256(String(body.pin));
     const opening = body.openingBalance ?? 250000;
     db.account = {
       bank: body.bank,
@@ -360,4 +360,62 @@ export async function simulate(path, { method = "GET", body = {}, idempotencyKey
   }
 
   throw new Error("Unknown endpoint " + path);
+}
+
+// ---- persistence across app launches ----
+// The whole demo db is JSON-serializable, so the standalone app can behave
+// like a real one: your account, PIN, history and the hash-chained ledger all
+// survive a restart. The app layer saves this to the device's private storage
+// after every simulated call and restores it at boot.
+
+const STATE_VERSION = 1;
+
+export function exportDemoState() {
+  return { v: STATE_VERSION, db };
+}
+
+// Restore a previously exported snapshot. Defensive: malformed or tampered
+// state (including a broken hash chain) is refused and the simulator resets
+// to a clean first-run — never a half-restored wallet.
+export function importDemoState(snapshot) {
+  try {
+    if (!snapshot || snapshot.v !== STATE_VERSION || typeof snapshot.db !== "object" || !snapshot.db) {
+      throw new Error("bad snapshot");
+    }
+    const candidate = { ...freshDb(), ...snapshot.db };
+    if (!Array.isArray(candidate.chain) || !Array.isArray(candidate.payments) || !Array.isArray(candidate.anchors)) {
+      throw new Error("bad snapshot shape");
+    }
+    const saved = db;
+    db = candidate;
+    if (db.chain.length) {
+      const check = verifyChain();
+      if (!check.ok) {
+        db = saved;
+        throw new Error("tampered ledger: " + check.reason);
+      }
+    }
+    db.quotes = {}; // quotes are 60-second and single-use — never restore them
+    return true;
+  } catch {
+    db = freshDb();
+    return false;
+  }
+}
+
+// What the app should show at boot, given the restored state.
+export function demoBootStatus() {
+  return {
+    hasUser: Boolean(db.user),
+    hasAccount: Boolean(db.account),
+    name: db.user ? db.user.name : "",
+  };
+}
+
+// Local PIN check for the app-lock screen (devices without biometrics).
+// Shares the exact lockout counter with payments — 5 wrong unlock attempts
+// lock the wallet just like 5 wrong payment PINs.
+export function verifyDemoPin(pin) {
+  checkPin(pin); // throws on wrong PIN / lockout
+  return true;
 }

@@ -2,7 +2,7 @@
   "expo": {
     "name": "Borderless Pay",
     "slug": "borderless-pay",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "borderlesspay",
@@ -38,6 +38,7 @@
     },
     "web": { "favicon": "./assets/favicon.png" },
     "plugins": [
+      "./plugins/with-cleartext-http.js",
       "expo-local-authentication",
       "expo-secure-store",
       [
