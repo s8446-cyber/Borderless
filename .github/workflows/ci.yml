@@ -35,6 +35,8 @@ jobs:
           node-version: 20
       - name: Install optional deps (pg driver)
         run: npm install
+      - name: Dependency audit (runtime deps must be clean)
+        run: npm audit --omit=dev --audit-level=high
       - name: Syntax check
         run: for f in src/*.js test/*.js; do node --check "$f"; done
       - name: Client syntax check (PWA)
@@ -55,6 +57,22 @@ jobs:
           sleep 2
           bash scripts/release-smoke.sh http://localhost:4600 ci-metrics-token
           kill $SERVER
+
+  mobile:
+    # The mobile app's pure logic modules (UPI QR parser, on-device SHA-256 +
+    # Merkle fold, INR formatting) are tested with node:test directly — no
+    # Expo install needed, so this stays fast and dependency-free.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Mobile unit tests
+        run: node --test
 
   docker:
     runs-on: ubuntu-latest

@@ -186,3 +186,29 @@ test("payRequest rejects a collect request owned by another user (IDOR)", () => 
   const out = svc.payRequest({ userId: "owner", requestId: r.id, pin: "1111" });
   assert.equal(out.receipt.kind, "request");
 });
+
+// ---------- static file serving: path traversal ----------
+
+test("static serving: traversal and prefix-sibling paths are refused", async () => {
+  const { buildApp } = await import("../src/server.js");
+  const app = buildApp({ dbPath: null });
+  await new Promise((resolve) => app.server.listen(0, resolve));
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  try {
+    // the app itself serves
+    const home = await fetch(base + "/");
+    assert.equal(home.status, 200);
+
+    // raw ".." is resolved away by URL parsing; encoded dot-segments must not
+    // escape the public/ root (403 boundary check or 404 literal-name miss —
+    // never file contents from outside public/)
+    for (const p of ["/..%2f..%2fpackage.json", "/%2e%2e/%2e%2e/package.json", "/..\\..\\package.json"]) {
+      const r = await fetch(base + p);
+      assert.ok([403, 404, 400].includes(r.status), `${p} → ${r.status}`);
+      const text = await r.text();
+      assert.ok(!text.includes('"name": "borderless-pay"'), "must not leak files outside public/");
+    }
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+  }
+});
