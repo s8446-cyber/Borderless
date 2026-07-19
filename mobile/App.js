@@ -26,15 +26,13 @@ import * as Notifications from "expo-notifications";
 import { appAlert, AlertHost, simulateBiometric, getSimPerm, requestSimPerm } from "./src/alert";
 import { C, TINTS, CORRIDORS, P2P_CURRENCIES, OPERATORS, BILL_CATEGORIES, BILLERS } from "./src/theme";
 import { fmtINR } from "./src/format";
-import { api, setSession, onSessionExpired, DEMO_STATE_DOC } from "./src/api";
+import { api, setSession, onSessionExpired } from "./src/api";
 import { CONFIG } from "./src/config";
 import { getDeviceId } from "./src/device";
 import { foldMerkleProof } from "./src/sha256";
 import { parseUpiQr } from "./src/upi";
 import { rs, CONTENT } from "./src/responsive";
 import { persistSession, loadPersistedSession, markOnboarded, clearPersistedSession } from "./src/session";
-import { loadDoc, deleteDoc } from "./src/storage";
-import { importDemoState, demoBootStatus, verifyDemoPin } from "./src/demo";
 import { pinIssue } from "./src/pin";
 
 // Version stamp (from package.json, inlined by Metro). Shown on the welcome
@@ -74,6 +72,13 @@ const DOMESTIC_STEPS = [
   "Credit payee instantly",
 ];
 
+const TOPUP_STEPS = [
+  "Authorize with PIN",
+  "Credit Borderless balance",
+  "Write to settlement ledger (hash-chained)",
+  "Sign receipt (HMAC)",
+];
+
 const EMPTY_FORM = {
   payeeName: "",
   phone: "",
@@ -108,6 +113,7 @@ function initials(name) {
 }
 
 function txnIcon(p) {
+  if (p.kind === "topup") return "➕";
   if (p.kind === "p2p") return "💸";
   if (p.kind === "payment") return "🧳";
   if (p.kind === "bill") return "🧾";
@@ -117,34 +123,38 @@ function txnIcon(p) {
 }
 
 function txnName(p) {
+  if (p.kind === "topup") return "Added to balance";
   if (p.domestic) return p.payee ? p.payee.name : "Payment";
   if (p.kind === "p2p") return p.recipient ? p.recipient.name : "Transfer";
   return p.merchant ? p.merchant.name : "Merchant";
 }
 
 function receiptPayeeName(r) {
+  if (r.kind === "topup") return "to your Borderless balance";
   if (r.domestic) return "to " + (r.payee ? r.payee.name : "payee");
   if (r.kind === "p2p") return "to " + (r.recipient ? r.recipient.name : "recipient");
   return "to " + (r.merchant ? r.merchant.name : "merchant");
 }
 
 export default function App() {
-  // "boot" while the persisted session / demo state is restored — the app
+  // "boot" while the persisted session is restored — the app
   // decides between welcome (first run), link (resume onboarding) and lock
   // (returning user) BEFORE drawing anything, like a professional app.
   const [screen, setScreen] = useState("boot");
   const [name, setName] = useState("");
+  const [meta, setMeta] = useState(null); // /api/meta — settlement-mode disclosure
   const [bank, setBank] = useState("HDFC Bank");
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [pinStage, setPinStage] = useState("create"); // create → confirm
   const [pin, setPin] = useState("");
   const [corridor, setCorridor] = useState("AED");
+  const [intlMerchant, setIntlMerchant] = useState("");
+  const [intlAmount, setIntlAmount] = useState("");
   const [account, setAccount] = useState(null);
   const [quote, setQuote] = useState(null);
   const [receipt, setReceipt] = useState(null);
   const [history, setHistory] = useState([]);
-  const [scanning, setScanning] = useState(true);
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState(0);
   const [flow, setFlow] = useState("pay");
@@ -164,12 +174,11 @@ export default function App() {
   const lastBadQr = useRef(0);
 
   // App lock (returning users): "device" = biometric / device credential,
-  // "pin" = payment-PIN fallback (demo mode), "failed" = must retry.
+  // "failed" = must retry.
   const [lockState, setLockState] = useState("device");
-  const [lockPin, setLockPin] = useState("");
   const lockBusy = useRef(false);
 
-  // Sign-in with email (live-backend mode — parity with the web app).
+  // Account credentials — sign-up (new users) and sign-in (returning users).
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginTotp, setLoginTotp] = useState("");
@@ -182,7 +191,7 @@ export default function App() {
 
   const setF = (k, v) => setForm((p) => ({ ...p, [k]: v }));
   const c = CORRIDORS[corridor];
-  const settleSteps = flow === "send" ? SEND_STEPS : flow === "domestic" ? DOMESTIC_STEPS : SETTLE_STEPS;
+  const settleSteps = flow === "send" ? SEND_STEPS : flow === "domestic" ? (domIntent && domIntent.kind === "topup" ? TOPUP_STEPS : DOMESTIC_STEPS) : SETTLE_STEPS;
   const incomingRequest = requests.find((r) => r.direction === "incoming" && r.status === "pending");
 
   // ---- boot: restore the previous session, land on the right screen ----
@@ -190,35 +199,18 @@ export default function App() {
     let alive = true;
     (async () => {
       try {
-        if (CONFIG.DEMO_MODE) {
-          const raw = await loadDoc(DEMO_STATE_DOC);
-          if (raw) importDemoState(JSON.parse(raw));
-          const st = demoBootStatus();
+        const s = await loadPersistedSession();
+        if (s) {
+          setSession(s);
           if (!alive) return;
-          if (st.hasUser) setName(st.name || "");
-          if (st.hasUser && st.hasAccount) {
+          setName(s.name || "");
+          if (s.onboarded === "home") {
             setLockState("device");
             setScreen("lock");
             return;
           }
-          if (st.hasUser) {
-            setScreen("link"); // KYC done, bank not linked — resume there
-            return;
-          }
-        } else {
-          const s = await loadPersistedSession();
-          if (s) {
-            setSession(s);
-            if (!alive) return;
-            setName(s.name || "");
-            if (s.onboarded === "home") {
-              setLockState("device");
-              setScreen("lock");
-              return;
-            }
-            setScreen("link");
-            return;
-          }
+          setScreen("link");
+          return;
         }
       } catch {
         /* any restore problem → clean first run */
@@ -228,6 +220,15 @@ export default function App() {
     return () => {
       alive = false;
     };
+  }, []);
+
+  // ---- honest deployment metadata (sandbox badge) — fetched once ----
+  useEffect(() => {
+    let alive = true;
+    api("/api/meta")
+      .then((m) => { if (alive) setMeta(m); })
+      .catch(() => { /* backend unreachable — badge simply not shown yet */ });
+    return () => { alive = false; };
   }, []);
 
   // ---- session expiry (live mode): return to a clean welcome, once ----
@@ -252,7 +253,6 @@ export default function App() {
         const sessionScreens = ["home", "scan", "scanDom", "send", "compose", "history", "quote", "receipt", "contacts", "auth"];
         if (away > 60_000 && sessionScreens.includes(screen)) {
           setLockState("device");
-          setLockPin("");
           setScreen("lock");
         }
       }
@@ -315,13 +315,9 @@ export default function App() {
       const has = await LocalAuthentication.hasHardwareAsync().catch(() => false);
       const enrolled = has && (await LocalAuthentication.isEnrolledAsync().catch(() => false));
       if (!enrolled) {
-        // No biometrics / device credential enrolled. Demo mode can verify the
-        // payment PIN locally; live mode's credential is the keystore-guarded
-        // session itself (the device has no lock screen by the user's choice).
-        if (CONFIG.DEMO_MODE) {
-          setLockState("pin");
-          return;
-        }
+        // No biometrics / device credential enrolled — the device has no lock
+        // screen by the user's choice; the keystore-guarded session itself is
+        // the credential, and every payment still requires the server-verified PIN.
         return finishUnlock();
       }
       const result = await LocalAuthentication.authenticateAsync({
@@ -336,27 +332,7 @@ export default function App() {
     }
   }
 
-  function onLockPinKey(k) {
-    setLockPin((prev) => {
-      const next = k === "del" ? prev.slice(0, -1) : prev.length < 4 ? prev + k : prev;
-      return next;
-    });
-  }
-
-  // 4th digit of the lock-screen PIN → verify against the demo wallet
-  useEffect(() => {
-    if (screen !== "lock" || lockState !== "pin" || lockPin.length !== 4) return;
-    try {
-      verifyDemoPin(lockPin);
-      finishUnlock();
-    } catch (e) {
-      setLockPin("");
-      appAlert("Wrong PIN", e.message);
-    }
-  }, [lockPin, screen, lockState]);
-
   async function finishUnlock() {
-    setLockPin("");
     setBusy(true);
     try {
       await refresh();
@@ -416,34 +392,37 @@ export default function App() {
     }
   }
 
-  async function handleKyc() {
+  async function handleSignup() {
+    const email = loginEmail.trim().toLowerCase();
     if (!name.trim()) {
       return appAlert("Enter your name", "We verify against a name — please enter yours to continue.");
+    }
+    if (!email || !loginPassword) {
+      return appAlert("Missing details", "Enter your email and choose a password (8+ characters).");
     }
     if (!consent) {
       return appAlert("Consent needed", "Please read and accept the Terms of Service and Privacy Policy to continue.");
     }
     setBusy(true);
     try {
-      const r = await api("/api/kyc/verify", {
+      const r = await api("/api/auth/signup", {
         method: "POST",
         body: {
-          fullName: name.trim(), documentId: "P" + Date.now(), country: "IN",
+          fullName: name.trim(), email, password: loginPassword, country: "IN",
           deviceId: await getDeviceId(),
           consent: { tosVersion: "1.0", privacyVersion: "1.0" },
         },
       });
       setSession(r);
-      if (!CONFIG.DEMO_MODE) {
-        // persist NOW so a kill between KYC and bank-link resumes at link
-        await persistSession({ token: r.token, refreshToken: r.refreshToken, name: name.trim(), onboarded: "link" });
-      }
+      setLoginPassword("");
+      // persist NOW so a kill between sign-up and bank-link resumes at link
+      await persistSession({ token: r.token, refreshToken: r.refreshToken, name: name.trim(), onboarded: "link" });
       setNewPin("");
       setConfirmPin("");
       setPinStage("create");
       setScreen("link");
     } catch (e) {
-      appAlert("Verification failed", e.message);
+      appAlert("Could not create your account", e.message);
     } finally {
       setBusy(false);
     }
@@ -485,9 +464,9 @@ export default function App() {
     try {
       await api("/api/accounts/link", {
         method: "POST",
-        body: { bank, pin: newPin, openingBalance: 250000 },
+        body: { bank, pin: newPin },
       });
-      if (!CONFIG.DEMO_MODE) await markOnboarded("home");
+      await markOnboarded("home");
       setNewPin("");
       setConfirmPin("");
       await refresh();
@@ -519,14 +498,15 @@ export default function App() {
     } catch (e) {
       // contacts/requests optional
     }
+    if (!meta) api("/api/meta").then((m) => setMeta((prev) => prev || m)).catch(() => {});
     return true;
   }
 
   function startScan() {
     setFlow("pay");
-    setScanning(true);
+    setIntlMerchant("");
+    setIntlAmount("");
     setScreen("scan");
-    setTimeout(() => setScanning(false), 1700);
   }
 
   function startSend() {
@@ -564,10 +544,11 @@ export default function App() {
     setScreen("scanDom");
   }
 
-  // A real merchant UPI QR payload for the simulated scanner — it goes through
-  // the SAME hardened upi:// parser as a physical QR, so the full pipeline
-  // (parse → validate → prefill) is exercised even without a camera.
-  const DEMO_UPI_QR = "upi://pay?pa=ccd@bpl&pn=Cafe%20Coffee%20Day";
+  // DEVELOPMENT ONLY: a well-formed UPI QR payload for camera-less test
+  // environments (emulators, CI). It runs through the SAME hardened upi://
+  // parser as a physical QR, and it is compiled out of release builds —
+  // production users always scan a real QR or type a real UPI ID.
+  const SAMPLE_UPI_QR = "upi://pay?pa=teststore@axis&pn=Test%20Store";
 
   // Web: scan the way a phone browser would. If the browser can open a camera
   // (secure context + getUserMedia — e.g. the sim opened on a phone, or a
@@ -584,7 +565,7 @@ export default function App() {
     if (getSimPerm("camera") === "denied") {
       return appAlert(
         "Camera access is turned off",
-        "You declined camera access this session, so scanning is unavailable. You can still pay with the demo QR or by entering a UPI ID. (Reload the page to be asked again.)"
+        "You declined camera access this session, so scanning is unavailable. You can still pay by entering a UPI ID. (Reload the page to be asked again.)"
       );
     }
     const ok = await requestSimPerm("camera", {
@@ -593,18 +574,19 @@ export default function App() {
       message: "Borderless Pay uses the camera only while you scan a payment QR code. Photos and video are never captured or stored.",
     });
     if (!ok) {
-      return appAlert("Camera off", "No problem — use the demo QR, or enter a UPI ID instead.");
+      return appAlert("Camera off", "No problem — enter a UPI ID instead.");
     }
-    simScan();
+    if (__DEV__) return simScan();
+    appAlert("No camera here", "This environment has no camera — pay by entering the UPI ID instead.");
   }
 
-  // Simulated scan: brief scanning animation, then a demo UPI QR payload is
-  // fed through the real onQrScanned → parseUpiQr pipeline.
+  // DEV ONLY — simulated scan: brief scanning animation, then the sample UPI
+  // QR payload is fed through the real onQrScanned → parseUpiQr pipeline.
   function simScan() {
     setWebScan("sim");
     setTimeout(() => {
       setWebScan("idle");
-      onQrScanned({ data: DEMO_UPI_QR });
+      onQrScanned({ data: SAMPLE_UPI_QR });
     }, 1700);
   }
 
@@ -615,12 +597,14 @@ export default function App() {
     if (name === "NotAllowedError" || name === "SecurityError") {
       appAlert(
         "Camera access is turned off",
-        "You denied the browser's camera permission, so live scanning is unavailable. Enable it in your browser's site settings, or continue with the demo QR / manual entry."
+        "You denied the browser's camera permission, so live scanning is unavailable. Enable it in your browser's site settings, or pay by entering the UPI ID."
       );
-    } else {
-      appAlert("Camera unavailable", "No usable camera was found — continuing with the simulated scanner.", [
+    } else if (__DEV__) {
+      appAlert("Camera unavailable", "No usable camera was found — continuing with the simulated scanner (dev builds only).", [
         { text: "OK", onPress: simScan },
       ]);
+    } else {
+      appAlert("Camera unavailable", "No usable camera was found — pay by entering the UPI ID instead.");
     }
   }
 
@@ -648,16 +632,16 @@ export default function App() {
     setScreen("compose");
   }
 
-  // Fallback for emulators / web / denied camera: the demo merchant QR.
-  function useDemoQr() {
-    setForm({ ...EMPTY_FORM, payeeName: "Cafe Coffee Day" });
-    setDomIntent({ kind: "merchant", title: "Cafe Coffee Day", sub: "ccd@bpl • Demo QR" });
-    setScreen("compose");
+  // DEV ONLY — camera-less environments (emulators): feed the sample QR
+  // through the real parse pipeline. Compiled out of release builds.
+  function useSampleQr() {
+    onQrScanned({ data: SAMPLE_UPI_QR });
   }
 
   function startDom(kind) {
     setForm(EMPTY_FORM);
     const map = {
+      topup: { title: "Add money", sub: "Fund your Borderless balance — recorded on the ledger like every transaction" },
       phone: { title: "Pay by phone number", sub: "Sends instantly via UPI" },
       upiid: { title: "Pay to UPI ID", sub: "e.g. name@bank" },
       bank: { title: "Bank transfer", sub: "To any account + IFSC (IMPS / NEFT)" },
@@ -678,12 +662,12 @@ export default function App() {
 
   // Real OS contacts permission — asked IN-CONTEXT, only when the user taps
   // "Pay a contact from my phone". A priming Alert explains why BEFORE the OS
-  // Allow/Deny dialog; deny → the built-in demo contacts remain usable, so the
+  // Allow/Deny dialog; deny → manual entry remains one tap away, so the
   // feature degrades gracefully and never nags.
   async function payFromPhoneContacts() {
     // Web sim: show the OS-style contacts prompt, then (on allow) load the
-    // built-in directory as if it were the phone's contacts. Asked once and
-    // remembered for the session, like the OS.
+    // user's recent payees (real data from their own history) as the picker.
+    // Asked once and remembered for the session, like the OS.
     if (IS_WEB) {
       if (getSimPerm("contacts") === "denied") {
         return appAlert(
@@ -743,13 +727,13 @@ export default function App() {
     }
   }
 
-  // Web sim: build a phone-contacts list (expo-contacts shape) from the
-  // built-in demo directory so the "pick a contact" screen works in a browser.
+  // Web sim: build a picker list (expo-contacts shape) from the user's OWN
+  // recent payees so the "pick a contact" screen works in a browser.
   async function loadPhoneContactsWeb() {
     try {
       const { contacts } = await api("/api/contacts");
-      const mapped = (contacts || []).map((ct, i) => ({ id: "demo-" + i, name: ct.name, phoneNumbers: [{ number: ct.phone }] }));
-      if (!mapped.length) return appAlert("No contacts found", "Enter a UPI ID or phone number instead.", [{ text: "OK", onPress: () => startDom("phone") }]);
+      const mapped = (contacts || []).filter((ct) => ct.phone).map((ct, i) => ({ id: "payee-" + i, name: ct.name, phoneNumbers: [{ number: ct.phone }] }));
+      if (!mapped.length) return appAlert("No recent payees yet", "Pay someone once and they'll appear here. Enter a UPI ID or phone number instead.", [{ text: "OK", onPress: () => startDom("phone") }]);
       setPhoneContacts(mapped);
       setScreen("contacts");
     } catch (e) {
@@ -821,7 +805,9 @@ export default function App() {
 
   function proceedDomestic() {
     const amount = Number(form.amount);
-    if (!(amount > 0)) return appAlert("Enter an amount", "How much do you want to pay?");
+    if (!(amount > 0)) {
+      return appAlert("Enter an amount", domIntent && domIntent.kind === "topup" ? "How much do you want to add?" : "How much do you want to pay?");
+    }
     setFlow("domestic");
     openAuth();
   }
@@ -829,6 +815,7 @@ export default function App() {
   function buildDomesticRequest() {
     const amount = Number(form.amount);
     const k = domIntent ? domIntent.kind : "upi";
+    if (k === "topup") return { endpoint: "/api/topup", body: { amount } };
     if (k === "payrequest") return { endpoint: "/api/requests/pay", body: { requestId: domIntent.requestId } };
     if (k === "recharge") return { endpoint: "/api/recharge", body: { amount, recharge: { operator: form.operator, number: form.phone, plan: "Custom" } } };
     if (k === "bill") return { endpoint: "/api/bills/pay", body: { amount, biller: { category: form.billCategory, name: form.biller || form.billCategory, consumerId: form.consumerId } } };
@@ -842,11 +829,13 @@ export default function App() {
   }
 
   async function getQuote() {
+    const amt = Number(intlAmount);
+    if (!(amt > 0)) return appAlert("Enter an amount", "How much does the merchant charge (in their currency)?");
     setBusy(true);
     try {
       const q = await api("/api/quotes", {
         method: "POST",
-        body: { currency: corridor, localAmount: c.amount },
+        body: { currency: corridor, localAmount: amt },
       });
       setQuote(q);
       setQuoteExpired(false);
@@ -927,7 +916,7 @@ export default function App() {
   async function authorize(enteredPin) {
     setScreen("settle");
     setStep(0);
-    const steps = flow === "send" ? SEND_STEPS : flow === "domestic" ? DOMESTIC_STEPS : SETTLE_STEPS;
+    const steps = flow === "send" ? SEND_STEPS : flow === "domestic" ? (domIntent && domIntent.kind === "topup" ? TOPUP_STEPS : DOMESTIC_STEPS) : SETTLE_STEPS;
     const idem = "idem_" + Date.now() + "_" + Math.random().toString(36).slice(2);
     try {
       let endpoint, body;
@@ -940,7 +929,7 @@ export default function App() {
         body = { quoteId: quote.quoteId, pin: enteredPin, recipient: { name: recipientName || "Recipient", country: p2pCurrency } };
       } else {
         endpoint = "/api/payments";
-        body = { quoteId: quote.quoteId, pin: enteredPin, merchant: { name: c.merchant, country: corridor } };
+        body = { quoteId: quote.quoteId, pin: enteredPin, merchant: { name: intlMerchant.trim() || "Merchant", country: corridor } };
       }
       const r = await api(endpoint, { method: "POST", idempotencyKey: idem, body });
       setTimeout(async () => {
@@ -975,8 +964,7 @@ export default function App() {
   }
 
   // Recompute the receipt's Merkle inclusion proof CLIENT-SIDE (pure-JS
-  // SHA-256 — no trust in the server/simulator for the math). Works in both
-  // demo mode (real hash chain in src/demo.js) and real-backend mode.
+  // SHA-256 — no trust in the server for the math).
   async function verifyReceipt() {
     if (!receipt || !receipt.settlement) return;
     setVerifyResult({ pending: true });
@@ -994,16 +982,9 @@ export default function App() {
     }
   }
 
-  // Open the hosted policy document. In DEMO mode there is no backend to
-  // serve it — canOpenURL would still say "yes" and strand the user on a dead
-  // browser tab, so we show the key points inline instead (informed consent
-  // either way). Real-backend mode opens the served document, with the same
-  // inline fallback if it can't.
+  // Open the hosted policy document, with an inline key-points fallback if
+  // the device can't open it (informed consent either way).
   async function openPolicy(doc, title, summary) {
-    if (CONFIG.DEMO_MODE) {
-      appAlert(title + " (v1.0)", summary);
-      return;
-    }
     try {
       const supported = await Linking.canOpenURL(CONFIG.API_BASE + "/" + doc);
       if (!supported) throw new Error("unavailable");
@@ -1016,7 +997,7 @@ export default function App() {
   const PRIVACY_SUMMARY =
     "We collect only what payments need: your name (and email if you create a login), a hashed device ID for session security, and transaction records. PINs/passwords are stored as scrypt hashes; sensitive fields are AES-256-GCM encrypted. No contacts, location, camera or ad data is collected. You can close your account anytime — profile data is erased; transaction records are kept pseudonymously where law requires. Full policy: privacy.html on the web app.";
   const TERMS_SUMMARY =
-    "Demo product — no real money moves. ₹0 domestic fee; cross-border at the mid-market rate + flat 0.5% (₹2 min, ₹500 cap), always shown before you confirm. Receipts are recorded on a tamper-evident ledger. Keep your PIN and 2FA codes secret. Full terms: terms.html on the web app.";
+    "Sandbox phase — money movement is simulated until licensed rails go live, and every receipt is stamped 'sandbox'. ₹0 domestic fee; cross-border at the mid-market rate + flat 0.5% (₹2 min, ₹500 cap), always shown before you confirm. Balances start at ₹0 and are funded only through the audited Add-money flow. Keep your PIN and 2FA codes secret. Full terms: terms.html on the web app.";
 
   function confirmLogout() {
     appAlert("Account", "Log out, or close your account permanently?", [
@@ -1061,7 +1042,6 @@ export default function App() {
   async function resetLocal() {
     setSession({});
     await clearPersistedSession().catch(() => {});
-    if (CONFIG.DEMO_MODE) await deleteDoc(DEMO_STATE_DOC).catch(() => {});
     setAccount(null);
     setHistory([]);
     setRequests([]);
@@ -1073,7 +1053,6 @@ export default function App() {
     setConfirmPin("");
     setPinStage("create");
     setPin("");
-    setLockPin("");
     setName("");
     setLoginEmail("");
     setLoginPassword("");
@@ -1133,13 +1112,7 @@ export default function App() {
               <Avatar initials={initials(name)} size={72} />
               <Text style={[s.h2, { marginTop: 14, textAlign: "center" }]}>Welcome back{name ? ", " + name.split(" ")[0] : ""}</Text>
             </View>
-            {lockState === "pin" ? (
-              <View>
-                <Text style={[s.sub, { textAlign: "center" }]}>Enter your 4-digit payment PIN to unlock</Text>
-                <PinDots filled={lockPin.length} />
-                <PinPad onKey={onLockPinKey} />
-              </View>
-            ) : lockState === "failed" ? (
+            {lockState === "failed" ? (
               <View>
                 <Text style={[s.sub, { textAlign: "center" }]}>Authentication failed or was cancelled. Your money stays locked until you verify.</Text>
                 <PrimaryButton title="Try again" onPress={() => { setLockState("device"); unlockWithDevice(); }} loading={busy} />
@@ -1150,13 +1123,13 @@ export default function App() {
                 <PrimaryButton title="🔓 Unlock" onPress={unlockWithDevice} loading={busy} />
               </View>
             )}
-            {CONFIG.DEMO_MODE && lockState !== "pin" ? (
-              <PrimaryButton title="Use payment PIN instead" secondary onPress={() => setLockState("pin")} />
-            ) : null}
             <TouchableOpacity onPress={lockLogout} activeOpacity={0.7} style={[{ marginTop: 18 }]}>
               <Text style={[{ color: C.muted, fontSize: 13, textAlign: "center", fontWeight: "600" }]}>Not you? Sign out</Text>
             </TouchableOpacity>
-            <Text style={s.buildStamp}>v{APP_VERSION} · {CONFIG.DEMO_MODE ? "demo mode (standalone)" : "live backend: " + CONFIG.API_BASE}</Text>
+            <Text style={s.buildStamp}>v{APP_VERSION} · {CONFIG.API_BASE}{meta && meta.settlementMode === "sandbox" ? " · 🧪 sandbox rails" : ""}</Text>
+            {!__DEV__ && CONFIG.USING_DEV_FALLBACK ? (
+              <Text style={[s.buildStamp, { color: C.warn }]}>⚠️ Release build without EXPO_PUBLIC_API_BASE — pointing at the local-dev fallback. Set it to your deployed backend URL.</Text>
+            ) : null}
           </View>
         )}
 
@@ -1224,6 +1197,27 @@ export default function App() {
               value={name}
               onChangeText={setName}
             />
+            <Text style={s.label}>Email</Text>
+            <TextInput
+              style={s.input}
+              placeholder="you@example.com"
+              placeholderTextColor={C.muted}
+              autoCapitalize="none"
+              autoComplete="email"
+              keyboardType="email-address"
+              value={loginEmail}
+              onChangeText={setLoginEmail}
+            />
+            <Text style={s.label}>Password (min 8 characters)</Text>
+            <TextInput
+              style={s.input}
+              placeholder="••••••••"
+              placeholderTextColor={C.muted}
+              secureTextEntry
+              autoCapitalize="none"
+              value={loginPassword}
+              onChangeText={setLoginPassword}
+            />
             <TouchableOpacity style={s.consentRow} activeOpacity={0.8} onPress={() => setConsent(!consent)}>
               <View style={[s.consentBox, consent && s.consentBoxOn]}>
                 {consent ? <Text style={[{ color: "#04122b", fontWeight: "800", fontSize: 13 }]}>✓</Text> : null}
@@ -1239,16 +1233,20 @@ export default function App() {
                 <Text style={s.consentLink}>Privacy Policy ↗</Text>
               </TouchableOpacity>
             </View>
-            <PrimaryButton title="Verify identity (KYC) →" onPress={handleKyc} loading={busy} />
-            {!CONFIG.DEMO_MODE && (
-              <TouchableOpacity onPress={() => setScreen("signin")} activeOpacity={0.7} style={[{ marginTop: 14 }]}>
-                <Text style={[{ color: C.accent, fontSize: 14, textAlign: "center", fontWeight: "700" }]}>
-                  Already have an account? Sign in
-                </Text>
-              </TouchableOpacity>
-            )}
-            <Text style={s.apiNote}>Calls real POST /api/kyc/verify • consent recorded & versioned</Text>
-            <Text style={s.buildStamp}>v{APP_VERSION} · {CONFIG.DEMO_MODE ? "demo mode (standalone)" : "live backend: " + CONFIG.API_BASE}</Text>
+            <PrimaryButton title="Create your account →" onPress={handleSignup} loading={busy} />
+            <TouchableOpacity onPress={() => setScreen("signin")} activeOpacity={0.7} style={[{ marginTop: 14 }]}>
+              <Text style={[{ color: C.accent, fontSize: 14, textAlign: "center", fontWeight: "700" }]}>
+                Already have an account? Sign in
+              </Text>
+            </TouchableOpacity>
+            <Text style={s.apiNote}>POST /api/auth/signup • scrypt-hashed password • consent recorded & versioned</Text>
+            {meta && meta.settlementMode === "sandbox" ? (
+              <Text style={s.apiNote}>🧪 Sandbox settlement: money movement is simulated until licensed rails go live — every receipt says so.</Text>
+            ) : null}
+            <Text style={s.buildStamp}>v{APP_VERSION} · {CONFIG.API_BASE}{meta && meta.settlementMode === "sandbox" ? " · 🧪 sandbox rails" : ""}</Text>
+            {!__DEV__ && CONFIG.USING_DEV_FALLBACK ? (
+              <Text style={[s.buildStamp, { color: C.warn }]}>⚠️ Release build without EXPO_PUBLIC_API_BASE — pointing at the local-dev fallback. Set it to your deployed backend URL.</Text>
+            ) : null}
           </View>
         )}
 
@@ -1329,12 +1327,33 @@ export default function App() {
               <Text style={s.balance}>{fmtINR(account ? account.balance : 0)}</Text>
               <View style={s.balanceRow}>
                 <Pill>{account ? account.bank + " • " + account.maskedNumber : "Bank"}</Pill>
-                <TouchableOpacity onPress={verifyLedger} activeOpacity={0.7} style={s.verifyChip}>
-                  <Text style={s.verifyChipTxt}>🔎 Verify</Text>
-                </TouchableOpacity>
+                <View style={[{ flexDirection: "row", alignItems: "center" }]}>
+                  {meta && meta.settlementMode === "sandbox" ? (
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      style={[s.verifyChip, { marginRight: 8 }]}
+                      onPress={() => appAlert("🧪 Sandbox rails", "Money movement is simulated end-to-end while our sponsor-bank and PSP integrations are finalized. Every receipt is cryptographically signed and stamped 'sandbox' — nothing here pretends to be real money.")}
+                    >
+                      <Text style={[s.verifyChipTxt, { color: C.warn }]}>🧪 Sandbox</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  <TouchableOpacity onPress={verifyLedger} activeOpacity={0.7} style={s.verifyChip}>
+                    <Text style={s.verifyChipTxt}>🔎 Verify</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
               <Badges items={["🔐 scrypt PIN", "⛓️ dual ledger", "✍️ HMAC signed"]} />
             </Card>
+
+            {account && account.balance === 0 && history.length === 0 && (
+              <Card glow>
+                <Text style={[{ color: C.text, fontWeight: "700", marginBottom: 4 }]}>👋 Welcome! Add money to get started</Text>
+                <Text style={[{ color: C.muted, fontSize: 13, marginBottom: 10 }]}>
+                  Your balance starts at ₹0 — every rupee is added explicitly and recorded on the tamper-evident ledger.
+                </Text>
+                <PrimaryButton title="➕ Add money" onPress={() => startDom("topup")} />
+              </Card>
+            )}
 
             {incomingRequest && (
               <Card glow>
@@ -1350,6 +1369,7 @@ export default function App() {
 
             <SectionHeader title="Money transfer" />
             <View style={s.grid}>
+              <ActionTile icon="➕" label="Add money" tint={TINTS.mint} onPress={() => startDom("topup")} />
               <ActionTile icon="📷" label="Scan QR" tint={TINTS.indigo} onPress={startScanDomestic} />
               <ActionTile icon="📱" label="To phone" tint={TINTS.mint} onPress={() => startDom("phone")} />
               <ActionTile icon="🆔" label="To UPI ID" tint={TINTS.violet} onPress={() => startDom("upiid")} />
@@ -1398,33 +1418,34 @@ export default function App() {
         {screen === "scan" && (
           <View>
             <ScreenHeader title="Pay abroad" onBack={() => setScreen("home")} />
-            <Text style={s.sub}>Pick a corridor, then scan the local merchant's QR.</Text>
-            <Text style={s.label}>Corridor</Text>
+            <Text style={s.sub}>
+              Choose the merchant's currency, enter who you're paying and the amount they charge —
+              the transparent mid-market conversion is shown before you confirm.
+            </Text>
+            <Text style={s.label}>Currency corridor</Text>
             <Chips
               value={corridor}
               onChange={setCorridor}
               options={Object.keys(CORRIDORS).map((k) => ({ value: k, label: CORRIDORS[k].flag + " " + k }))}
             />
-            <View style={s.scanner}>
-              <View style={s.scanline} />
-              <View style={s.qr}>
-                {Array.from({ length: 25 }).map((_, i) => (
-                  <View key={i} style={[s.qrCell, i % 3 === 0 && { backgroundColor: "#000" }, i % 5 === 0 && { backgroundColor: "#000" }]} />
-                ))}
-              </View>
-            </View>
-            {scanning ? (
-              <ActivityIndicator color={C.accent} size="large" style={[{ marginTop: 26 }]} />
-            ) : (
-              <View>
-                <Card style={[{ marginTop: 16 }]}>
-                  <Row label="Merchant" value={c.merchant} />
-                  <Row label="Location" value={c.flag + " " + c.country} />
-                  <Row label="Status" value="✓ Demo corridor merchant" accent />
-                </Card>
-                <PrimaryButton title="Continue" onPress={getQuote} loading={busy} />
-              </View>
-            )}
+            <Text style={s.label}>Merchant name</Text>
+            <TextInput
+              style={s.input}
+              placeholder={c.example}
+              placeholderTextColor={C.muted}
+              value={intlMerchant}
+              onChangeText={setIntlMerchant}
+            />
+            <Text style={s.label}>Amount they charge ({c.sym})</Text>
+            <TextInput
+              style={s.input}
+              placeholder="0"
+              placeholderTextColor={C.muted}
+              keyboardType="decimal-pad"
+              value={intlAmount}
+              onChangeText={setIntlAmount}
+            />
+            <PrimaryButton title="Get quote →" onPress={getQuote} loading={busy} />
           </View>
         )}
 
@@ -1491,9 +1512,9 @@ export default function App() {
         {screen === "quote" && quote && quote.kind !== "p2p" && (
           <View>
             <ScreenHeader title="Confirm payment" onBack={() => setScreen("scan")} />
-            <Text style={s.sub}>{c.merchant}</Text>
+            <Text style={s.sub}>{(intlMerchant.trim() || "Merchant") + " · " + c.flag + " " + c.country}</Text>
             <Card glow>
-              <Row label="They charge" value={c.sym + " " + c.amount.toLocaleString()} />
+              <Row label="They charge" value={c.sym + " " + Number(intlAmount).toLocaleString()} />
               <Row label="Exchange rate (mid-market)" value={"1 " + corridor + " = ₹" + quote.rate} accent />
               <Row label="Converted amount" value={fmtINR(quote.amount)} />
               <Row label="FX markup" value="₹0.00" accent />
@@ -1531,7 +1552,7 @@ export default function App() {
                 </Text>
                 <PrimaryButton title="Stop camera" secondary onPress={() => setWebScan("idle")} />
                 <PrimaryButton title="Enter UPI ID instead" secondary onPress={() => startDom("upiid")} />
-                <PrimaryButton title="Use demo QR (no camera)" secondary onPress={useDemoQr} />
+                {__DEV__ ? <PrimaryButton title="Use sample QR (dev builds only)" secondary onPress={useSampleQr} /> : null}
               </View>
             ) : webScan === "sim" ? (
               <View>
@@ -1543,7 +1564,7 @@ export default function App() {
                   <View style={s.scanline} pointerEvents="none" />
                 </View>
                 <Text style={[s.apiNote, { marginTop: 10 }]}>
-                  Simulated camera (no camera available here). Detecting a demo UPI QR — it runs through the same upi:// parser as a real scan.
+                  Simulated camera (dev builds only — no camera available here). Detecting the sample UPI QR — it runs through the same upi:// parser as a real scan.
                 </Text>
               </View>
             ) : (
@@ -1560,7 +1581,7 @@ export default function App() {
                 </Card>
                 <PrimaryButton title="Allow camera & scan" onPress={startWebScan} />
                 <PrimaryButton title="Enter UPI ID instead" secondary onPress={() => startDom("upiid")} />
-                <PrimaryButton title="Use demo QR (no camera)" secondary onPress={useDemoQr} />
+                {__DEV__ ? <PrimaryButton title="Use sample QR (dev builds only)" secondary onPress={useSampleQr} /> : null}
               </View>
             )}
           </View>
@@ -1582,7 +1603,7 @@ export default function App() {
                   Point at any UPI QR — payee and amount fill in automatically. Nothing is photographed or stored.
                 </Text>
                 <PrimaryButton title="Enter UPI ID instead" secondary onPress={() => startDom("upiid")} />
-                <PrimaryButton title="Use demo QR (no camera)" secondary onPress={useDemoQr} />
+                {__DEV__ ? <PrimaryButton title="Use sample QR (dev builds only)" secondary onPress={useSampleQr} /> : null}
               </View>
             ) : camPerm && !camPerm.canAskAgain ? (
               <View>
@@ -1595,7 +1616,7 @@ export default function App() {
                 </Card>
                 <PrimaryButton title="Open device settings" onPress={() => Linking.openSettings()} />
                 <PrimaryButton title="Enter UPI ID instead" secondary onPress={() => startDom("upiid")} />
-                <PrimaryButton title="Use demo QR (no camera)" secondary onPress={useDemoQr} />
+                {__DEV__ ? <PrimaryButton title="Use sample QR (dev builds only)" secondary onPress={useSampleQr} /> : null}
               </View>
             ) : (
               <View>
@@ -1609,7 +1630,7 @@ export default function App() {
                 </Card>
                 <PrimaryButton title="Allow camera & scan" onPress={requestCamPerm} />
                 <PrimaryButton title="Enter UPI ID instead" secondary onPress={() => startDom("upiid")} />
-                <PrimaryButton title="Use demo QR (no camera)" secondary onPress={useDemoQr} />
+                {__DEV__ ? <PrimaryButton title="Use sample QR (dev builds only)" secondary onPress={useSampleQr} /> : null}
               </View>
             )}
           </View>
@@ -1676,10 +1697,17 @@ export default function App() {
             )}
 
             <Card>
-              <Row label={domIntent.kind === "request" ? "You request" : "You pay"} value={fmtINR(Number(form.amount) || 0)} accent big />
+              <Row
+                label={domIntent.kind === "request" ? "You request" : domIntent.kind === "topup" ? "You add" : "You pay"}
+                value={fmtINR(Number(form.amount) || 0)}
+                accent
+                big
+              />
               <Row label="Fee" value="₹0 • Free" accent />
               {domIntent.kind === "request" ? (
                 <Row label="Status" value="Pending until paid" />
+              ) : domIntent.kind === "topup" ? (
+                <Row label="Settlement" value={meta && meta.settlementMode === "sandbox" ? "🧪 Sandbox (simulated)" : "Live"} />
               ) : (
                 <Row label="Speed" value="Instant" />
               )}
@@ -1687,6 +1715,8 @@ export default function App() {
 
             {domIntent.kind === "request" ? (
               <PrimaryButton title="Send request" onPress={submitRequest} loading={busy} />
+            ) : domIntent.kind === "topup" ? (
+              <PrimaryButton title={"Add " + fmtINR(Number(form.amount) || 0) + " to balance"} onPress={proceedDomestic} />
             ) : account && Number(form.amount) > account.balance ? (
               <Text style={s.shortfall}>Insufficient balance. You have {fmtINR(account.balance)}.</Text>
             ) : (
@@ -1752,7 +1782,7 @@ export default function App() {
               <Text style={[{ color: "#04122b", fontSize: 44, fontWeight: "800" }]}>✓</Text>
             </Animated.View>
             <Text style={[s.h2, { textAlign: "center" }]}>
-              {(receipt.kind === "p2p" ? "Sent " : "Paid ") + fmtINR(receipt.total)}
+              {(receipt.kind === "topup" ? "Added " : receipt.kind === "p2p" ? "Sent " : "Paid ") + fmtINR(receipt.total)}
             </Text>
             <Text style={[s.sub, { textAlign: "center" }]}>{receiptPayeeName(receipt)}</Text>
             <Card>
@@ -1766,6 +1796,9 @@ export default function App() {
                 <Row label="Category" value={receipt.payee.category} />
               ) : null}
               <Row label="Fee" value={receipt.domestic ? "₹0 • Free" : fmtINR(receipt.fee)} accent={receipt.domestic} />
+              {receipt.settlementMode === "sandbox" ? (
+                <Row label="Settlement" value="🧪 Sandbox (simulated rails)" />
+              ) : null}
               <Row label="Reference" value={receipt.reference} />
             </Card>
             <Card>
