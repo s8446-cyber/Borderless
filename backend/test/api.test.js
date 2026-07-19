@@ -35,11 +35,26 @@ test("full journey: onboard → pay → send → domestic → bills → request 
     assert.equal(r.data.kyc.status, "verified");
     setToken(r.data.token);
 
-    // --- link bank ---
-    r = await call("/api/accounts/link", { method: "POST", body: { bank: "HDFC Bank", pin: "4321", openingBalance: 250000 } });
+    // --- link bank: balances always start at ZERO (no invented money) ---
+    r = await call("/api/accounts/link", { method: "POST", body: { bank: "HDFC Bank", pin: "4321" } });
     assert.equal(r.status, 200);
-    assert.equal(r.data.balance, 250000);
-    let bal = 25000000; // minor units
+    assert.equal(r.data.balance, 0);
+
+    // --- fund via the explicit top-up flow (the ONLY funding path) ---
+    r = await call("/api/topup", { method: "POST", idem: "tp1", body: { amount: 200000, pin: "4321" } });
+    assert.equal(r.status, 200);
+    assert.equal(r.data.receipt.kind, "topup");
+    assert.equal(r.data.receipt.settlementMode, "sandbox", "top-ups are honestly stamped sandbox");
+    assert.equal(r.data.receipt.feeMinor, 0);
+    let bal = 20000000; // minor units
+    assert.equal(r.data.receipt.balanceAfterMinor, bal);
+    // replay with the same idempotency key → no double credit
+    r = await call("/api/topup", { method: "POST", idem: "tp1", body: { amount: 200000, pin: "4321" } });
+    assert.equal(r.data.replayed, true);
+    assert.equal(r.data.receipt.balanceAfterMinor, bal);
+    // re-linking the bank must never touch an existing balance
+    r = await call("/api/accounts/link", { method: "POST", body: { bank: "ICICI Bank", pin: "4321" } });
+    assert.equal(r.data.balanceMinor, bal, "re-link preserves the balance");
 
     // --- cross-border pay + idempotency ---
     r = await call("/api/quotes", { method: "POST", body: { currency: "AED", localAmount: 80 } });
@@ -90,21 +105,24 @@ test("full journey: onboard → pay → send → domestic → bills → request 
     bal -= 29900;
     assert.equal(r.data.receipt.balanceAfterMinor, bal);
 
-    // --- collect requests: pay the seeded incoming, then create an outgoing ---
+    // --- collect requests: no fake seeds — a fresh account has none ---
     r = await call("/api/requests");
-    const incoming = r.data.requests.find((x) => x.direction === "incoming" && x.status === "pending");
-    assert.ok(incoming, "a seeded incoming request should exist after linking");
-    r = await call("/api/requests/pay", { method: "POST", idem: "rq1", body: { requestId: incoming.id, pin: "4321" } });
-    assert.equal(r.data.receipt.kind, "request");
-    bal -= Math.round(incoming.amount * 100);
-    assert.equal(r.data.receipt.balanceAfterMinor, bal);
-
+    assert.equal(r.data.requests.length, 0, "no seeded requests — real data only");
     r = await call("/api/requests", { method: "POST", body: { amount: 450, fromName: "Rohan", note: "Dinner" } });
     assert.equal(r.data.request.status, "pending");
+    assert.equal(r.data.request.direction, "outgoing");
 
-    // --- history reflects exactly the six settled payments ---
+    // --- recent payees are derived from the user's OWN history ---
+    r = await call("/api/contacts");
+    const names = r.data.contacts.map((c) => c.name);
+    assert.ok(names.includes("Priya"), "UPI payee appears in recent payees");
+    assert.ok(names.includes("Sara"), "P2P recipient appears in recent payees");
+    assert.ok(!names.includes("Tata Power"), "billers are a catalog, not payees");
+
+    // --- history reflects the top-up + five settled payments ---
     r = await call("/api/payments");
     assert.equal(r.data.payments.length, 6);
+    assert.ok(r.data.payments.every((p) => p.settlementMode === "sandbox"), "every receipt carries the settlement mode");
 
     // --- account balance is exactly consistent with every debit ---
     r = await call("/api/accounts");
