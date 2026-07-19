@@ -4,6 +4,71 @@ All notable changes to Borderless Pay. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is
 [SemVer](https://semver.org/).
 
+## [1.3.0] — Real-data posture: zero fake data, sandbox settlement, Add money
+
+The "nothing here pretends" release. Every demo artifact is gone from the
+product; what remains is real accounts, real cryptography, real persistence,
+and an **honestly labelled sandbox settlement mode** that fail-closes into
+live rails until the licensed integrations exist. Backend + mobile → **1.3.0**.
+
+### Removed (fake things, everywhere)
+- **₹2,50,000 invented opening balance** — balances now start at **₹0**;
+  `openingBalance` is no longer accepted by `/api/accounts/link`, and
+  re-linking a bank **preserves** the existing balance instead of resetting it.
+- **Seeded fake contact directory** (Ananya/Rohan/Priya/Vikram/Sara with fake
+  VPAs) — `/api/contacts` now returns **recent payees derived from the
+  caller's own transaction history** (deduplicated, newest first, per-user
+  isolated; new accounts correctly get an empty list).
+- **Auto-seeded fake incoming request** ("Rohan Mehta, ₹450, Dinner split").
+- **Mobile standalone demo mode** — `src/demo.js` (421 lines) and the
+  `EXPO_PUBLIC_DEMO` switch are deleted; the app always talks to a real
+  backend. The lock screen's demo-PIN fallback and demo-state persistence
+  (document storage tier + `expo-file-system` dependency) went with it.
+- **"Use demo QR (Cafe Coffee Day)"** — release builds always scan a real QR
+  or take manual UPI-ID entry; a clearly-labelled **sample QR exists only in
+  dev builds** (`__DEV__`) for camera-less emulators.
+- **Fixed fake corridor merchants** ("Al Masa Restaurant ~ AED 80" etc.) — the
+  cross-border flow now takes a **real merchant name and amount** from the
+  user (corridor metadata keeps only flags/symbols/example placeholders).
+- **`prototype/`** (single-file clickable mock) — superseded by the real PWA
+  and mobile app; removed so no sponsor ever mistakes a mock for the product.
+- Name-only "quick demo" onboarding in both clients — onboarding is now a
+  full **email + password sign-up** (scrypt, lockout, consent-gated) on web
+  and mobile alike.
+
+### Added
+- **`POST /api/topup` — Add money, the ONLY funding path.** PIN-authorized,
+  idempotent, velocity-limited in its **own daily bucket** (a day of top-ups
+  can't consume the spending allowance, and vice versa), booked as zero-sum
+  double-entry legs against `funding:sandbox`, HMAC-signed, audited, and
+  stamped with the settlement mode. Full **Add money** UI in the web PWA and
+  the mobile app (home tile + zero-balance onboarding card + receipt).
+- **Explicit settlement mode** (`BP_SETTLEMENT_MODE`, default `sandbox`).
+  Every receipt now carries `settlementMode`; `live` is **fail-closed** — the
+  server refuses to boot until a licensed PSP / sponsor-bank adapter is
+  integrated and named in `BP_PSP_PROVIDER`. Production boot loudly warns
+  while on sandbox rails.
+- **`GET /api/meta`** — public, honest deployment disclosure (settlement mode,
+  KYC provider, policy versions). Both clients render a visible **🧪 Sandbox**
+  badge from it, and receipts show a "Settlement: 🧪 Sandbox (simulated
+  rails)" row.
+- **Mobile email sign-up** (`/api/auth/signup`) with consent, plus a visible
+  warning when a **release** build is still pointing at the local-dev fallback
+  instead of a configured `EXPO_PUBLIC_API_BASE`.
+- **8 new backend tests** (`test/topup.test.js`): zero-fake-data guarantees,
+  top-up PIN/amount/limit enforcement, ledger zero-sum invariant, payee
+  derivation + cross-user isolation, `/api/meta`, unfunded-402.
+
+### Changed
+- Release smoke suite now asserts the ₹0 start, the unfunded-402, and the
+  sandbox-stamped top-up (21 assertions, all green in production mode).
+- Terms/Privacy templates, READMEs, and the production-readiness checklist
+  rewritten from "demo product" language to the precise **sandbox settlement**
+  posture; test counts updated (**93 backend / 20 mobile**).
+- Web PWA: welcome screen leads with account creation; camera-less QR path
+  offers manual entry (no fake merchant card); forgot-password copy no longer
+  says "demo environment"; service-worker cache bumped to v6.
+
 ## [1.2.0] — Mobile app 1.1.0: professional relaunch, app lock, sign-in
 
 A co-founder-level cross-check of the mobile app against how professional
