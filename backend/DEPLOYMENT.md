@@ -16,7 +16,7 @@ The server **refuses to start in production** without both (fail-closed).
 
 ```bash
 node src/server.js              # http://localhost:4000
-npm test                        # 85 tests
+npm test                        # 93 tests
 ```
 
 In development, ephemeral secrets are auto-generated and CORS is open (`*`).
@@ -42,8 +42,14 @@ In development, ephemeral secrets are auto-generated and CORS is open (`*`).
   undeliverable. `console` (the dev default) is refused in production because
   it logs message bodies.
 - **KYC provider:** `BP_KYC_PROVIDER` defaults to `sandbox` (auto-approves —
-  demos/staging only; production logs a prominent boot warning). A licensed
+  evaluation/staging only; production logs a prominent boot warning). A licensed
   vendor integrates as a registry adapter in `src/kyc.js`.
+- **Settlement mode:** `BP_SETTLEMENT_MODE` defaults to `sandbox` — money
+  movement is simulated, balances are funded only through the audited
+  `/api/topup` flow, and every receipt (plus the public `GET /api/meta`) is
+  stamped `sandbox` so nothing can pretend to be real money. `live` is
+  **fail-closed**: the server refuses to boot until a licensed PSP /
+  sponsor-bank adapter is integrated (`BP_PSP_PROVIDER`).
 
 ## 2. Docker (single host)
 
@@ -103,6 +109,8 @@ Put Nginx/Caddy in front for TLS termination and set `BP_TRUST_PROXY=true`.
 ```bash
 curl https://YOUR_HOST/api/health        # {"ok":true}
 curl https://YOUR_HOST/api/ready         # ledger + audit integrity
+curl https://YOUR_HOST/api/meta          # honest settlement-mode disclosure ("sandbox" until PSP rails)
+bash scripts/release-smoke.sh https://YOUR_HOST [METRICS_TOKEN]   # 21-assertion live journey
 curl -D - -o /dev/null https://YOUR_HOST/  # confirm CSP/HSTS headers present
 ```
 

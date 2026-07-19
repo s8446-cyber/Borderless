@@ -28,7 +28,7 @@ import { encryptField, decryptField } from "./crypto.js";
 import { generateTotpSecret, verifyTotp, otpauthUri } from "./totp.js";
 import { ApiError, RATES, listCurrencies, FEE_PCT } from "./fx.js";
 import { sha256 } from "./ledger.js";
-import { toMinor, fromMinor, formatINR } from "./money.js";
+import { fromMinor, formatINR } from "./money.js";
 import {
   RateLimiter, LoginGuard, securityHeaders, applyCors, clientIp,
   asString, asPin, asAmount, asEmail, asPassword,
@@ -39,14 +39,10 @@ const ROOT = join(__dirname, "..");
 const PUBLIC = join(ROOT, "public");
 const DB_PATH = config.dbPath || join(ROOT, "data", "db.json");
 
-// Demo directories used by the UPI-style domestic flows.
-const CONTACTS = [
-  { name: "Ananya Iyer", phone: "+91 98\u2022\u2022\u2022\u2022 2104", vpa: "ananya@bpl", initials: "AI" },
-  { name: "Rohan Mehta", phone: "+91 99\u2022\u2022\u2022\u2022 7781", vpa: "rohan@bpl", initials: "RM" },
-  { name: "Priya Nair", phone: "+91 90\u2022\u2022\u2022\u2022 4452", vpa: "priya@bpl", initials: "PN" },
-  { name: "Vikram Singh", phone: "+91 70\u2022\u2022\u2022\u2022 9930", vpa: "vikram@bpl", initials: "VS" },
-  { name: "Sara Khan", phone: "+91 88\u2022\u2022\u2022\u2022 1207", vpa: "sara@bpl", initials: "SK" },
-];
+// Static service catalogs for the UPI-style domestic flows. These are
+// directories of real Indian billers/operators (the equivalent of a BBPS
+// catalog), NOT user data — a production integration swaps them for the live
+// BBPS catalog without changing the API shape.
 const BILLERS = [
   { category: "Electricity", names: ["Tata Power", "Adani Electricity", "BESCOM", "MSEDCL"] },
   { category: "Water", names: ["Delhi Jal Board", "BWSSB", "MCGM Water"] },
@@ -75,6 +71,7 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
     guard,
     audit,
     limitsCheck: checkTxnLimits,
+    settlementMode: config.settlementMode,
   });
 
   // persist ledger + audit back into the store on every save
@@ -89,7 +86,7 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
   const paymentLimiter = new RateLimiter({ windowMs: config.rateLimit.windowMs, max: config.rateLimit.paymentMax });
   const metrics = new Metrics();
   const limiterFor = (path) => {
-    if (/^\/api\/(payments|transfers|upi|bills|recharge)/.test(path) || /^\/api\/requests\/pay$/.test(path)) return paymentLimiter;
+    if (/^\/api\/(payments|transfers|upi|bills|recharge|topup)/.test(path) || /^\/api\/requests\/pay$/.test(path)) return paymentLimiter;
     if (/^\/api\/(kyc|accounts\/link|waitlist|sessions|auth|account\/close)/.test(path)) return authLimiter;
     return null;
   };
@@ -108,6 +105,16 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
 
   add("GET", /^\/api\/currencies$/, async () => ({
     homeCurrency: "INR", feePct: FEE_PCT, rates: RATES, currencies: listCurrencies(),
+  }));
+
+  // Public, honest metadata: which settlement mode this deployment runs in.
+  // Clients render a visible SANDBOX badge from this — transparency is a
+  // feature, not a footnote.
+  add("GET", /^\/api\/meta$/, async () => ({
+    name: "Borderless Pay",
+    settlementMode: config.settlementMode,
+    kycProvider: config.kycProvider,
+    policies: POLICY_VERSIONS,
   }));
 
   // ---- marketing-site early-access waitlist ----
@@ -404,34 +411,42 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
     return { ok: true, revoked };
   });
 
-  // Link bank account
+  // Link bank account. Balances always start at ZERO — money only ever enters
+  // through the explicit, audited /api/topup flow (no invented funds, no
+  // seeded data). Re-linking updates the bank details but never touches an
+  // existing balance.
   add("POST", /^\/api\/accounts\/link$/, async (req, body) => {
     const userId = requireAuth(req, store);
     const bank = asString(body.bank, "bank", { max: 80 });
-    const openingBalance = Number(body.openingBalance === undefined ? 250000 : body.openingBalance);
-    if (!Number.isFinite(openingBalance) || openingBalance < 0) throw new ApiError(400, "bad_amount", "Invalid opening balance");
+    const existing = store.data.accounts[userId];
     store.data.accounts[userId] = {
       bank,
       maskedNumber: asString(body.maskedNumber, "maskedNumber", { required: false, max: 40 }) || ("\u2022\u2022\u2022\u2022" + Math.floor(1000 + Math.random() * 9000)),
       currency: "INR",
-      balanceMinor: toMinor(openingBalance),
-      accountRefEnc: body.accountNumber ? encryptField(String(body.accountNumber)) : null,
+      balanceMinor: existing ? existing.balanceMinor : 0,
+      accountRefEnc: body.accountNumber ? encryptField(String(body.accountNumber)) : (existing ? existing.accountRefEnc : null),
     };
     if (body.pin) store.data.pins[userId] = hashPin(asPin(body.pin));
-    // seed a sample incoming collect request for demo realism (once per user —
-    // re-linking must not stack duplicates)
-    store.data.requests = store.data.requests || {};
-    const alreadySeeded = Object.values(store.data.requests).some(
-      (r) => r.userId === userId && r.direction === "incoming"
-    );
-    if (!alreadySeeded) {
-      const rid = "req_" + randomUUID();
-      store.data.requests[rid] = { id: rid, userId, fromName: "Rohan Mehta", amountMinor: toMinor(450), note: "Dinner split", status: "pending", direction: "incoming", createdAt: Date.now() };
-    }
     audit.append("account_linked", { userId, bank });
     persist();
     const a = store.data.accounts[userId];
-    return { bank: a.bank, maskedNumber: a.maskedNumber, balance: fromMinor(a.balanceMinor) };
+    return { bank: a.bank, maskedNumber: a.maskedNumber, balance: fromMinor(a.balanceMinor), balanceMinor: a.balanceMinor };
+  });
+
+  // Add money to the balance (the ONLY funding path). PIN-authorized,
+  // idempotent, velocity-limited in its own daily bucket, double-entry
+  // balanced against the funding account, and stamped with the settlement
+  // mode so a sandbox credit can never masquerade as real money.
+  add("POST", /^\/api\/topup$/, async (req, body) => {
+    const userId = requireAuth(req, store);
+    asPin(body.pin);
+    asAmount(body.amount, "amount");
+    const out = payments.topup({
+      userId, pin: body.pin, amountINR: Number(body.amount),
+      idempotencyKey: req.headers["idempotency-key"],
+    });
+    persist();
+    return { replayed: out.replayed, receipt: decorate(out.receipt) };
   });
 
   add("GET", /^\/api\/accounts$/, async (req) => {
@@ -558,11 +573,34 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
     return { replayed: out.replayed, receipt: decorate(out.receipt) };
   });
 
-  // Demo directories for the UPI-style flows
+  // Recent payees — REAL data, derived from the caller's own transaction
+  // history (most recent first, deduplicated). New accounts correctly get an
+  // empty list; there is no fake directory anywhere.
   add("GET", /^\/api\/contacts$/, async (req) => {
-    requireAuth(req, store);
-    return { contacts: CONTACTS };
+    const userId = requireAuth(req, store);
+    const seen = new Set();
+    const payees = [];
+    for (const p of payments.history(userId)) {
+      let entry = null;
+      if (p.kind === "p2p" && p.recipient && p.recipient.name) {
+        entry = { name: p.recipient.name, phone: null, vpa: null };
+      } else if (p.domestic && p.payee && p.payee.name &&
+                 ["upi", "phone", "contact", "merchant", "bank", "request"].includes(p.payee.type)) {
+        entry = { name: p.payee.name, phone: p.payee.phone || null, vpa: p.payee.vpa || null };
+      }
+      if (!entry) continue;
+      const key = (entry.vpa || entry.phone || entry.name).toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const parts = entry.name.trim().split(/\s+/);
+      entry.initials = ((parts[0][0] || "") + (parts[1] ? parts[1][0] : "")).toUpperCase();
+      payees.push(entry);
+      if (payees.length >= 8) break;
+    }
+    return { contacts: payees };
   });
+
+  // Service catalogs (billers / operators) for the domestic flows.
   add("GET", /^\/api\/billers$/, async () => ({ billers: BILLERS }));
   add("GET", /^\/api\/operators$/, async () => ({ operators: OPERATORS }));
 
@@ -833,6 +871,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     // Loud, honest boot warnings: these are the two integrations that MUST be
     // real before real-money launch. The process still runs (demo/staging
     // deployments are legitimate) but nobody can miss the state.
+    if (config.isProd && config.settlementMode === "sandbox") {
+      logger.warn("sandbox_settlement_in_production", { message: "BP_SETTLEMENT_MODE=sandbox — money movement is SIMULATED and every receipt is stamped 'sandbox'. Real rails require a licensed PSP/sponsor-bank adapter (config fail-closes live mode without one)." });
+    }
     if (config.isProd && KYC_PROVIDER === "sandbox") {
       logger.warn("kyc_sandbox_in_production", { message: "BP_KYC_PROVIDER=sandbox auto-approves KYC — do NOT launch real money on this. Integrate a licensed provider (see src/kyc.js)." });
     }
@@ -841,7 +882,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     }
     if (lan.length) {
       logger.info("mobile_hint", {
-        message: "On a phone (same Wi-Fi), set EXPO_PUBLIC_API_BASE to one of lanUrls and run the app with EXPO_PUBLIC_DEMO=false",
+        message: "On a phone (same Wi-Fi), set EXPO_PUBLIC_API_BASE to one of lanUrls before starting the app",
         example: `EXPO_PUBLIC_API_BASE=${lan[0]}`,
       });
     }

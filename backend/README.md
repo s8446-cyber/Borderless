@@ -1,4 +1,4 @@
-# Borderless Pay — Backend & Web Client (v1.1)
+# Borderless Pay — Backend & Web Client (v1.3)
 
 A secure payments platform that lets a user pay **directly from their home bank**
 — both **cross-border** (real mid-market FX, flat 0.5% fee, no hidden markup) and
@@ -14,7 +14,7 @@ enforced DPDP consent. Built with a **zero-dependency core** (Node.js built-ins;
 
 ```bash
 node src/server.js     # http://localhost:4000  (serves API + web client)
-npm test               # 85 tests (core + security + auth + consent + UPI-QR + mailer + hardening + observability + Postgres + HTTP e2e)
+npm test               # 93 tests (core + security + auth + consent + UPI-QR + mailer + top-up/no-fake-data + hardening + observability + Postgres + HTTP e2e)
 ```
 
 ### Persistence backends
@@ -46,7 +46,7 @@ src/
 public/         installable PWA web client (+ /verify.html public proof explorer, /terms.html, /privacy.html)
 db/schema.sql   PostgreSQL target schema
 scripts/        release-smoke.sh (live end-to-end smoke suite)
-test/           core · security · auth · consent · upi · mailer · hardening · sessions · metrics · pg · api (85 tests)
+test/           core · security · auth · consent · upi · mailer · hardening · sessions · metrics · pg · topup · api (93 tests)
 ```
 
 ## Security highlights
@@ -72,14 +72,16 @@ See **SECURITY.md** for the full threat model and **DEPLOYMENT.md** for shipping
 | GET | `/api/health` | liveness |
 | GET | `/api/ready` | readiness + ledger/audit integrity |
 | GET | `/api/metrics` | Prometheus metrics (token-gated in prod) |
+| GET | `/api/meta` | honest deployment disclosure: settlement mode + KYC provider |
 | GET | `/api/policies` | current Terms/Privacy versions |
-| POST | `/api/kyc/verify` | quick-demo KYC + create user (consent required) |
+| POST | `/api/kyc/verify` | KYC + create user (consent required; sandbox provider until a licensed vendor is integrated) |
 | POST | `/api/auth/signup` · `/api/auth/login` | email+password accounts (consent required) |
 | POST | `/api/auth/2fa/setup` · `/api/auth/2fa/enable` | TOTP two-factor |
 | POST | `/api/auth/password/reset-request` · `/api/auth/password/reset` | password reset |
 | POST | `/api/sessions/refresh` · `/api/sessions/revoke-all` · `/api/logout` | session lifecycle |
 | POST | `/api/account/close` | consent withdrawal + PII erasure |
-| POST | `/api/accounts/link` | link bank, set PIN |
+| POST | `/api/accounts/link` | link bank, set PIN (balance starts at ₹0; re-link preserves it) |
+| POST | `/api/topup` | add money — the ONLY funding path (double-entry, sandbox-stamped) |
 | POST | `/api/quotes` · `/api/payments` | cross-border quote + pay |
 | POST | `/api/transfers/quote` · `/api/transfers` | cross-border P2P |
 | POST | `/api/upi/pay` · `/api/bills/pay` · `/api/recharge` | domestic (UPI-style) |

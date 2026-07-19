@@ -33,6 +33,10 @@ export class PaymentService {
     this.guard = opts.guard || null;
     this.audit = opts.audit || null;
     this.limitsCheck = opts.limitsCheck || null;
+    // "sandbox" until a licensed PSP / sponsor bank is integrated (config
+    // fail-closes "live" without one). Stamped on every receipt so nothing
+    // this service produces can ever pretend simulated settlement is real.
+    this.settlementMode = opts.settlementMode || "sandbox";
   }
 
   // ---- quote persistence (G-1) ----
@@ -189,6 +193,7 @@ export class PaymentService {
       settlement: { index: block.index, hash: block.hash },
       anchor: anchor ? { merkleRoot: anchor.merkleRoot, publicTxHash: anchor.publicTxHash } : null,
       signature,
+      settlementMode: this.settlementMode,
       reference: "BP-" + paymentId.slice(4, 10).toUpperCase(),
       settledAt: Date.now(),
     };
@@ -271,6 +276,7 @@ export class PaymentService {
       settlement: { index: block.index, hash: block.hash },
       anchor: anchor ? { merkleRoot: anchor.merkleRoot, publicTxHash: anchor.publicTxHash } : null,
       signature,
+      settlementMode: this.settlementMode,
       reference: "BP-" + transferId.slice(4, 10).toUpperCase(),
       settledAt: Date.now(),
     };
@@ -344,6 +350,7 @@ export class PaymentService {
       settlement: { index: block.index, hash: block.hash },
       anchor: anchor ? { merkleRoot: anchor.merkleRoot, publicTxHash: anchor.publicTxHash } : null,
       signature,
+      settlementMode: this.settlementMode,
       reference: "BP-" + paymentId.slice(4, 10).toUpperCase(),
       settledAt: Date.now(),
     };
@@ -351,6 +358,84 @@ export class PaymentService {
     d.payments[paymentId] = receipt;
     if (idempotencyKey) d.idempotency[scopedIdem(userId, idempotencyKey)] = paymentId;
     this._auditSettle(receipt);
+    this.store.persist();
+
+    return { replayed: false, receipt };
+  }
+
+  // ---- Add money (balance top-up) ----
+  // The ONLY way a balance is ever funded — there is no invented opening
+  // balance anywhere. In sandbox mode the credit books against the
+  // funding:sandbox account (double-entry, zero-sum) and the receipt is
+  // clearly stamped settlementMode:"sandbox". When a licensed PSP is
+  // integrated, this same flow becomes the gateway-backed load.
+  topup({ userId, pin, idempotencyKey, amountINR }) {
+    const d = this.store.data;
+    const replay = this._idem(d, userId, idempotencyKey);
+    if (replay) return replay;
+
+    const { acct } = this._authorize(d, userId, pin);
+
+    const amountMinor = toMinor(Number(amountINR));
+    if (!(amountMinor > 0))
+      throw new ApiError(400, "bad_amount", "Amount must be greater than zero");
+
+    if (this.limitsCheck) this.limitsCheck(this.store, userId, amountMinor, { intl: false, kind: "topup" });
+
+    acct.balanceMinor += amountMinor;
+
+    const paymentId = "pay_" + randomUUID();
+    const { block, anchor } = this.ledger.append({
+      type: "topup",
+      paymentId,
+      userId,
+      amountMinor,
+      source: "funding:" + this.settlementMode,
+      // credit the user, debit the funding account — the zero-sum invariant
+      // is enforced by the ledger exactly as for outbound payments
+      legs: [
+        { account: "funding:" + this.settlementMode, deltaMinor: -amountMinor },
+        { account: "user:" + userId, deltaMinor: amountMinor },
+      ],
+    });
+
+    const signature = signPayment({
+      paymentId, userId, currency: "INR",
+      localAmount: Number(amountINR), amountMinor,
+      feeMinor: 0, totalMinor: amountMinor,
+      settlementHash: block.hash,
+    });
+
+    const receipt = {
+      paymentId,
+      kind: "topup",
+      domestic: true,
+      status: "settled",
+      userId,
+      payee: { name: "Borderless balance", type: "topup" },
+      currency: "INR",
+      localAmount: Number(amountINR),
+      rate: 1,
+      amountMinor,
+      feeMinor: 0,
+      totalMinor: amountMinor,
+      homeCurrency: "INR",
+      balanceAfterMinor: acct.balanceMinor,
+      settlement: { index: block.index, hash: block.hash },
+      anchor: anchor ? { merkleRoot: anchor.merkleRoot, publicTxHash: anchor.publicTxHash } : null,
+      signature,
+      settlementMode: this.settlementMode,
+      reference: "BP-" + paymentId.slice(4, 10).toUpperCase(),
+      settledAt: Date.now(),
+    };
+
+    d.payments[paymentId] = receipt;
+    if (idempotencyKey) d.idempotency[scopedIdem(userId, idempotencyKey)] = paymentId;
+    if (this.audit) {
+      this.audit.append("balance_topup", {
+        paymentId, userId, amountMinor, mode: this.settlementMode,
+      });
+    }
     this.store.persist();
 
     return { replayed: false, receipt };

@@ -52,6 +52,35 @@ if (isProd && emailProvider && !emailApiKey) {
 // selected here — no other code changes needed.
 const kycProvider = (process.env.BP_KYC_PROVIDER || "sandbox").trim().toLowerCase();
 
+// --- Settlement mode ---
+// "sandbox": money movement is SIMULATED end-to-end and every receipt says so.
+//   Balances are funded through the explicit /api/topup flow (no invented
+//   money), the double-entry ledger balances against the funding:sandbox
+//   account, and clients render a visible SANDBOX badge. This is the honest
+//   pre-license posture: real code, real crypto, real persistence — no
+//   pretend money.
+// "live": real rails. Fail-closed — refuses to boot until a licensed PSP /
+//   sponsor-bank adapter is integrated and named in BP_PSP_PROVIDER, so nobody
+//   can flip a flag and pretend simulated settlement is real.
+const settlementMode = (process.env.BP_SETTLEMENT_MODE || "sandbox").trim().toLowerCase();
+if (!["sandbox", "live"].includes(settlementMode)) {
+  throw new Error("FATAL config: BP_SETTLEMENT_MODE must be 'sandbox' or 'live', got '" + settlementMode + "'");
+}
+if (settlementMode === "live") {
+  const psp = (process.env.BP_PSP_PROVIDER || "").trim().toLowerCase();
+  if (!psp) {
+    throw new Error(
+      "FATAL config: BP_SETTLEMENT_MODE=live requires a licensed PSP / sponsor-bank integration " +
+      "(set BP_PSP_PROVIDER to a registered adapter). No adapter is integrated yet — " +
+      "run in sandbox mode until the RBI PA-CB authorization and bank partnership are in place."
+    );
+  }
+  throw new Error(
+    "FATAL config: no PSP adapter named '" + psp + "' is registered. " +
+    "Live settlement is fail-closed until a real rails integration lands."
+  );
+}
+
 // --- CORS ---
 const corsRaw = process.env.BP_CORS_ORIGINS;
 const corsOrigins = corsRaw
@@ -74,6 +103,7 @@ export const config = {
   emailFrom: (process.env.BP_EMAIL_FROM || "").trim() || "Borderless Pay <no-reply@borderlesspay.app>",
   appOrigin: (process.env.BP_APP_ORIGIN || "").trim() || null, // public URL used in emails
   kycProvider,
+  settlementMode,
   bodyLimitBytes: intEnv("BP_BODY_LIMIT", 1048576),
   sessionTtlMs: intEnv("BP_SESSION_TTL_MS", 86400000),
   refreshTtlMs: intEnv("BP_REFRESH_TTL_MS", 2592000000), // refresh-token lifetime (30 days)
@@ -110,5 +140,6 @@ export function configSummary() {
     encKeySet: Boolean(process.env.BP_ENC_KEY),
     emailProvider: config.emailProvider || "none",
     kycProvider: config.kycProvider,
+    settlementMode: config.settlementMode,
   };
 }

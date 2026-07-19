@@ -126,6 +126,7 @@ test("PG: full HTTP journey on Postgres, then restart — money and history inta
     const r = await call("/api/kyc/verify", { method: "POST", body: { fullName: "Aarav Shah", documentId: "P1", country: "IN", consent: true } });
     const token = r.data.token;
     await call("/api/accounts/link", { method: "POST", body: { bank: "HDFC", pin: "4321" }, token });
+    await call("/api/topup", { method: "POST", body: { amount: 200000, pin: "4321" }, token });
     const q = await call("/api/quotes", { method: "POST", body: { currency: "AED", localAmount: 80 } });
     const p = await call("/api/payments", { method: "POST", body: { quoteId: q.data.quoteId, pin: "4321" }, token });
     assert.equal(p.data.receipt.status, "settled");
@@ -138,9 +139,9 @@ test("PG: full HTTP journey on Postgres, then restart — money and history inta
   await run(store2, async (call) => {
     const acct = await call("/api/accounts", { token });
     assert.equal(acct.status, 200, "session survived the restart");
-    assert.equal(acct.data.balanceMinor, 25000000 - totalMinor, "balance durable");
+    assert.equal(acct.data.balanceMinor, 20000000 - totalMinor, "balance durable");
     const hist = await call("/api/payments", { token });
-    assert.equal(hist.data.payments.length, 1, "history durable");
+    assert.equal(hist.data.payments.length, 2, "history durable (top-up + payment)");
     const ready = await call("/api/ready");
     assert.equal(ready.status, 200, "ledger + audit integrity verified after restart");
   });

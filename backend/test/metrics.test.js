@@ -66,6 +66,7 @@ test("G-7: /api/metrics serves Prometheus text with business + gauge series", as
     const r = await call("/api/kyc/verify", { method: "POST", body: { fullName: "Aarav Shah", documentId: "P1", country: "IN", consent: true } });
     const token = r.data.token;
     await call("/api/accounts/link", { method: "POST", body: { bank: "HDFC", pin: "4321" }, token });
+    await call("/api/topup", { method: "POST", body: { amount: 200000, pin: "4321" }, token });
     const q = await call("/api/quotes", { method: "POST", body: { currency: "AED", localAmount: 80 } });
     await call("/api/payments", { method: "POST", body: { quoteId: q.data.quoteId, pin: "4321" }, token });
 
@@ -87,6 +88,7 @@ test("G-7: idempotent replays are excluded from settlement counters", async () =
     const r = await call("/api/kyc/verify", { method: "POST", body: { fullName: "Aarav Shah", documentId: "P1", country: "IN", consent: true } });
     const token = r.data.token;
     await call("/api/accounts/link", { method: "POST", body: { bank: "HDFC", pin: "4321" }, token });
+    await call("/api/topup", { method: "POST", body: { amount: 200000, pin: "4321" }, token });
     const q = await call("/api/quotes", { method: "POST", body: { currency: "AED", localAmount: 80 } });
 
     const headers = { "content-type": "application/json", authorization: "Bearer " + token, "idempotency-key": "same-key" };

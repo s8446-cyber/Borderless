@@ -1,4 +1,4 @@
-// Borderless Pay — design tokens + demo directories.
+// Borderless Pay — design tokens + service catalogs.
 // Palette is intentionally aligned with the web PWA and marketing site so the
 // brand reads as one product across every surface.
 export const C = {
@@ -48,14 +48,17 @@ export const P2P_CURRENCIES = [
   { code: "GBP", flag: "🇬🇧", name: "British Pound", sym: "£" },
 ];
 
+// Cross-border corridor metadata: flags, currency symbols, and example
+// placeholder text for the merchant field (placeholders only — the user
+// enters the real merchant and amount).
 export const CORRIDORS = {
-  AED: { flag: "🇦🇪", country: "Dubai, UAE", merchant: "Al Masa Restaurant", amount: 80, sym: "AED" },
-  SGD: { flag: "🇸🇬", country: "Singapore", merchant: "Maxwell Food Centre", amount: 18, sym: "S$" },
-  EUR: { flag: "🇫🇷", country: "Paris, France", merchant: "Café de Flore", amount: 24, sym: "€" },
-  NPR: { flag: "🇳🇵", country: "Kathmandu, Nepal", merchant: "Himalayan Java", amount: 850, sym: "Rs" },
+  AED: { flag: "🇦🇪", country: "UAE", example: "e.g. Al Masa Restaurant", sym: "AED" },
+  SGD: { flag: "🇸🇬", country: "Singapore", example: "e.g. Maxwell Food Centre", sym: "S$" },
+  EUR: { flag: "🇫🇷", country: "Eurozone", example: "e.g. Café de Flore", sym: "€" },
+  NPR: { flag: "🇳🇵", country: "Nepal", example: "e.g. Himalayan Java", sym: "Rs" },
 };
 
-// ---- Domestic (India) payment directories — GPay / PhonePe style ----
+// ---- Domestic (India) service catalogs (billers / operators) ----
 export const OPERATORS = ["Airtel", "Jio", "Vi", "BSNL"];
 
 export const BILL_CATEGORIES = ["Electricity", "Water", "Gas", "Broadband", "DTH", "Credit Card"];

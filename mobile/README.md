@@ -1,4 +1,4 @@
-# 📱 Borderless Pay — Mobile App (React Native / Expo) · v1.1
+# 📱 Borderless Pay — Mobile App (React Native / Expo) · v1.3
 
 The native **Android + iOS** app for Borderless Pay: pay at home and abroad
 straight from your bank at the real mid-market rate with a flat 0.5% fee,
@@ -11,16 +11,24 @@ authorization · on-device receipt verification · enforced consent + in-app
 account erasure · in-context OS permission prompts (camera / contacts /
 notifications) · runs on **any JDK 17+**.
 
-**New in v1.1 — the app now relaunches like a professional payments app:**
-- **You onboard ONCE.** Your session persists in the OS keystore/keychain
-  (demo-mode state persists in app-private storage, tamper-checked on restore)
-  — killing and reopening the app lands on a **lock screen**, not on KYC.
-- **App lock:** Face ID / fingerprint / device credential to open (payment-PIN
-  fallback in demo mode), auto-prompted on launch, and the app **re-locks**
-  after >60 s in the background. 5 wrong unlock PINs = the same lockout as
-  payments.
-- **Sign in with email** (live-backend mode): existing web-app users log
-  straight in — with TOTP 2FA when enabled — instead of re-doing KYC.
+**New in v1.3 — real-data posture, zero fake anything:**
+- **No demo mode.** The app always talks to a real backend; the standalone
+  simulator and every piece of seeded fake data are gone.
+- **Real accounts:** onboarding is a full email + password sign-up
+  (scrypt-hashed, lockout-protected), with sign-in + TOTP 2FA for returning users.
+- **Balances start at ₹0** and are funded only through the new **➕ Add money**
+  flow — every credit books through the double-entry ledger and the receipt is
+  honestly stamped **🧪 sandbox** until licensed rails go live.
+- **Recent payees are your own history** (no fake contact directory), the
+  cross-border flow takes a **real merchant name + amount**, and the sample QR
+  exists **only in dev builds**.
+
+**From v1.1 — the app relaunches like a professional payments app:**
+- **You onboard ONCE.** Your session persists in the OS keystore/keychain —
+  killing and reopening the app lands on a **lock screen**, not on sign-up.
+- **App lock:** Face ID / fingerprint / device credential to open,
+  auto-prompted on launch, and the app **re-locks** after >60 s in the
+  background.
 - **Safer PIN creation:** enter twice to confirm; guessable PINs (0000-style,
   1234-style sequences, keypad lines) are rejected with an explanation.
 - **Navigation that behaves:** every sub-screen has a back chevron and the
@@ -32,30 +40,29 @@ notifications) · runs on **any JDK 17+**.
 - **Session expiry handled:** if the refresh token dies, you're signed out
   cleanly with an explanation — never stranded on failing screens.
 
-**Trust features on-device:** every receipt carries a settlement-ledger hash and
-public anchor, and the **🔎 Verify this receipt independently** button recomputes
-the Merkle inclusion proof with **on-device SHA-256** — genuine cryptography in
-both demo mode (the built-in simulator keeps a real hash chain) and real-backend
-mode. Wrong-PIN lockout (5 attempts), single-use 60-second quotes, idempotent
-payments, and server-side logout all behave the same in demo and real mode.
+**Trust features on-device:** every receipt carries a settlement-ledger hash,
+public anchor, HMAC signature, and its **settlement mode**, and the
+**🔎 Verify this receipt independently** button recomputes the Merkle inclusion
+proof with **on-device SHA-256** — genuine cryptography, no trust in the app
+required. Wrong-PIN lockout (5 attempts), single-use 60-second quotes,
+idempotent payments, and server-side logout are all enforced by the backend.
 
-> ## 🖥️ Run it in a BROWSER — no phone, no Android Studio, no install
+> ## 🖥️ Run it in a BROWSER — no phone, no Android Studio
 >
-> The real app runs in any browser via `react-native-web` (same `App.js`):
+> The real app runs in any browser via `react-native-web` (same `App.js`).
+> Start the backend first — the app talks to it like on a phone:
 > ```bash
-> cd mobile && npm install && npm run sim
+> # Terminal 1                      # Terminal 2
+> cd backend && npm start           cd mobile && npm install && npm run sim
 > ```
-> Opens at **http://localhost:8080** — onboard, pay, verify a receipt (real
-> on-device SHA-256), all in demo mode. Use the browser's phone/responsive
+> Opens at **http://localhost:8080** — create an account, add money, pay,
+> verify a receipt (real on-device SHA-256). Use the browser's phone/responsive
 > mode for the true phone shape. `npm run web` gives the hot-reload dev
 > version instead.
 >
-> **Reloading the page = relaunching the app.** Your demo wallet persists
-> (localStorage stands in for the phone's private storage), so a reload lands
-> on the **lock screen** — authenticate with the simulated Face ID sheet or
-> your payment PIN, exactly like the native app. Want a fresh install? Tap
-> **"Not you? Sign out"** on the lock screen. (Simulated OS *permissions*
-> still reset on reload, like a reinstalled app.)
+> Session tokens are deliberately **never written to browser storage** (the
+> keystore tier is in-memory on web), so reloading the page starts a clean
+> session — sign in again with your email to continue with the same account.
 >
 > **The whole experience is testable in the browser.** Native-only OS
 > interactions that a browser can't provide are faithfully **simulated on
@@ -70,8 +77,9 @@ payments, and server-side logout all behave the same in demo and real mode.
 > camera — the browser asks for permission in-context — and decodes any
 > physical UPI QR on-device (native `BarcodeDetector` on phones, a locally
 > bundled `jsqr` everywhere else; no CDN, works offline) through the same
-> hardened `upi://pay…` parser as the native app. No camera at all? The scan
-> is simulated with a demo UPI QR routed through that same parser.
+> hardened `upi://pay…` parser as the native app. No camera at all? In dev
+> builds only, a clearly-labelled sample QR can be routed through that same
+> parser; release builds always use a real QR or manual UPI-ID entry.
 > **Tip — live camera from a phone's browser:** cameras need a secure context
 > (https or localhost), so plain `http://<pc-ip>:8080` won't offer one. With
 > the phone on USB: `adb reverse tcp:8080 tcp:8080`, then open
@@ -85,15 +93,15 @@ payments, and server-side logout all behave the same in demo and real mode.
 > cd backend && npm start           cd mobile && npm run live
 > ```
 > `npm run live` auto-discovers the backend on your LAN (physical phones on the
-> same Wi-Fi included), verifies `/api/health`, switches **demo mode OFF**, and
-> starts Expo — zero configuration. The welcome screen's build stamp confirms
-> it: `live backend: http://<your-ip>:4000`. Backend not running? The script
+> same Wi-Fi included), verifies `/api/health`, and starts Expo pointed at it —
+> zero configuration. The welcome screen's build stamp confirms it:
+> `http://<your-ip>:4000 · 🧪 sandbox rails`. Backend not running? The script
 > tells you exactly what to start. (`npm run live:check` = probe only.)
 > Different port: `BP_PORT=4100 npm run live`.
 
 > ## 🔄 Seeing an OLD version? (your changes/updates not showing on the phone)
 >
-> The welcome screen shows a **build stamp** (e.g. `v1.0.0 · demo mode`). If it
+> The welcome screen shows a **build stamp** (e.g. `v1.3.0 · http://…:4000`). If it
 > doesn't match `mobile/package.json`, you're running a **stale build**. In order
 > of likelihood:
 >
@@ -143,8 +151,9 @@ It's an **Expo** app, so you can run it three ways depending on what you have:
 | Open & debug the native project in **Android Studio** | **Prebuild → `run:android`** | Yes (Android) |
 | Open & debug in **Xcode** | **Prebuild → `run:ios`** | Yes (macOS + Xcode) |
 
-The app defaults to **`DEMO_MODE: true`** (`src/config.js`), so it runs fully
-standalone with a built-in simulator — **no backend required** for a first test.
+The app always talks to a **real backend** (`src/config.js` picks the local-dev
+address automatically; `npm run live` wires up a LAN backend for physical
+phones). Start it first: `cd backend && npm start`.
 
 ---
 
@@ -324,8 +333,9 @@ emulator first from Android Studio's **Device Manager**, or plug in a phone with
 6. **Start the JS bundler and leave it running** in a terminal: `npx expo start`.
    The debug app loads its JavaScript from this dev server.
 7. Pick your device in the dropdown and press the green **▶ Run**. It builds,
-   installs, launches, and connects to Metro. It defaults to **DEMO_MODE**, so it
-   runs standalone — no backend needed.
+   installs, launches, and connects to Metro. Have the backend running too
+   (`cd backend && npm start`) — the emulator reaches it automatically at
+   `10.0.2.2:4000`.
 
 > - **"Add Configuration" won't go away** → you opened `mobile` instead of
 >   `mobile/android`, or Gradle Sync hasn't finished/failed (fix the JDK in
@@ -380,8 +390,10 @@ cd C:\app\Borderless-main\Borderless-main\mobile
 npm run run:android:release        # = expo run:android --variant release
 ```
 
-That's it — the app opens straight to the interface in **DEMO_MODE** (standalone,
-no backend). To get a shareable **APK file**, after the build it's at:
+That's it — the app opens straight to the interface. Point it at your backend
+when building (`EXPO_PUBLIC_API_BASE`, see the next section) — release builds
+show a visible warning if it's still on the local-dev fallback. To get a
+shareable **APK file**, after the build it's at:
 
 ```
 mobile\android\app\build\outputs\apk\release\app-release.apk
@@ -402,23 +414,27 @@ eas login
 eas build -p android --profile preview   # installable .apk in the cloud
 ```
 The `preview` (installable `.apk`) and `production` (Play Store `.aab`) profiles
-are defined in [`eas.json`](./eas.json).
+are defined in [`eas.json`](./eas.json). **Always set `EXPO_PUBLIC_API_BASE` to
+your deployed backend URL for preview/production builds** (e.g.
+`eas build -p android --profile production` with the env var exported, or add it
+to the profile's `env` block) — release builds display a visible warning if
+they're still pointing at the local-dev fallback.
 
 > Use a **debug** run (`npm run run:android` / Android Studio ▶) only when you're
 > actively editing code and want live reload — that one needs Metro running.
 
 ---
 
-## Demo mode vs. real backend
+## Pointing the app at a backend
 
-By default the app is **standalone** (`DEMO_MODE` on) using the built-in
-simulator (`src/demo.js`) — no server. To make the app talk to the **real
-backend** you run on your PC, you don't edit code; set two env vars when you
-start/build the app (they're inlined by Expo):
+The app always talks to a real backend. For emulators/simulators the address is
+picked automatically; for a physical phone or a deployed backend, set one env
+var when you start/build the app (it's inlined by Expo):
 
 ```powershell
 $env:EXPO_PUBLIC_API_BASE="http://192.168.1.5:4000"   # your PC's LAN IP (see below)
-$env:EXPO_PUBLIC_DEMO="false"
+# or, for a production build:
+$env:EXPO_PUBLIC_API_BASE="https://api.your-deployment.example"
 ```
 
 ### Recommended: real backend on a physical phone, no Metro (release build)
@@ -442,7 +458,6 @@ This is the most reliable "it just works on my phone" path.
    ```powershell
    cd ..\mobile
    $env:EXPO_PUBLIC_API_BASE="http://192.168.1.5:4000"   # the IP from step 1
-   $env:EXPO_PUBLIC_DEMO="false"
    npm run run:android:release
    ```
    The app installs, opens straight to the UI, and every action hits your real
@@ -453,7 +468,6 @@ Maps the phone's own `localhost` to your PC, for both the backend and Metro:
 ```powershell
 cd C:\app\Borderless-main\Borderless-main\mobile
 $env:EXPO_PUBLIC_API_BASE="http://localhost:4000"
-$env:EXPO_PUBLIC_DEMO="false"
 npm run run:android                 # debug build (needs Metro)
 adb reverse tcp:8081 tcp:8081       # Metro (JS)
 adb reverse tcp:4000 tcp:4000       # your backend
@@ -485,10 +499,9 @@ Then reload the app. (Use the release recipe above if you'd rather not run Metro
 ```
 App.js              all screens + navigation + state
 app.json            Expo config (icons, splash, iOS/Android ids, plugins)
-src/config.js       API base (platform-aware) + demo-mode switch
-src/theme.js        design tokens + corridor / biller directories
-src/api.js          API client (real backend or simulator)
-src/demo.js         standalone simulator (mirrors the backend)
+src/config.js       API base (platform-aware, env-overridable)
+src/theme.js        design tokens + corridor metadata / service catalogs
+src/api.js          API client (device-bound sessions, silent renewal)
 src/ui.js           native UI primitives (Card, Row, PinPad, Avatar, …)
 src/format.js       currency formatting
 test/               automated tests (see below)
@@ -502,7 +515,7 @@ or even `npm install` required:
 
 ```bash
 cd mobile
-npm test        # node --test — 24 tests
+npm test        # node --test — 20 tests
 ```
 
 Covered: the **UPI QR parser** (hostile-input matrix: malformed VPAs, non-INR
@@ -510,11 +523,8 @@ currencies, bad amounts, control characters, broken percent-encoding), the
 **on-device SHA-256** (FIPS 180-4 vectors + cross-checked against
 `node:crypto`), the **Merkle proof fold** (must reproduce the backend's exact
 math — this is what makes "Verify this receipt independently" honest),
-**INR formatting**, the **payment-PIN quality rules** (every repeated-digit and
-sequential PIN, keypad lines), and **demo-state persistence** (export/import
-round-trip keeps the wallet + verifiable ledger; tampered or malformed
-snapshots are refused; single-use quotes are never restored). CI runs these on
-every push.
+**INR formatting**, and the **payment-PIN quality rules** (every repeated-digit
+and sequential PIN, keypad lines). CI runs these on every push.
 
 ## Troubleshooting
 
@@ -558,9 +568,10 @@ every push.
   Ensure **SDK Platform 34** + **Platform-Tools** are installed in Android
   Studio's SDK Manager. Re-running `npm run prebuild` also regenerates the
   project's `local.properties`.
-- **App opens but can't reach the backend** → you're likely on Android using
-  `localhost`. Keep `DEMO_MODE: true`, or use `10.0.2.2` (handled automatically
-  when `DEMO_MODE` is false).
+- **App opens but can't reach the backend** → you're likely on a physical
+  phone, where `localhost`/`10.0.2.2` point at the phone. Set
+  `EXPO_PUBLIC_API_BASE` to your PC's LAN IP (or use `npm run live`, which
+  picks it automatically).
 - **Build cache weirdness after upgrades** → `npm run prebuild:clean`, then in
   `mobile/android` run *Build → Clean Project* in Android Studio.
 - **Don't** commit the generated `android/` and `ios/` folders — they're

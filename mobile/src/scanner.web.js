@@ -18,8 +18,8 @@
 //     native app uses, so scanning a physical UPI QR in a phone's browser
 //     behaves exactly like the native app.
 // When no camera API exists at all (http over LAN, headless, no webcam), the
-// scan screen in App.js falls back to a clearly-labelled simulated scan that
-// still routes a demo UPI payload through the real parser.
+// scan screen in App.js falls back (dev builds only) to a clearly-labelled
+// simulated scan that still routes a sample UPI payload through the real parser.
 //
 // The expo-camera stubs below exist only so App.js can import the scanner from
 // a single path on every platform; the native branch never renders these.
