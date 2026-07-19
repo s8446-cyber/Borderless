@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// Borderless Pay mobile — LIVE mode: run the app against the REAL backend.
+// Borderless Pay mobile — run the app against the local backend.
 //
 //   Terminal 1:  cd backend && npm start        (the API, port 4000)
 //   Terminal 2:  cd mobile  && npm run live     (this script)
 //
 // It auto-discovers the backend (LAN IP first — so a physical phone on the
 // same Wi-Fi can reach it — then localhost), verifies /api/health, and
-// launches Expo with EXPO_PUBLIC_DEMO=false + EXPO_PUBLIC_API_BASE set.
+// launches Expo with EXPO_PUBLIC_API_BASE set.
 // No code edits, no env-var juggling. `--check` verifies without launching.
 //
 // Zero dependencies.
@@ -60,22 +60,22 @@ function healthy(base) {
     process.exit(1);
   }
 
-  console.log("\nLIVE MODE READY");
+  console.log("\nBACKEND READY");
   console.log("  API base : " + base);
-  console.log("  Demo mode: OFF - every action in the app hits the real backend");
+  console.log("  Every action in the app hits this real backend");
   if (base.includes("localhost")) {
     console.log("  NOTE: no LAN IP responded - a PHYSICAL phone cannot reach 'localhost'.");
     console.log("        Ensure your PC and phone are on the same Wi-Fi, or use `adb reverse tcp:" + PORT + " tcp:" + PORT + "`.");
   } else {
     console.log("  Phone    : same Wi-Fi as this PC -> scan the QR with Expo Go");
   }
-  console.log("  Verify   : the welcome screen's build stamp will read 'live backend: " + base + "'\n");
+  console.log("  Verify   : the welcome screen's build stamp will show '" + base + "'\n");
   if (checkOnly) process.exit(0);
 
-  const env = { ...process.env, EXPO_PUBLIC_DEMO: "false", EXPO_PUBLIC_API_BASE: base };
+  const env = { ...process.env, EXPO_PUBLIC_API_BASE: base };
   // --clear: Metro's transform cache does NOT reliably invalidate when
-  // EXPO_PUBLIC_* env vars change, so a previous demo-mode session could
-  // otherwise serve a stale demo bundle with live mode silently OFF.
+  // EXPO_PUBLIC_* env vars change, so a previous session could otherwise
+  // serve a stale bundle pointing at the wrong backend.
   const child = spawn("npx expo start --clear", { stdio: "inherit", env, shell: true });
   child.on("exit", (code) => process.exit(code === null ? 0 : code));
 })();

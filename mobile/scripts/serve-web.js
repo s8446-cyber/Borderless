@@ -35,6 +35,6 @@ http.createServer(async (req, res) => {
 }).listen(PORT, () => {
   console.log("\nBorderless Pay — mobile app (web build) running at:");
   console.log("  http://localhost:" + PORT + "\n");
-  console.log("Open it in any browser. It's the real React Native app (react-native-web),");
-  console.log("in demo mode — onboard, pay, and tap 'Verify this receipt independently'.\n");
+  console.log("Open it in any browser. It's the real React Native app (react-native-web).");
+  console.log("It talks to the real backend — start it first: cd backend && npm start\n");
 });
