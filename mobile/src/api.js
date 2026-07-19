@@ -1,9 +1,8 @@
-// API client. Talks to the real backend, or to the built-in simulator when
-// CONFIG.DEMO_MODE is true (so the app runs standalone on a phone).
+// API client — talks to the real backend, always.
 //
 // Hardening (G-3/G-6):
 //  - every request presents the keystore-backed device ID (x-device-id); the
-//    session issued at KYC is bound to it server-side
+//    session issued at sign-up is bound to it server-side
 //  - tokens live in memory while running; a persisted copy sits ONLY in the
 //    OS keystore/keychain (src/session.js) so a relaunch unlocks instead of
 //    re-onboarding — the professional-app behavior
@@ -14,10 +13,8 @@
 //    registered onSessionExpired handler exactly once, so the UI can return
 //    the user to a clean sign-in instead of stranding them on failing screens
 import { CONFIG } from "./config";
-import { simulate, exportDemoState } from "./demo";
 import { getDeviceId } from "./device";
 import { updateStoredTokens, clearPersistedSession } from "./session";
-import { saveDoc } from "./storage";
 
 let _token = null;
 let _refresh = null;
@@ -64,7 +61,7 @@ async function expireSession() {
   }
 }
 
-async function real(path, opts = {}) {
+export async function api(path, opts = {}) {
   let { res, data } = await request(path, opts);
   if (res.status === 401 && _refresh && (data.error === "session_expired" || data.error === "unauthorized")) {
     const r = await request("/api/sessions/refresh", {
@@ -87,28 +84,4 @@ async function real(path, opts = {}) {
   }
   if (!res.ok) throw new Error(data.message || data.error || "Request failed");
   return data;
-}
-
-// ---- demo-mode persistence ----
-// Every simulated call may mutate the demo db (payments, lockout counters,
-// even logout), so the state is flushed to the device's private storage after
-// each one — debounced so a burst of calls writes once.
-export const DEMO_STATE_DOC = "bp-demo-state.json";
-let _persistTimer = null;
-
-function schedulePersistDemo() {
-  if (_persistTimer) clearTimeout(_persistTimer);
-  _persistTimer = setTimeout(() => {
-    _persistTimer = null;
-    saveDoc(DEMO_STATE_DOC, JSON.stringify(exportDemoState())).catch(() => {});
-  }, 400);
-}
-
-export async function api(path, opts = {}) {
-  if (!CONFIG.DEMO_MODE) return real(path, opts);
-  try {
-    return await simulate(path, opts);
-  } finally {
-    schedulePersistDemo(); // errors mutate too (wrong-PIN counters, lockouts)
-  }
 }
