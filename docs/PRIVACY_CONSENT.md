@@ -9,8 +9,8 @@ Companion docs: [`COMPLIANCE.md`](./COMPLIANCE.md), [`PRODUCTION_READINESS.md`](
 ## 1. Consent (implemented ✅)
 
 ### The rules we follow
-1. **No account without explicit consent.** Both account-creation paths (demo KYC and email+password signup) refuse with `400 consent_required` unless the user has affirmatively accepted — no pre-ticked boxes, no implied consent.
-2. **Consent is informed.** The welcome screens (web + mobile) show a checkbox with links to the full **Terms of Service** (`/terms.html`) and **Privacy Policy** (`/privacy.html`). In standalone mobile demo mode (no server reachable) the key points are shown inline so consent is still informed.
+1. **No account without explicit consent.** Both account-creation paths (sandbox KYC and email+password signup) refuse with `400 consent_required` unless the user has affirmatively accepted — no pre-ticked boxes, no implied consent.
+2. **Consent is informed.** The welcome screens (web + mobile) show a checkbox with links to the full **Terms of Service** (`/terms.html`) and **Privacy Policy** (`/privacy.html`); if the device can't open them, the key points are shown inline so consent is still informed.
 3. **Consent is recorded and versioned.** What was accepted (`tosVersion`, `privacyVersion`) and when (`acceptedAt`) is stored on the user AND written to the tamper-evident audit chain. `GET /api/policies` exposes current versions so clients can detect when a re-prompt is needed after a material policy change.
 4. **Consent is withdrawable.** `POST /api/account/close` (mobile UI: account menu → *Close account*, double-confirmed): profile PII is erased immediately (name, email, credentials, PIN hash, bank link), every session and refresh token is revoked, and the closure is audited. **Transaction records are retained pseudonymously** (user ID only) — PMLA/RBI record-retention requires it, and the hash-chained ledger is append-only by design. This split (erase the person, keep the pseudonymous financial record) is the standard reconciliation of DPDP erasure rights with financial record-keeping law.
 
@@ -23,7 +23,6 @@ Companion docs: [`COMPLIANCE.md`](./COMPLIANCE.md), [`PRODUCTION_READINESS.md`](
 | Erasure / closure | `POST /api/account/close` |
 | Web consent UI | `backend/public/app.js` (welcome screen) |
 | Mobile consent UI + closure UI | `mobile/App.js` |
-| Demo-mode parity | `mobile/src/demo.js` |
 | Tests | `backend/test/consent.test.js` (+ release smoke asserts refusal without consent) |
 
 ## 2. Device permissions (least-privilege policy)
@@ -39,7 +38,7 @@ Companion docs: [`COMPLIANCE.md`](./COMPLIANCE.md), [`PRODUCTION_READINESS.md`](
 | iOS | Face ID (`NSFaceIDUsageDescription`) | Unlock + payment authorization | ✅ declared with purpose string |
 | Android | `USE_BIOMETRIC`, `USE_FINGERPRINT` | Same | ✅ explicitly listed |
 | Both | **Camera** (`expo-camera`) | Scanning UPI payment QRs only — in-context priming card → OS Allow/Deny; decode on-device; denied → manual entry | ✅ full allow/deny flow |
-| Both | **Contacts** (`expo-contacts`, read-only) | Only when the user taps "Pay a contact from my phone" — priming Alert explains on-device matching → OS Allow/Deny pop-up; denied → demo contacts + manual entry still work; `WRITE_CONTACTS` **blocked** | ✅ full allow/deny flow |
+| Both | **Contacts** (`expo-contacts`, read-only) | Only when the user taps "Pay a contact from my phone" — priming Alert explains on-device matching → OS Allow/Deny pop-up; denied → manual entry still works; `WRITE_CONTACTS` **blocked** | ✅ full allow/deny flow |
 | Both | **Notifications** (`expo-notifications`) | Payment receipts + security alerts — offered ONCE after the first successful payment (never at launch), OS Allow/Deny pop-up; fully optional | ✅ full allow/deny flow |
 | Android | `RECORD_AUDIO`, `READ/WRITE_EXTERNAL_STORAGE`, `SYSTEM_ALERT_WINDOW`, `WRITE_CONTACTS` | Not used | 🚫 **explicitly blocked** so no library can add them |
 | Both | Location, ad identifiers | Not used, not collected | 🚫 never declared |

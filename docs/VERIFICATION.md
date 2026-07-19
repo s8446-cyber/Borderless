@@ -1,7 +1,36 @@
 # Borderless Pay — Full-System Verification Report
 
-**Scope:** every surface (backend/API, PWA web client, mobile app, marketing site, prototype), every build path, every claimed feature.
-**Method:** everything below was **executed, not reviewed** — real servers, real Postgres, real prebuilds, real cryptographic recomputation. Re-runnable: each check maps to a command in this repo.
+## v1.3.0 — Real-data posture (current release)
+
+**Scope:** the demo-removal / sandbox-settlement release: backend API + PWA, mobile app, docs, and every changed flow.
+**Method:** everything below was **executed, not reviewed** — real servers, real HTTP journeys, real bundles. Re-runnable: each check maps to a command in this repo.
+
+| # | Check | Result |
+|---|---|---|
+| 1 | Backend test suite (`cd backend && npm test`) — incl. 8 new top-up / no-fake-data / payees / meta tests | ✓ **89 pass / 4 Postgres self-skip / 0 fail** (93 total; CI runs the 4 against Postgres 16) |
+| 2 | Syntax: every backend `src/`, `test/`, `public/` JS (`node --check`) | ✓ clean |
+| 3 | Production smoke suite (`scripts/release-smoke.sh`, live server in `BP_ENV=production`) — now asserts ₹0 opening balance, unfunded-402, sandbox-stamped top-up | ✓ **21/21 assertions** |
+| 4 | Full HTTP E2E journey (the exact client call sequence): meta disclosure → email signup → link (₹0) → unfunded pay refused → top-up (idempotent, sandbox-stamped) → UPI pay → cross-border with user-entered merchant → public Merkle proof → payees-from-history → refresh rotation → ledger/audit integrity | ✓ 13/13 checks |
+| 5 | Ledger invariant: top-up legs are zero-sum against `funding:sandbox`; `/api/ready` passes after every new flow | ✓ verified |
+| 6 | Velocity isolation: a maxed day of top-ups does NOT consume the spending allowance (and vice versa) | ✓ verified |
+| 7 | Cross-user isolation: payees derive strictly from the caller's own history | ✓ verified |
+| 8 | Mobile unit tests (`cd mobile && npm test`) | ✓ **20/20** |
+| 9 | Mobile: `App.js` + all `src/` modules parse (Babel, JSX-aware) after the demo-mode excision | ✓ clean |
+| 10 | Mobile full bundle: `expo export --platform web` compiles the real `App.js` with zero errors | ✓ exported |
+| 11 | Zero-fake-data sweep: no `demo.js`, no seeded contacts/requests, no invented balances, no demo-QR in release paths (`grep` sweep across app code) | ✓ clean |
+| 12 | Fail-closed: `BP_SETTLEMENT_MODE=live` refuses to boot without a licensed PSP adapter | ✓ refuses (by construction in `config.js`) |
+| 13 | Shell scripts (`release-smoke.sh`) `bash -n` | ✓ clean |
+
+**Result: 13/13 check groups passed · 0 defects.**
+
+Known non-code items (unchanged, tracked, not defects): sandbox KYC provider and simulated anchor writer await licensed vendors (`docs/COMPLIANCE.md`); Terms/Privacy v1.0 templates pending counsel; transactional email provider account; physical-device pass for biometric/camera dialogs; Docker build validated in CI.
+
+---
+
+## v1.2.0 and earlier — Historical report
+
+**Scope (as of v1.2.0):** every surface (backend/API, PWA web client, mobile app, marketing site, prototype — the prototype and mobile demo mode were removed in v1.3.0), every build path, every claimed feature.
+**Method:** everything below was **executed, not reviewed** — real servers, real Postgres, real prebuilds, real cryptographic recomputation.
 **Result: 19/19 check groups passed · 0 defects · 1 suspicion investigated and cleared.**
 
 | # | Check | Result |
