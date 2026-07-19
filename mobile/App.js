@@ -15,6 +15,8 @@ import {
   StyleSheet,
   Linking,
   Platform,
+  BackHandler,
+  AppState,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import * as LocalAuthentication from "expo-local-authentication";
@@ -24,19 +26,23 @@ import * as Notifications from "expo-notifications";
 import { appAlert, AlertHost, simulateBiometric, getSimPerm, requestSimPerm } from "./src/alert";
 import { C, TINTS, CORRIDORS, P2P_CURRENCIES, OPERATORS, BILL_CATEGORIES, BILLERS } from "./src/theme";
 import { fmtINR } from "./src/format";
-import { api, setSession } from "./src/api";
+import { api, setSession, onSessionExpired, DEMO_STATE_DOC } from "./src/api";
 import { CONFIG } from "./src/config";
 import { getDeviceId } from "./src/device";
 import { foldMerkleProof } from "./src/sha256";
 import { parseUpiQr } from "./src/upi";
 import { rs, CONTENT } from "./src/responsive";
+import { persistSession, loadPersistedSession, markOnboarded, clearPersistedSession } from "./src/session";
+import { loadDoc, deleteDoc } from "./src/storage";
+import { importDemoState, demoBootStatus, verifyDemoPin } from "./src/demo";
+import { pinIssue } from "./src/pin";
 
 // Version stamp (from package.json, inlined by Metro). Shown on the welcome
 // screen so it's always obvious WHICH build is installed — if the number on
 // screen doesn't match the repo, you're running a stale build (see README:
 // "Seeing an old version?").
 const APP_VERSION = require("./package.json").version;
-import { Brand, Card, Row, Pill, Badges, PrimaryButton, Chips, PinDots, PinPad, SectionHeader, Avatar } from "./src/ui";
+import { Brand, Card, Row, Pill, Badges, PrimaryButton, Chips, PinDots, PinPad, SectionHeader, ScreenHeader, Avatar } from "./src/ui";
 
 // On web (react-native-web / `npm run sim`) the native OS layer — alerts,
 // biometric sheet, permission prompts, live camera — isn't available, so those
@@ -123,10 +129,15 @@ function receiptPayeeName(r) {
 }
 
 export default function App() {
-  const [screen, setScreen] = useState("welcome");
+  // "boot" while the persisted session / demo state is restored — the app
+  // decides between welcome (first run), link (resume onboarding) and lock
+  // (returning user) BEFORE drawing anything, like a professional app.
+  const [screen, setScreen] = useState("boot");
   const [name, setName] = useState("");
   const [bank, setBank] = useState("HDFC Bank");
   const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [pinStage, setPinStage] = useState("create"); // create → confirm
   const [pin, setPin] = useState("");
   const [corridor, setCorridor] = useState("AED");
   const [account, setAccount] = useState(null);
@@ -152,12 +163,258 @@ export default function App() {
   const scanLock = useRef(false);
   const lastBadQr = useRef(0);
 
+  // App lock (returning users): "device" = biometric / device credential,
+  // "pin" = payment-PIN fallback (demo mode), "failed" = must retry.
+  const [lockState, setLockState] = useState("device");
+  const [lockPin, setLockPin] = useState("");
+  const lockBusy = useRef(false);
+
+  // Sign-in with email (live-backend mode — parity with the web app).
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginTotp, setLoginTotp] = useState("");
+  const [totpNeeded, setTotpNeeded] = useState(false);
+
+  const [quoteExpired, setQuoteExpired] = useState(false);
+  const bgSince = useRef(0);
+
   const checkScale = useRef(new Animated.Value(0)).current;
 
   const setF = (k, v) => setForm((p) => ({ ...p, [k]: v }));
   const c = CORRIDORS[corridor];
   const settleSteps = flow === "send" ? SEND_STEPS : flow === "domestic" ? DOMESTIC_STEPS : SETTLE_STEPS;
   const incomingRequest = requests.find((r) => r.direction === "incoming" && r.status === "pending");
+
+  // ---- boot: restore the previous session, land on the right screen ----
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        if (CONFIG.DEMO_MODE) {
+          const raw = await loadDoc(DEMO_STATE_DOC);
+          if (raw) importDemoState(JSON.parse(raw));
+          const st = demoBootStatus();
+          if (!alive) return;
+          if (st.hasUser) setName(st.name || "");
+          if (st.hasUser && st.hasAccount) {
+            setLockState("device");
+            setScreen("lock");
+            return;
+          }
+          if (st.hasUser) {
+            setScreen("link"); // KYC done, bank not linked — resume there
+            return;
+          }
+        } else {
+          const s = await loadPersistedSession();
+          if (s) {
+            setSession(s);
+            if (!alive) return;
+            setName(s.name || "");
+            if (s.onboarded === "home") {
+              setLockState("device");
+              setScreen("lock");
+              return;
+            }
+            setScreen("link");
+            return;
+          }
+        }
+      } catch {
+        /* any restore problem → clean first run */
+      }
+      if (alive) setScreen("welcome");
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // ---- session expiry (live mode): return to a clean welcome, once ----
+  useEffect(() => {
+    onSessionExpired(() => {
+      resetLocal();
+      appAlert("Session expired", "For your security you've been signed out. Please verify again to continue.");
+    });
+  });
+
+  // ---- auto-lock: backgrounded for over a minute → require unlock ----
+  useEffect(() => {
+    if (IS_WEB) return; // browsers have no trustworthy background signal for this
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "background") {
+        bgSince.current = Date.now();
+        return;
+      }
+      if (next === "active" && bgSince.current) {
+        const away = Date.now() - bgSince.current;
+        bgSince.current = 0;
+        const sessionScreens = ["home", "scan", "scanDom", "send", "compose", "history", "quote", "receipt", "contacts", "auth"];
+        if (away > 60_000 && sessionScreens.includes(screen)) {
+          setLockState("device");
+          setLockPin("");
+          setScreen("lock");
+        }
+      }
+    });
+    return () => sub.remove();
+  }, [screen]);
+
+  // ---- Android hardware back: navigate, never accidentally exit ----
+  function backTarget() {
+    switch (screen) {
+      case "signin": return "welcome";
+      case "scan": case "send": case "scanDom": case "compose": case "contacts": case "history": return "home";
+      case "quote": return flow === "send" ? "send" : "scan";
+      case "auth": return authExitScreen();
+      case "receipt": return "home";
+      case "settle": case "lock": case "boot": return null; // block — nothing sane to go back to
+      default: return undefined; // welcome / link / home → default OS behavior (exit)
+    }
+  }
+
+  useEffect(() => {
+    const onBack = () => {
+      const t = backTarget();
+      if (t === null) return true; // swallow
+      if (t === undefined) return false; // let the OS handle it
+      if (screen === "scanDom") setWebScan("idle");
+      if (screen === "receipt") setVerifyResult(null);
+      if (screen === "auth") setPin("");
+      setScreen(t);
+      return true;
+    };
+    const sub = BackHandler.addEventListener("hardwareBackPress", onBack);
+    return () => sub.remove();
+  }, [screen, flow, domIntent]);
+
+  // ---- app unlock (returning users) ----
+  // Auto-prompt once each time the lock screen appears — professional apps
+  // don't make you hunt for the unlock button after every relaunch.
+  const lockAutoPrompted = useRef(false);
+  useEffect(() => {
+    if (screen === "lock" && lockState === "device" && !lockAutoPrompted.current) {
+      lockAutoPrompted.current = true;
+      unlockWithDevice();
+    }
+    if (screen !== "lock") lockAutoPrompted.current = false;
+  }, [screen, lockState]);
+
+  async function unlockWithDevice() {
+    if (lockBusy.current) return;
+    lockBusy.current = true;
+    try {
+      if (IS_WEB) {
+        const r = await simulateBiometric("Unlock Borderless Pay");
+        if (!r.success) {
+          setLockState("failed");
+          return;
+        }
+        return finishUnlock();
+      }
+      const has = await LocalAuthentication.hasHardwareAsync().catch(() => false);
+      const enrolled = has && (await LocalAuthentication.isEnrolledAsync().catch(() => false));
+      if (!enrolled) {
+        // No biometrics / device credential enrolled. Demo mode can verify the
+        // payment PIN locally; live mode's credential is the keystore-guarded
+        // session itself (the device has no lock screen by the user's choice).
+        if (CONFIG.DEMO_MODE) {
+          setLockState("pin");
+          return;
+        }
+        return finishUnlock();
+      }
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: "Unlock Borderless Pay",
+        cancelLabel: "Cancel",
+        disableDeviceFallback: false, // device PIN / pattern is an acceptable factor
+      });
+      if (result.success) return finishUnlock();
+      setLockState("failed");
+    } finally {
+      lockBusy.current = false;
+    }
+  }
+
+  function onLockPinKey(k) {
+    setLockPin((prev) => {
+      const next = k === "del" ? prev.slice(0, -1) : prev.length < 4 ? prev + k : prev;
+      return next;
+    });
+  }
+
+  // 4th digit of the lock-screen PIN → verify against the demo wallet
+  useEffect(() => {
+    if (screen !== "lock" || lockState !== "pin" || lockPin.length !== 4) return;
+    try {
+      verifyDemoPin(lockPin);
+      finishUnlock();
+    } catch (e) {
+      setLockPin("");
+      appAlert("Wrong PIN", e.message);
+    }
+  }, [lockPin, screen, lockState]);
+
+  async function finishUnlock() {
+    setLockPin("");
+    setBusy(true);
+    try {
+      await refresh();
+      setScreen("home");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Lock screen escape hatch: not you / can't unlock → sign out completely.
+  function lockLogout() {
+    appAlert("Sign out?", "You'll need to verify again to get back in.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Sign out", style: "destructive", onPress: logout },
+    ]);
+  }
+
+  // ---- email sign-in (live-backend mode) ----
+  async function handleLogin() {
+    const email = loginEmail.trim().toLowerCase();
+    if (!email || !loginPassword) {
+      return appAlert("Missing details", "Enter your email and password to sign in.");
+    }
+    setBusy(true);
+    try {
+      const body = { email, password: loginPassword, deviceId: await getDeviceId() };
+      if (loginTotp.trim()) body.totp = loginTotp.trim();
+      const r = await api("/api/auth/login", { method: "POST", body });
+      setSession(r);
+      setLoginPassword("");
+      setLoginTotp("");
+      setTotpNeeded(false);
+      const displayName = email.split("@")[0];
+      setName((n) => n || displayName);
+      let hasAccount = true;
+      try {
+        await api("/api/accounts");
+      } catch {
+        hasAccount = false;
+      }
+      await persistSession({ token: r.token, refreshToken: r.refreshToken, name: displayName, onboarded: hasAccount ? "home" : "link" });
+      if (hasAccount) {
+        await refresh();
+        setScreen("home");
+      } else {
+        setScreen("link");
+      }
+    } catch (e) {
+      if (/two-factor|totp/i.test(e.message || "")) {
+        setTotpNeeded(true);
+        appAlert("Two-factor code needed", "Enter the 6-digit code from your authenticator app.");
+      } else {
+        appAlert("Sign-in failed", e.message);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleKyc() {
     if (!name.trim()) {
@@ -177,6 +434,13 @@ export default function App() {
         },
       });
       setSession(r);
+      if (!CONFIG.DEMO_MODE) {
+        // persist NOW so a kill between KYC and bank-link resumes at link
+        await persistSession({ token: r.token, refreshToken: r.refreshToken, name: name.trim(), onboarded: "link" });
+      }
+      setNewPin("");
+      setConfirmPin("");
+      setPinStage("create");
       setScreen("link");
     } catch (e) {
       appAlert("Verification failed", e.message);
@@ -185,14 +449,47 @@ export default function App() {
     }
   }
 
+  // PIN creation is two-step (enter, then confirm) with bank-grade quality
+  // rules — a typo in a payment PIN otherwise locks the wallet 5 tries later.
+  function onNewPinKey(k) {
+    const setter = pinStage === "create" ? setNewPin : setConfirmPin;
+    setter((p) => (k === "del" ? p.slice(0, -1) : p.length < 4 ? p + k : p));
+  }
+
+  useEffect(() => {
+    if (screen !== "link") return;
+    if (pinStage === "create" && newPin.length === 4) {
+      const issue = pinIssue(newPin);
+      if (issue) {
+        setNewPin("");
+        appAlert("Choose a stronger PIN", issue);
+        return;
+      }
+      setPinStage("confirm");
+    }
+    if (pinStage === "confirm" && confirmPin.length === 4) {
+      if (confirmPin !== newPin) {
+        setNewPin("");
+        setConfirmPin("");
+        setPinStage("create");
+        appAlert("PINs don't match", "The two PINs were different — let's start again.");
+      }
+    }
+  }, [newPin, confirmPin, pinStage, screen]);
+
   async function handleLink() {
-    if (newPin.length !== 4) return appAlert("Set a PIN", "Choose a 4-digit payment PIN first.");
+    if (newPin.length !== 4 || pinStage !== "confirm" || confirmPin !== newPin) {
+      return appAlert("Set a PIN", "Choose and confirm a 4-digit payment PIN first.");
+    }
     setBusy(true);
     try {
       await api("/api/accounts/link", {
         method: "POST",
         body: { bank, pin: newPin, openingBalance: 250000 },
       });
+      if (!CONFIG.DEMO_MODE) await markOnboarded("home");
+      setNewPin("");
+      setConfirmPin("");
       await refresh();
       setScreen("home");
     } catch (e) {
@@ -202,11 +499,18 @@ export default function App() {
     }
   }
 
-  async function refresh() {
-    const a = await api("/api/accounts");
-    setAccount(a);
-    const h = await api("/api/payments");
-    setHistory(h.payments || []);
+  // Refresh account data. Never throws: a network blip must not strand a tap
+  // (the data that did load still renders; the rest catches up next refresh).
+  async function refresh({ quiet = true } = {}) {
+    try {
+      const a = await api("/api/accounts");
+      setAccount(a);
+      const h = await api("/api/payments");
+      setHistory(h.payments || []);
+    } catch (e) {
+      if (!quiet) appAlert("Connection problem", "Couldn't refresh your account: " + e.message);
+      return false;
+    }
     try {
       const cts = await api("/api/contacts");
       setContacts(cts.contacts || []);
@@ -215,6 +519,7 @@ export default function App() {
     } catch (e) {
       // contacts/requests optional
     }
+    return true;
   }
 
   function startScan() {
@@ -242,6 +547,7 @@ export default function App() {
         body: { recipientCurrency: p2pCurrency, sendAmount: amt },
       });
       setQuote(q);
+      setQuoteExpired(false);
       setScreen("quote");
     } catch (e) {
       appAlert("Quote failed", e.message);
@@ -543,6 +849,7 @@ export default function App() {
         body: { currency: corridor, localAmount: c.amount },
       });
       setQuote(q);
+      setQuoteExpired(false);
       setScreen("quote");
     } catch (e) {
       appAlert("Quote failed", e.message);
@@ -654,6 +961,14 @@ export default function App() {
         else getQuote();
         return;
       }
+      // A mistyped PIN gets an in-place retry (the pad is right there and the
+      // server's lockout counter still applies) — professional apps don't
+      // bounce you back to the form to re-enter everything.
+      if (/incorrect pin/i.test(e.message || "")) {
+        appAlert("Incorrect PIN", e.message + ". Try again — 5 wrong attempts lock your wallet.");
+        setScreen("auth");
+        return;
+      }
       appAlert("Could not complete", e.message);
       setScreen(authExitScreen());
     }
@@ -745,6 +1060,8 @@ export default function App() {
 
   async function resetLocal() {
     setSession({});
+    await clearPersistedSession().catch(() => {});
+    if (CONFIG.DEMO_MODE) await deleteDoc(DEMO_STATE_DOC).catch(() => {});
     setAccount(null);
     setHistory([]);
     setRequests([]);
@@ -753,8 +1070,15 @@ export default function App() {
     setQuote(null);
     setVerifyResult(null);
     setNewPin("");
+    setConfirmPin("");
+    setPinStage("create");
     setPin("");
+    setLockPin("");
     setName("");
+    setLoginEmail("");
+    setLoginPassword("");
+    setLoginTotp("");
+    setTotpNeeded(false);
     setConsent(false); // a fresh onboarding must re-consent
     setScreen("welcome");
   }
@@ -795,6 +1119,90 @@ export default function App() {
     <SafeAreaView style={s.app}>
       <StatusBar style="light" />
       <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
+        {screen === "boot" && (
+          <View style={s.bootWrap}>
+            <Brand subtitle="Pay at home & across borders" />
+            <ActivityIndicator color={C.accent} size="large" style={[{ marginTop: 40 }]} />
+          </View>
+        )}
+
+        {screen === "lock" && (
+          <View>
+            <Brand subtitle="Locked" />
+            <View style={[{ alignItems: "center", marginTop: 18 }]}>
+              <Avatar initials={initials(name)} size={72} />
+              <Text style={[s.h2, { marginTop: 14, textAlign: "center" }]}>Welcome back{name ? ", " + name.split(" ")[0] : ""}</Text>
+            </View>
+            {lockState === "pin" ? (
+              <View>
+                <Text style={[s.sub, { textAlign: "center" }]}>Enter your 4-digit payment PIN to unlock</Text>
+                <PinDots filled={lockPin.length} />
+                <PinPad onKey={onLockPinKey} />
+              </View>
+            ) : lockState === "failed" ? (
+              <View>
+                <Text style={[s.sub, { textAlign: "center" }]}>Authentication failed or was cancelled. Your money stays locked until you verify.</Text>
+                <PrimaryButton title="Try again" onPress={() => { setLockState("device"); unlockWithDevice(); }} loading={busy} />
+              </View>
+            ) : (
+              <View>
+                <Text style={[s.sub, { textAlign: "center" }]}>Unlock with Face ID / fingerprint / device PIN</Text>
+                <PrimaryButton title="🔓 Unlock" onPress={unlockWithDevice} loading={busy} />
+              </View>
+            )}
+            {CONFIG.DEMO_MODE && lockState !== "pin" ? (
+              <PrimaryButton title="Use payment PIN instead" secondary onPress={() => setLockState("pin")} />
+            ) : null}
+            <TouchableOpacity onPress={lockLogout} activeOpacity={0.7} style={[{ marginTop: 18 }]}>
+              <Text style={[{ color: C.muted, fontSize: 13, textAlign: "center", fontWeight: "600" }]}>Not you? Sign out</Text>
+            </TouchableOpacity>
+            <Text style={s.buildStamp}>v{APP_VERSION} · {CONFIG.DEMO_MODE ? "demo mode (standalone)" : "live backend: " + CONFIG.API_BASE}</Text>
+          </View>
+        )}
+
+        {screen === "signin" && (
+          <View>
+            <ScreenHeader title="Sign in" onBack={() => setScreen("welcome")} />
+            <Text style={s.sub}>Use the email and password from your Borderless Pay web account.</Text>
+            <Text style={s.label}>Email</Text>
+            <TextInput
+              style={s.input}
+              placeholder="you@example.com"
+              placeholderTextColor={C.muted}
+              autoCapitalize="none"
+              autoComplete="email"
+              keyboardType="email-address"
+              value={loginEmail}
+              onChangeText={setLoginEmail}
+            />
+            <Text style={s.label}>Password</Text>
+            <TextInput
+              style={s.input}
+              placeholder="••••••••"
+              placeholderTextColor={C.muted}
+              secureTextEntry
+              autoCapitalize="none"
+              value={loginPassword}
+              onChangeText={setLoginPassword}
+            />
+            {totpNeeded && (
+              <View>
+                <Text style={s.label}>Two-factor code</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="123 456"
+                  placeholderTextColor={C.muted}
+                  keyboardType="number-pad"
+                  value={loginTotp}
+                  onChangeText={setLoginTotp}
+                />
+              </View>
+            )}
+            <PrimaryButton title="Sign in →" onPress={handleLogin} loading={busy} />
+            <Text style={s.apiNote}>POST /api/auth/login • lockout-guarded, optional TOTP 2FA</Text>
+          </View>
+        )}
+
         {screen === "welcome" && (
           <View>
             <Brand subtitle="Pay at home & across borders" />
@@ -832,6 +1240,13 @@ export default function App() {
               </TouchableOpacity>
             </View>
             <PrimaryButton title="Verify identity (KYC) →" onPress={handleKyc} loading={busy} />
+            {!CONFIG.DEMO_MODE && (
+              <TouchableOpacity onPress={() => setScreen("signin")} activeOpacity={0.7} style={[{ marginTop: 14 }]}>
+                <Text style={[{ color: C.accent, fontSize: 14, textAlign: "center", fontWeight: "700" }]}>
+                  Already have an account? Sign in
+                </Text>
+              </TouchableOpacity>
+            )}
             <Text style={s.apiNote}>Calls real POST /api/kyc/verify • consent recorded & versioned</Text>
             <Text style={s.buildStamp}>v{APP_VERSION} · {CONFIG.DEMO_MODE ? "demo mode (standalone)" : "live backend: " + CONFIG.API_BASE}</Text>
           </View>
@@ -854,11 +1269,43 @@ export default function App() {
                 { value: "Axis Bank", label: "Axis" },
               ]}
             />
-            <Text style={s.label}>Create a 4-digit payment PIN</Text>
-            <PinDots filled={newPin.length} />
-            <PinPad onKey={(k) => setNewPin((p) => (k === "del" ? p.slice(0, -1) : p.length < 4 ? p + k : p))} />
-            <PrimaryButton title="Link account" onPress={handleLink} loading={busy} />
+            {pinStage === "create" ? (
+              <View>
+                <Text style={s.label}>Create a 4-digit payment PIN</Text>
+                <PinDots filled={newPin.length} />
+              </View>
+            ) : (
+              <View>
+                <Text style={s.label}>Confirm your PIN — enter it once more</Text>
+                <PinDots filled={confirmPin.length} />
+                <TouchableOpacity
+                  onPress={() => { setNewPin(""); setConfirmPin(""); setPinStage("create"); }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[{ color: C.accent, fontSize: 12, textAlign: "center", fontWeight: "600", marginBottom: 4 }]}>Start PIN over</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            <PinPad onKey={onNewPinKey} />
+            <PrimaryButton
+              title="Link account"
+              onPress={handleLink}
+              loading={busy}
+              disabled={pinStage !== "confirm" || confirmPin.length !== 4 || confirmPin !== newPin}
+            />
             <Text style={s.apiNote}>POST /api/accounts/link • PIN stored as scrypt hash</Text>
+            <TouchableOpacity
+              onPress={() =>
+                appAlert("Start over?", "This discards your verification and returns to the beginning.", [
+                  { text: "Cancel", style: "cancel" },
+                  { text: "Start over", style: "destructive", onPress: logout },
+                ])
+              }
+              activeOpacity={0.7}
+              style={[{ marginTop: 12 }]}
+            >
+              <Text style={[{ color: C.muted, fontSize: 13, textAlign: "center", fontWeight: "600" }]}>← Start over</Text>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -943,14 +1390,14 @@ export default function App() {
               </View>
             )}
 
-            <SectionHeader title="Recent" action={history.length ? "See all" : null} onAction={async () => { await refresh(); setScreen("history"); }} />
+            <SectionHeader title="Recent" action={history.length ? "See all" : null} onAction={async () => { await refresh({ quiet: false }); setScreen("history"); }} />
             <HistoryList history={history} />
           </View>
         )}
 
         {screen === "scan" && (
           <View>
-            <Text style={s.h2}>Pay abroad</Text>
+            <ScreenHeader title="Pay abroad" onBack={() => setScreen("home")} />
             <Text style={s.sub}>Pick a corridor, then scan the local merchant's QR.</Text>
             <Text style={s.label}>Corridor</Text>
             <Chips
@@ -983,7 +1430,7 @@ export default function App() {
 
         {screen === "send" && (
           <View>
-            <Text style={s.h2}>Send money abroad</Text>
+            <ScreenHeader title="Send money abroad" onBack={() => setScreen("home")} />
             <Text style={s.sub}>
               Send to anyone abroad, straight from your bank at the real mid-market rate.
             </Text>
@@ -1016,7 +1463,7 @@ export default function App() {
 
         {screen === "quote" && quote && quote.kind === "p2p" && (
           <View>
-            <Text style={s.h2}>Confirm transfer</Text>
+            <ScreenHeader title="Confirm transfer" onBack={() => setScreen("send")} />
             <Text style={s.sub}>To {recipientName || "your recipient"}</Text>
             <Card glow>
               <Row label="They receive" value={symFor(quote.recipientCurrency) + " " + quote.recipientAmount.toLocaleString()} accent />
@@ -1027,20 +1474,23 @@ export default function App() {
               <Row label="Total from bank" value={fmtINR(quote.total)} accent big />
             </Card>
             <Text style={s.savings}>Real rate, no markup — they get every rupee converted fairly.</Text>
+            <QuoteCountdown expiresAt={quote.expiresAt} expired={quoteExpired} onExpire={() => setQuoteExpired(true)} />
             {account && quote.total > account.balance ? (
               <View>
                 <Text style={s.shortfall}>Insufficient balance. You have {fmtINR(account.balance)} — this transfer needs {fmtINR(quote.total)}.</Text>
                 <PrimaryButton title="Change amount" secondary onPress={() => setScreen("send")} />
               </View>
+            ) : quoteExpired ? (
+              <PrimaryButton title="Rate expired — get a fresh quote" onPress={getTransferQuote} loading={busy} />
             ) : (
-              <PrimaryButton title="Slide to send 🔒" onPress={openAuth} />
+              <PrimaryButton title="Send securely 🔒" onPress={openAuth} />
             )}
           </View>
         )}
 
         {screen === "quote" && quote && quote.kind !== "p2p" && (
           <View>
-            <Text style={s.h2}>Confirm payment</Text>
+            <ScreenHeader title="Confirm payment" onBack={() => setScreen("scan")} />
             <Text style={s.sub}>{c.merchant}</Text>
             <Card glow>
               <Row label="They charge" value={c.sym + " " + c.amount.toLocaleString()} />
@@ -1053,20 +1503,23 @@ export default function App() {
             <Text style={s.savings}>
               You save ~{fmtINR(quote.amount * 0.035 + 200 - quote.fee)} vs a typical bank card
             </Text>
+            <QuoteCountdown expiresAt={quote.expiresAt} expired={quoteExpired} onExpire={() => setQuoteExpired(true)} />
             {account && quote.total > account.balance ? (
               <View>
                 <Text style={s.shortfall}>Insufficient balance. You have {fmtINR(account.balance)} — this payment needs {fmtINR(quote.total)}.</Text>
                 <PrimaryButton title="Back" secondary onPress={() => setScreen("scan")} />
               </View>
+            ) : quoteExpired ? (
+              <PrimaryButton title="Rate expired — get a fresh quote" onPress={getQuote} loading={busy} />
             ) : (
-              <PrimaryButton title="Slide to pay 🔒" onPress={openAuth} />
+              <PrimaryButton title="Pay securely 🔒" onPress={openAuth} />
             )}
           </View>
         )}
 
         {screen === "scanDom" && (IS_WEB ? (
           <View>
-            <Text style={s.h2}>Scan any UPI QR</Text>
+            <ScreenHeader title="Scan any UPI QR" onBack={() => { setWebScan("idle"); setScreen("home"); }} />
             {webScan === "live" ? (
               <View>
                 <View style={s.scanner}>
@@ -1113,22 +1566,8 @@ export default function App() {
           </View>
         ) : (
           <View>
-            <Text style={s.h2}>Scan any UPI QR</Text>
-            {Platform.OS === "web" ? (
-              // On web (incl. the browser demo) native camera QR scanning isn't
-              // reliable, so we go straight to the manual / demo-QR path — no
-              // camera mount, no external decoder dependency.
-              <View>
-                <Card>
-                  <Text style={[{ color: C.text, fontWeight: "700", marginBottom: 6 }]}>📷 Camera scanning is a mobile feature</Text>
-                  <Text style={[{ color: C.muted, fontSize: 13, lineHeight: 19 }]}>
-                    Live QR scanning runs on the Android / iOS app. In the browser preview, enter a UPI ID or use the demo QR — every other feature works exactly the same.
-                  </Text>
-                </Card>
-                <PrimaryButton title="Enter UPI ID instead" onPress={() => startDom("upiid")} />
-                <PrimaryButton title="Use demo QR" secondary onPress={useDemoQr} />
-              </View>
-            ) : camPerm && camPerm.granted ? (
+            <ScreenHeader title="Scan any UPI QR" onBack={() => setScreen("home")} />
+            {camPerm && camPerm.granted ? (
               <View>
                 <View style={s.scanner}>
                   <CameraView
@@ -1178,7 +1617,7 @@ export default function App() {
 
         {screen === "compose" && domIntent && (
           <View>
-            <Text style={s.h2}>{domIntent.title}</Text>
+            <ScreenHeader title={domIntent.title} onBack={() => setScreen("home")} />
             {domIntent.sub ? <Text style={s.sub}>{domIntent.sub}</Text> : null}
 
             {(domIntent.kind === "phone" || domIntent.kind === "request") && (
@@ -1280,6 +1719,9 @@ export default function App() {
                 <Text style={[{ fontSize: 64, textAlign: "center", marginVertical: 10 }]}>✅</Text>
                 <PinDots filled={pin.length} />
                 <PinPad onKey={onPinKey} />
+                <TouchableOpacity onPress={() => { setPin(""); setScreen(authExitScreen()); }} activeOpacity={0.7} style={[{ marginTop: 12 }]}>
+                  <Text style={[{ color: C.muted, fontSize: 13, textAlign: "center", fontWeight: "600" }]}>Cancel payment</Text>
+                </TouchableOpacity>
               </View>
             )}
           </View>
@@ -1394,7 +1836,7 @@ export default function App() {
 
         {screen === "contacts" && (
           <View>
-            <Text style={s.h2}>Pay a contact</Text>
+            <ScreenHeader title="Pay a contact" onBack={() => setScreen("home")} />
             <Text style={s.sub}>Matched on your device — nothing is uploaded. Pick who to pay.</Text>
             {phoneContacts.map((c, i) => (
               <TouchableOpacity key={c.id || i} style={s.txn} activeOpacity={0.8} onPress={() => payPhoneContact(c)}>
@@ -1408,7 +1850,6 @@ export default function App() {
                 <Text style={[{ color: C.accent, fontSize: 20 }]}>›</Text>
               </TouchableOpacity>
             ))}
-            <PrimaryButton title="← Back" secondary onPress={() => setScreen("home")} />
           </View>
         )}
       </ScrollView>
@@ -1423,7 +1864,7 @@ export default function App() {
             icon="📜"
             active={screen === "history"}
             onPress={async () => {
-              await refresh();
+              await refresh({ quiet: false });
               setScreen("history");
             }}
           />
@@ -1433,6 +1874,35 @@ export default function App() {
 
       <AlertHost />
     </SafeAreaView>
+  );
+}
+
+// Live countdown for the 60-second rate lock. Professional apps never let a
+// quote silently die under the user's finger — the timer is visible, and at
+// zero the pay button swaps to "get a fresh quote".
+function QuoteCountdown({ expiresAt, expired, onExpire }) {
+  const [left, setLeft] = useState(() => Math.max(0, Math.ceil(((expiresAt || 0) - Date.now()) / 1000)));
+  useEffect(() => {
+    if (!expiresAt) return;
+    const tick = () => {
+      const l = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+      setLeft(l);
+      if (l <= 0) {
+        clearInterval(id);
+        if (onExpire) onExpire();
+      }
+    };
+    const id = setInterval(tick, 500);
+    tick();
+    return () => clearInterval(id);
+  }, [expiresAt]);
+  if (!expiresAt) return null;
+  const mm = Math.floor(left / 60);
+  const ss = String(left % 60).padStart(2, "0");
+  return (
+    <Text style={[s.rateTimer, (expired || left <= 0) ? { color: C.warn } : left <= 10 ? { color: C.warn } : null]}>
+      {expired || left <= 0 ? "⏳ Rate lock expired" : `🔒 Rate locked · ${mm}:${ss}`}
+    </Text>
   );
 }
 
@@ -1535,4 +2005,6 @@ const s = StyleSheet.create({
   consentTxt: { color: C.muted, fontSize: 13, lineHeight: 19, flex: 1 },
   consentLink: { color: C.accent, fontSize: 12, fontWeight: "600" },
   buildStamp: { color: C.muted2, fontSize: 10, textAlign: "center", marginTop: 6 },
+  bootWrap: { flex: 1, alignItems: "center", justifyContent: "center", minHeight: 420 },
+  rateTimer: { color: C.accent2, fontSize: 12, textAlign: "center", fontWeight: "700", marginBottom: 4 },
 });

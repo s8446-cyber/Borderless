@@ -23,6 +23,22 @@ export function Card({ children, style, glow }) {
   return <View style={[u.card, glow && u.cardGlow, style]}>{children}</View>;
 }
 
+// Sub-screen header: a real back affordance (every professional app has one)
+// plus the screen title. Pairs with the Android hardware-back handling in
+// App.js so both routes lead to the same place.
+export function ScreenHeader({ title, onBack }) {
+  return (
+    <View style={u.shRow}>
+      {onBack ? (
+        <TouchableOpacity onPress={onBack} activeOpacity={0.7} style={u.shBack} accessibilityRole="button" accessibilityLabel="Go back">
+          <Text style={u.shBackTxt}>‹</Text>
+        </TouchableOpacity>
+      ) : null}
+      <Text style={u.shTitle} numberOfLines={1}>{title}</Text>
+    </View>
+  );
+}
+
 export function SectionHeader({ title, action, onAction }) {
   return (
     <View style={u.sectionRow}>
@@ -158,6 +174,14 @@ export function PinPad({ onKey }) {
 }
 
 const u = StyleSheet.create({
+  shRow: { flexDirection: "row", alignItems: "center", marginBottom: 12, minHeight: rs(40) },
+  shBack: {
+    width: rs(38), height: rs(38), borderRadius: rs(12), backgroundColor: C.card2,
+    alignItems: "center", justifyContent: "center", marginRight: 12,
+    borderWidth: 1, borderColor: C.border,
+  },
+  shBackTxt: { color: C.text, fontSize: rs(24), fontWeight: "700", marginTop: -2 },
+  shTitle: { color: C.text, fontSize: rs(21), fontWeight: "800", letterSpacing: -0.3, flex: 1 },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 11, marginBottom: 22 },
   logo: {
     width: rs(42), height: rs(42), borderRadius: rs(13), backgroundColor: C.accent,

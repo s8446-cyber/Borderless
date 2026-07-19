@@ -4,6 +4,56 @@ All notable changes to Borderless Pay. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is
 [SemVer](https://semver.org/).
 
+## [1.2.0] — Mobile app 1.1.0: professional relaunch, app lock, sign-in
+
+A co-founder-level cross-check of the mobile app against how professional
+payments apps behave, and the fixes for every gap found. Backend unchanged
+(1.1.0); mobile `package.json`/`app.json` → **1.1.0**.
+
+### Added (mobile)
+- **Persistent sessions — onboard once** (`src/session.js`, `src/storage.js`):
+  live-mode tokens persist **only** in the OS keystore/keychain
+  (`WHEN_UNLOCKED_THIS_DEVICE_ONLY`), rotated in place on silent refresh, and
+  erased on logout / account closure / refresh-token death. Killing and
+  reopening the app resumes where you belong (lock screen, or the bank-link
+  step if onboarding was interrupted) instead of restarting KYC.
+- **Demo-mode state persistence** (`src/demo.js` export/import + `expo-file-system`):
+  the standalone wallet (account, PIN hash, history, the real hash-chained
+  ledger) survives restarts. Restores are **tamper-refusing**: the chain is
+  re-verified at import and a corrupt snapshot resets to first run. Demo PIN
+  is now stored as a SHA-256 hash, never plaintext. In the browser sim,
+  localStorage stands in for private storage — a reload is an app relaunch.
+- **App lock** (`App.js`): returning users unlock with Face ID / fingerprint /
+  device credential (auto-prompted), payment-PIN fallback in demo mode
+  (sharing the payments lockout counter), "Not you? Sign out" escape hatch,
+  and **auto-relock** after >60 s in the background.
+- **Email sign-in** (live mode): `POST /api/auth/login` from the welcome
+  screen, with TOTP 2FA step-up and routing to bank-link or home depending on
+  account state.
+- **Confirm-PIN + quality rules** (`src/pin.js`): new PINs are entered twice;
+  repeated digits, ascending/descending sequences and keypad-line patterns are
+  rejected with an explanation.
+- **Quote rate-lock countdown**: a visible 60-second timer on both quote
+  screens; at zero the pay button swaps to "get a fresh quote".
+- **Android back handling + back headers**: hardware back navigates the screen
+  graph (blocked during settlement, exits only from home/welcome); every
+  sub-screen gained a back chevron; the payment PIN pad gained a cancel.
+- **Session-expiry recovery**: a dead refresh token signs the user out cleanly
+  (persisted session wiped, one clear alert) instead of stranding them.
+- **Mobile tests**: 10 new (24 total) — PIN quality rules and demo-state
+  persistence round-trip / tamper-refusal / single-use-quote non-restore.
+
+### Fixed / hardened (mobile)
+- A mistyped payment PIN now retries **in place** on the auth screen (server
+  lockout still applies) instead of bouncing to the form.
+- `npm run live` and `npm run sim` now clear Metro's cache: stale transform
+  caches could silently bake the previous mode's `EXPO_PUBLIC_*` values into
+  the bundle (verified live builds shipping demo mode; `--clear` fixes it).
+- User-invoked refreshes (Activity tab, "See all") surface connection errors
+  instead of failing silently; background refreshes never throw.
+- Removed an unreachable web branch in the native scanner screen; renamed the
+  misleading "Slide to pay/send" labels on tap buttons to "Pay/Send securely".
+
 ## [1.1.0] — Deploy-ready hardening
 
 Closes every remaining code-completable item on the production-readiness

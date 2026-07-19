@@ -73,6 +73,9 @@ function healthy(base) {
   if (checkOnly) process.exit(0);
 
   const env = { ...process.env, EXPO_PUBLIC_DEMO: "false", EXPO_PUBLIC_API_BASE: base };
-  const child = spawn("npx expo start", { stdio: "inherit", env, shell: true });
+  // --clear: Metro's transform cache does NOT reliably invalidate when
+  // EXPO_PUBLIC_* env vars change, so a previous demo-mode session could
+  // otherwise serve a stale demo bundle with live mode silently OFF.
+  const child = spawn("npx expo start --clear", { stdio: "inherit", env, shell: true });
   child.on("exit", (code) => process.exit(code === null ? 0 : code));
 })();
