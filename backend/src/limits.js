@@ -17,8 +17,12 @@ export function checkTxnLimits(store, userId, amountMinor, opts, now = Date.now(
     throw new ApiError(403, "limit_exceeded", "Amount exceeds the per-transaction limit");
   }
   const since = now - DAY_MS;
+  // Top-ups fund the balance rather than move money out, so they are
+  // velocity-limited in their OWN daily bucket — a day of top-ups must not
+  // consume the user's spending allowance, and vice versa.
+  const isTopup = o.kind === "topup";
   const today = Object.values(store.data.payments || {}).filter(
-    (p) => p.userId === userId && (p.settledAt || 0) >= since
+    (p) => p.userId === userId && (p.settledAt || 0) >= since && ((p.kind === "topup") === isTopup)
   );
   const dayTotal = today.reduce((sum, p) => sum + (p.totalMinor || 0), 0);
   if (dayTotal + amountMinor > L.dailyTotalMaxMinor) {
