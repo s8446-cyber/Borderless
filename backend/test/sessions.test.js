@@ -215,6 +215,7 @@ test("G-4: /api/ledger/proof/:index lets a third party verify a receipt", async 
     const r = await call("/api/kyc/verify", KYC());
     const token = r.data.token;
     await call("/api/accounts/link", { method: "POST", body: { bank: "HDFC", pin: "4321" }, token });
+    await call("/api/topup", { method: "POST", body: { amount: 200000, pin: "4321" }, token });
 
     const q = await call("/api/quotes", { method: "POST", body: { currency: "AED", localAmount: 80 } });
     const pay = await call("/api/payments", { method: "POST", body: { quoteId: q.data.quoteId, pin: "4321" }, token });

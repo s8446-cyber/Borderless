@@ -223,6 +223,7 @@ test("G-2: sweep GCs idempotency keys 24h after settlement — fresh keys still 
     const r = await call("/api/kyc/verify", { method: "POST", body: { fullName: "Aarav Shah", documentId: "P1", country: "IN", consent: true } });
     const token = r.data.token;
     await call("/api/accounts/link", { method: "POST", body: { bank: "HDFC", pin: "4321" }, token });
+    await call("/api/topup", { method: "POST", body: { amount: 200000, pin: "4321" }, token });
 
     const base = Object.keys(app.store.data.idempotency).length;
     const pay = async (idem) => {
