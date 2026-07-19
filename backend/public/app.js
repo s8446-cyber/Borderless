@@ -17,12 +17,12 @@ if ("serviceWorker" in navigator) {
 
 const API = ""; // same origin
 
-// ---- demo directories (mirror the backend / mobile theme) ----
+// ---- corridor metadata (flags / currency symbols / example placeholders) ----
 const CORRIDORS = {
-  AED: { flag: "🇦🇪", country: "Dubai, UAE", merchant: "Al Masa Restaurant", amount: 80, sym: "AED" },
-  SGD: { flag: "🇸🇬", country: "Singapore", merchant: "Maxwell Food Centre", amount: 18, sym: "S$" },
-  EUR: { flag: "🇫🇷", country: "Paris, France", merchant: "Café de Flore", amount: 24, sym: "€" },
-  NPR: { flag: "🇳🇵", country: "Kathmandu, Nepal", merchant: "Himalayan Java", amount: 850, sym: "Rs" },
+  AED: { flag: "🇦🇪", country: "UAE", example: "e.g. Al Masa Restaurant", sym: "AED" },
+  SGD: { flag: "🇸🇬", country: "Singapore", example: "e.g. Maxwell Food Centre", sym: "S$" },
+  EUR: { flag: "🇫🇷", country: "Eurozone", example: "e.g. Café de Flore", sym: "€" },
+  NPR: { flag: "🇳🇵", country: "Nepal", example: "e.g. Himalayan Java", sym: "Rs" },
 };
 const P2P_CURRENCIES = [
   { code: "AED", flag: "🇦🇪", sym: "AED" },
@@ -64,6 +64,12 @@ const DOMESTIC_STEPS = [
   "Sign authorization (HMAC)",
   "Credit payee instantly",
 ];
+const TOPUP_STEPS = [
+  "Authorize with PIN",
+  "Credit Borderless balance",
+  "Write to settlement ledger (hash-chained)",
+  "Sign receipt (HMAC)",
+];
 
 const EMPTY_FORM = {
   payeeName: "", phone: "", vpa: "", account: "", ifsc: "",
@@ -77,6 +83,7 @@ const state = {
   refreshToken: null,
   name: "",
   consent: false,
+  meta: null, // /api/meta — settlement mode disclosure (sandbox badge)
   auth: { email: "", password: "", fullName: "", totp: "", totpNeeded: false, resetEmail: "", resetToken: "", newPassword: "", secret: "", otpauth: "", code: "", enabled: false },
   bank: "HDFC Bank",
   newPin: "",
@@ -86,6 +93,7 @@ const state = {
   contacts: [],
   requests: [],
   corridor: "AED",
+  intl: { merchant: "", amount: "" },
   quote: null,
   receipt: null,
   flow: "pay", // pay | send | domestic
@@ -226,15 +234,16 @@ const scanner = () =>
 
 // ---- transaction helpers ----
 function txnIcon(p) {
-  return { p2p: "💸", payment: "🧳", bill: "🧾", recharge: "📲", request: "🔁" }[p.kind] || "✅";
+  return { topup: "➕", p2p: "💸", payment: "🧳", bill: "🧾", recharge: "📲", request: "🔁" }[p.kind] || "✅";
 }
 function txnName(p) {
+  if (p.kind === "topup") return "Added to balance";
   if (p.domestic) return p.payee ? p.payee.name : "Payment";
   if (p.kind === "p2p") return p.recipient ? p.recipient.name : "Transfer";
   return p.merchant ? p.merchant.name : "Merchant";
 }
 function txnTag(p) {
-  return p.kind === "p2p" ? "sent" : p.domestic ? "paid" : "settled";
+  return p.kind === "topup" ? "added" : p.kind === "p2p" ? "sent" : p.domestic ? "paid" : "settled";
 }
 function historyList(history) {
   if (!history || !history.length) return `<p class="muted" style="padding:14px 0">No payments yet.</p>`;
@@ -265,21 +274,22 @@ function screenWelcome() {
         row("💱 Mid-market FX rate", "✓", { accent: true }) +
         row("🔒 Triple-secure ledger", "✓", { accent: true })
     )}
-    <label>Your name</label>
-    <input data-model="name" value="${esc(state.name)}" placeholder="Aarav Shah" autocapitalize="words" />
-    <label class="consent-row">
-      <input type="checkbox" id="consent-box" ${state.consent ? "checked" : ""} />
-      <span>I agree to the Terms of Service and Privacy Policy (v1.0)</span>
-    </label>
-    <p class="consent-links"><a href="/terms.html" target="_blank" rel="noopener">Read the Terms ↗</a> · <a href="/privacy.html" target="_blank" rel="noopener">Read the Privacy Policy ↗</a></p>
-    ${primary("Verify identity (KYC) →", "start-kyc")}
-    <p class="api-note">Calls real POST /api/kyc/verify • your consent is recorded and versioned</p>
-    <div class="auth-alt">
-      <span class="muted">— or use a full account —</span>
-      <button class="btn secondary" data-action="go-login">🔑 Sign in</button>
-      <button class="btn secondary" data-action="go-signup">✉️ Create account with email</button>
-    </div>`;
+    ${primary("✉️ Create your account →", "go-signup")}
+    <button class="btn secondary" data-action="go-login">🔑 Sign in</button>
+    <p class="api-note">Real accounts: scrypt-hashed passwords, lockout protection, optional TOTP 2FA.</p>
+    ${sandboxNotice()}`;
 }
+
+// Honest disclosure, rendered from live /api/meta — never hardcoded copy.
+function sandboxNotice() {
+  if (!state.meta || state.meta.settlementMode !== "sandbox") return "";
+  return `<p class="api-note">🧪 <strong>Sandbox settlement:</strong> money movement is simulated end-to-end while our sponsor-bank and PSP integrations are finalized. Every receipt is cryptographically signed and stamped “sandbox” — nothing here pretends to be real money.</p>`;
+}
+
+const sandboxPill = () =>
+  state.meta && state.meta.settlementMode === "sandbox"
+    ? `<span class="pill" style="border-color:var(--warn,#f59e0b);color:var(--warn,#f59e0b);margin-left:6px" title="Money movement is simulated until licensed rails go live">🧪 SANDBOX</span>`
+    : "";
 
 function screenSignup() {
   const a = state.auth;
@@ -326,7 +336,7 @@ function screenForgot() {
   return `
     ${brand()}
     <h2>Reset your password</h2>
-    <p class="sub">Enter your account email. If it exists, a single-use reset token is issued (30-minute expiry). In production it arrives by email; in this demo environment it appears here directly.</p>
+    <p class="sub">Enter your account email. If it exists, a single-use reset token is issued (30-minute expiry). In production it arrives by email; in development it appears here directly.</p>
     <label>Email</label>
     <input data-model="auth.resetEmail" value="${esc(a.resetEmail)}" placeholder="you@example.com" type="email" autocapitalize="none" />
     ${primary("Request reset →", "do-forgot")}
@@ -358,7 +368,7 @@ function screenSecurity() {
            <input data-model="auth.code" value="${esc(a.code)}" placeholder="123456" inputmode="numeric" maxlength="6" style="margin-top:8px" />
            ${primary("Verify & enable 2FA", "do-enable-2fa")}`
         : `<div style="font-weight:700;margin-bottom:6px">Two-factor authentication is off</div>
-           <p class="muted" style="font-size:13px;margin-bottom:10px">Add a second lock on your account: after your password, a 6-digit code from your phone is required. (Available for email accounts — the quick-demo flow has no password to protect.)</p>
+           <p class="muted" style="font-size:13px;margin-bottom:10px">Add a second lock on your account: after your password, a 6-digit code from your phone is required.</p>
            ${primary("Set up 2FA", "do-setup-2fa")}`
     )}
     ${card(
@@ -372,7 +382,7 @@ function screenSecurity() {
 function screenLink() {
   return `
     <h2>Link your home bank</h2>
-    <p class="sub">We connect via secure open-banking consent. Your money stays in your bank until you pay.</p>
+    <p class="sub">We connect via secure open-banking consent. Your balance starts at ₹0 — you add money explicitly after linking, so every rupee in the app has an auditable origin.</p>
     <label>Bank</label>
     ${chips("bank", state.bank, [
       { value: "HDFC Bank", label: "HDFC" },
@@ -415,17 +425,28 @@ function screenHome() {
         'style="border-color:var(--accent)"'
       )
     : "";
+  const needsFunds = a && a.balance === 0 && !state.history.length;
+  const fundCard = needsFunds
+    ? card(
+        `<div style="font-weight:700;margin-bottom:4px">👋 Welcome! Add money to get started</div>
+         <div class="muted" style="font-size:13px;margin-bottom:10px">Your balance starts at ₹0 — every rupee is added explicitly and recorded on the tamper-evident ledger.</div>
+         ${primary("➕ Add money", "dom", "topup")}`,
+        'style="border-color:var(--accent)"'
+      )
+    : "";
   return `
     ${brand()}
     ${card(
       `<span class="muted">Available to spend</span>
        <div class="balance">${fmtINR(a ? a.balance : 0)}</div>
-       <span class="pill">${a ? esc(a.bank) + " • " + esc(a.maskedNumber) : "Bank"}</span>
+       <span class="pill">${a ? esc(a.bank) + " • " + esc(a.maskedNumber) : "Bank"}</span>${sandboxPill()}
        <div class="badge-secure"><span>🔐 scrypt PIN</span><span>⛓️ dual ledger</span><span>✍️ HMAC signed</span></div>`
     )}
+    ${fundCard}
     ${incomingCard}
     <div class="section">Money transfer</div>
     <div class="grid">
+      ${actionTile("➕", "Add money", "dom", "topup")}
       ${actionTile("📷", "Scan QR", "start-scan-dom")}
       ${actionTile("📱", "To phone", "dom", "phone")}
       ${actionTile("🆔", "To UPI ID", "dom", "upiid")}
@@ -468,14 +489,11 @@ function screenScanDom() {
     ${
       state.scanning
         ? `<div class="spinner"></div>`
-        : `${camSupported ? `<button class="btn" data-action="cam-scan">📷 Scan a real QR with the camera</button>` : ""}
-          ${card(
-            row("Merchant", "Cafe Coffee Day") +
-              row("UPI ID", "ccd@bpl") +
-              row("Status", "✓ Demo merchant", { accent: true })
-          )}
-          ${primary("Enter amount (demo QR)", "scan-continue-dom")}
-          ${camSupported ? "" : `<p class="api-note">Live camera scanning needs a browser with BarcodeDetector (Chrome/Edge). The demo QR works everywhere.</p>`}`
+        : `${camSupported
+            ? `<button class="btn" data-action="cam-scan">📷 Scan a QR with the camera</button>
+               <p class="api-note">Point at any UPI QR (it encodes upi://pay…) — payee and amount fill in automatically. Decoded on your device; nothing is photographed or stored.</p>`
+            : `<p class="api-note">Live camera scanning needs a browser with BarcodeDetector (Chrome/Edge on Android, or the mobile app). You can pay by entering the UPI ID instead.</p>`}
+          <button class="btn secondary" data-action="dom" data-arg="upiid">Enter UPI ID instead</button>`
     }`;
 }
 
@@ -483,23 +501,18 @@ function screenScanIntl() {
   const c = CORRIDORS[state.corridor];
   return `
     <h2>Pay abroad</h2>
-    <label>Corridor</label>
+    <p class="sub">Choose the merchant's currency, enter who you're paying and the amount they charge — you'll see the transparent mid-market conversion before confirming.</p>
+    <label>Currency corridor</label>
     ${chips(
       "corridor",
       state.corridor,
       Object.keys(CORRIDORS).map((k) => ({ value: k, label: CORRIDORS[k].flag + " " + k }))
     )}
-    ${scanner()}
-    ${
-      state.scanning
-        ? `<div class="spinner"></div>`
-        : `${card(
-            row("Merchant", esc(c.merchant)) +
-              row("Location", c.flag + " " + esc(c.country)) +
-              row("Status", "✓ Demo corridor merchant", { accent: true })
-          )}
-          ${primary("Continue", "scan-continue-intl")}`
-    }`;
+    <label>Merchant name</label>
+    <input data-model="intl.merchant" value="${esc(state.intl.merchant)}" placeholder="${esc(c.example)}" autocapitalize="words" />
+    <label>Amount they charge (${esc(c.sym)})</label>
+    <input data-model="intl.amount" value="${esc(state.intl.amount)}" placeholder="0" inputmode="decimal" />
+    ${primary("Get quote →", "scan-continue-intl")}`;
 }
 
 function screenSend() {
@@ -549,18 +562,23 @@ function screenCompose() {
 
   const amt = Number(f.amount) || 0;
   const isRequest = d.kind === "request";
+  const isTopup = d.kind === "topup";
   return `
     <h2>${esc(d.title)}</h2>
     ${d.sub ? `<p class="sub">${esc(d.sub)}</p>` : ""}
     ${fields}
     ${card(
-      row("You pay", `<span id="pay-amount">${fmtINR(amt)}</span>`, { accent: true, big: true }) +
+      row(isTopup ? "You add" : "You pay", `<span id="pay-amount">${fmtINR(amt)}</span>`, { accent: true, big: true }) +
         row("Fee", "₹0 • Free", { accent: true }) +
-        row("Speed", "Instant")
+        (isTopup
+          ? row("Settlement", state.meta && state.meta.settlementMode === "sandbox" ? "🧪 Sandbox (simulated)" : "Live")
+          : row("Speed", "Instant"))
     )}
     ${
       isRequest
         ? primary("Send request", "submit-request")
+        : isTopup
+        ? `<button class="btn" data-action="proceed-domestic">Add <span id="btn-pay-amount">${fmtINR(amt)}</span> to balance</button>`
         : `<button class="btn" data-action="proceed-domestic">Proceed to pay <span id="btn-pay-amount">${fmtINR(amt)}</span></button>`
     }`;
 }
@@ -587,9 +605,9 @@ function screenQuote() {
   const cardCost = q.amount * 1.035 + 200;
   return `
     <h2>Confirm payment</h2>
-    <p class="sub">${esc(c.merchant)}</p>
+    <p class="sub">${esc(state.intl.merchant || "Merchant")} · ${c.flag} ${esc(c.country)}</p>
     ${card(
-      row("They charge", c.sym + " " + c.amount.toLocaleString()) +
+      row("They charge", c.sym + " " + Number(state.intl.amount).toLocaleString()) +
         row("Exchange rate (mid-market)", "1 " + state.corridor + " = ₹" + q.rate, { accent: true }) +
         row("Converted amount", fmtINR(q.amount)) +
         row("FX markup", "₹0.00", { accent: true }) +
@@ -610,7 +628,7 @@ function screenAuth() {
 }
 
 function screenSettle() {
-  const steps = state.flow === "send" ? SEND_STEPS : state.flow === "domestic" ? DOMESTIC_STEPS : SETTLE_STEPS;
+  const steps = state.flow === "send" ? SEND_STEPS : state.flow === "domestic" ? (state.domIntent && state.domIntent.kind === "topup" ? TOPUP_STEPS : DOMESTIC_STEPS) : SETTLE_STEPS;
   return `
     <h2 style="text-align:center">Settling securely…</h2>
     <ul class="steps" id="settle-steps">
@@ -622,7 +640,9 @@ function screenSettle() {
 function screenReceipt() {
   const r = state.receipt;
   if (!r) return "";
-  const payeeName = r.domestic
+  const payeeName = r.kind === "topup"
+    ? "to your Borderless balance"
+    : r.domestic
     ? "to " + (r.payee ? r.payee.name : "payee")
     : r.kind === "p2p"
     ? "to " + (r.recipient ? r.recipient.name : "recipient")
@@ -634,10 +654,11 @@ function screenReceipt() {
     (!r.domestic ? row("Rate", "1 " + r.currency + " = ₹" + r.rate) : "") +
     (r.domestic && r.payee && r.payee.category ? row("Category", esc(r.payee.category)) : "") +
     row("Fee", r.domestic ? "₹0 • Free" : fmtINR(r.fee), { accent: r.domestic }) +
+    (r.settlementMode === "sandbox" ? row("Settlement", "🧪 Sandbox (simulated rails)") : "") +
     row("Reference", esc(r.reference));
   return `
     <div class="receipt-check">✓</div>
-    <h2 style="text-align:center">${r.kind === "p2p" ? "Sent" : "Paid"} ${fmtINR(r.total)}</h2>
+    <h2 style="text-align:center">${r.kind === "topup" ? "Added" : r.kind === "p2p" ? "Sent" : "Paid"} ${fmtINR(r.total)}</h2>
     <p class="sub" style="text-align:center">${esc(payeeName)}</p>
     ${card(detail)}
     ${card(
@@ -713,27 +734,6 @@ async function refresh() {
   }
 }
 
-// ---- flows ----
-async function handleKyc() {
-  if (!(state.name || "").trim()) return toast("Please enter your name to continue");
-  if (!state.consent) return toast("Please accept the Terms & Privacy Policy first");
-  try {
-    const r = await api("/api/kyc/verify", {
-      method: "POST",
-      body: {
-        fullName: state.name.trim(), documentId: "P" + Date.now(), country: "IN",
-        deviceId: DEVICE_ID,
-        consent: { tosVersion: "1.0", privacyVersion: "1.0" },
-      },
-    });
-    state.token = r.token;
-    state.refreshToken = r.refreshToken || null;
-    go("link");
-  } catch (e) {
-    toast(e.message);
-  }
-}
-
 // ---- email + password account flows ----
 async function doSignup() {
   const a = state.auth;
@@ -795,7 +795,7 @@ async function doForgot() {
   if (!a.resetEmail) return toast("Enter your account email");
   try {
     const r = await api("/api/auth/password/reset-request", { method: "POST", body: { email: a.resetEmail } });
-    // dev returns the token so the flow is fully demoable; prod delivers by email
+    // dev returns the token so the flow is testable end-to-end; prod delivers by email
     state.auth.resetToken = r.resetToken || " ";
     render();
     toast(r.resetToken ? "Reset token issued (dev mode shows it here)" : "If that account exists, reset instructions were sent");
@@ -825,7 +825,7 @@ async function doSetup2fa() {
     state.auth.code = "";
     render();
   } catch (e) {
-    toast(e.code === "no_credentials" ? "2FA needs an email account — the quick-demo flow has no password to protect" : e.message);
+    toast(e.message);
   }
 }
 
@@ -858,7 +858,7 @@ async function doRevokeAll() {
 async function handleLink() {
   if (state.newPin.length !== 4) return toast("Set a 4-digit PIN first");
   try {
-    await api("/api/accounts/link", { method: "POST", body: { bank: state.bank, pin: state.newPin, openingBalance: 250000 } });
+    await api("/api/accounts/link", { method: "POST", body: { bank: state.bank, pin: state.newPin } });
     await refresh();
     go("home");
   } catch (e) {
@@ -868,10 +868,9 @@ async function handleLink() {
 
 function startScanDom() {
   state.flow = "domestic";
-  state.scanning = true;
+  state.scanning = false;
   state.camActive = false;
   go("scanDom");
-  setTimeout(() => { state.scanning = false; if (state.screen === "scanDom") render(); }, 1500);
 }
 
 // ---- real camera QR scanning (BarcodeDetector, where the browser has it) ----
@@ -918,7 +917,7 @@ async function startCamScan() {
   } catch (e) {
     stopCam();
     render();
-    toast("Camera unavailable or denied — the demo QR still works");
+    toast("Camera unavailable or denied — you can pay by entering the UPI ID instead");
     return;
   }
   const holder = document.getElementById("cam-holder");
@@ -951,9 +950,8 @@ async function startCamScan() {
 
 function startScanIntl() {
   state.flow = "pay";
-  state.scanning = true;
+  state.intl = { merchant: "", amount: "" };
   go("scanIntl");
-  setTimeout(() => { state.scanning = false; if (state.screen === "scanIntl") render(); }, 1700);
 }
 
 function startSend() {
@@ -975,9 +973,10 @@ async function getTransferQuote() {
 }
 
 async function getQuote() {
-  const c = CORRIDORS[state.corridor];
+  const amt = Number(state.intl.amount);
+  if (!(amt > 0)) return toast("Enter the amount the merchant charges");
   try {
-    const q = await api("/api/quotes", { method: "POST", body: { currency: state.corridor, localAmount: c.amount } });
+    const q = await api("/api/quotes", { method: "POST", body: { currency: state.corridor, localAmount: amt } });
     state.quote = q;
     go("quote");
   } catch (e) {
@@ -989,6 +988,7 @@ function startDom(kind) {
   state.form = { ...EMPTY_FORM };
   state.flow = "domestic";
   const map = {
+    topup: { title: "Add money", sub: "Fund your Borderless balance — recorded on the ledger like every transaction" },
     phone: { title: "Pay by phone number", sub: "Sends instantly via UPI" },
     upiid: { title: "Pay to UPI ID", sub: "e.g. name@bank" },
     bank: { title: "Bank transfer", sub: "To any account + IFSC (IMPS / NEFT)" },
@@ -1046,6 +1046,7 @@ function buildDomesticRequest() {
   const amount = Number(state.form.amount);
   const f = state.form;
   const k = state.domIntent ? state.domIntent.kind : "upi";
+  if (k === "topup") return { endpoint: "/api/topup", body: { amount } };
   if (k === "payrequest") return { endpoint: "/api/requests/pay", body: { requestId: state.domIntent.requestId } };
   if (k === "recharge") return { endpoint: "/api/recharge", body: { amount, recharge: { operator: f.operator, number: f.phone, plan: "Custom" } } };
   if (k === "bill") return { endpoint: "/api/bills/pay", body: { amount, biller: { category: f.billCategory, name: f.biller || f.billCategory, consumerId: f.consumerId } } };
@@ -1077,9 +1078,8 @@ async function authorize() {
   state.flow = state.flow || "pay";
   go("settle");
   animateSteps();
-  const steps = state.flow === "send" ? SEND_STEPS : state.flow === "domestic" ? DOMESTIC_STEPS : SETTLE_STEPS;
+  const steps = state.flow === "send" ? SEND_STEPS : state.flow === "domestic" ? (state.domIntent && state.domIntent.kind === "topup" ? TOPUP_STEPS : DOMESTIC_STEPS) : SETTLE_STEPS;
   const idem = "idem_" + Date.now() + "_" + Math.random().toString(36).slice(2);
-  const c = CORRIDORS[state.corridor];
   try {
     let endpoint, body;
     if (state.flow === "domestic") {
@@ -1091,7 +1091,7 @@ async function authorize() {
       body = { quoteId: state.quote.quoteId, pin: state.pin, recipient: { name: state.p2p.recipientName || "Recipient", country: state.p2p.currency } };
     } else {
       endpoint = "/api/payments";
-      body = { quoteId: state.quote.quoteId, pin: state.pin, merchant: { name: c.merchant, country: state.corridor } };
+      body = { quoteId: state.quote.quoteId, pin: state.pin, merchant: { name: state.intl.merchant || "Merchant", country: state.corridor } };
     }
     const r = await api(endpoint, { method: "POST", idempotencyKey: idem, body });
     setTimeout(async () => {
@@ -1215,19 +1215,12 @@ function onChip(group, value) {
 
 // ---- event delegation ----
 const ACTIONS = {
-  "start-kyc": handleKyc,
   "link-bank": handleLink,
   "start-scan-dom": startScanDom,
   "start-scan-intl": startScanIntl,
   "start-send": startSend,
   "send-quote": getTransferQuote,
   "scan-continue-intl": getQuote,
-  "scan-continue-dom": () => {
-    state.flow = "domestic";
-    state.form = { ...EMPTY_FORM, payeeName: "Cafe Coffee Day" };
-    state.domIntent = { kind: "merchant", title: "Cafe Coffee Day", sub: "ccd@bpl • Demo QR" };
-    go("compose");
-  },
   dom: (arg) => startDom(arg),
   "pay-contact": (arg) => payContact(Number(arg)),
   "pay-request": (arg) => payIncomingRequest(arg),
@@ -1290,4 +1283,12 @@ document.addEventListener("input", (e) => {
   }
 });
 
+// First paint immediately, then fetch the deployment's honest metadata
+// (settlement mode) and re-render so the SANDBOX badge appears everywhere.
 render();
+(async () => {
+  try {
+    state.meta = await api("/api/meta");
+    render();
+  } catch (e) { /* offline shell — badge simply not shown */ }
+})();
