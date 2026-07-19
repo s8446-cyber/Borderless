@@ -80,6 +80,7 @@ test("account close: PII erased, sessions dead, ledger + pseudonymous records in
     const token = r.data.token;
     const userId = r.data.userId;
     await call("/api/accounts/link", { method: "POST", body: { bank: "HDFC", pin: "4321" }, token });
+    await call("/api/topup", { method: "POST", body: { amount: 200000, pin: "4321" }, token });
     const pay = await call("/api/upi/pay", { method: "POST", body: { amount: 100, pin: "4321", payee: { name: "X", kind: "upi" } }, token });
     assert.equal(pay.status, 200);
     const paymentId = pay.data.receipt.paymentId;
