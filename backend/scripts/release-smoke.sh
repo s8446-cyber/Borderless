@@ -2,8 +2,8 @@
 # Borderless Pay — release smoke test.
 # Runs a full user journey + trust checks against a RUNNING deployment.
 #   ./scripts/release-smoke.sh http://localhost:4000 [METRICS_TOKEN]
-# Exits non-zero on the first failure. Safe to run on the demo product
-# (creates demo users; no real money exists anywhere in V1).
+# Exits non-zero on the first failure. Safe to run on a sandbox deployment
+# (creates throwaway users; settlement is simulated — no real money moves).
 set -euo pipefail
 BASE="${1:?usage: release-smoke.sh <base-url> [metrics-token]}"
 MTOK="${2:-}"
@@ -52,10 +52,19 @@ CODE=$(req -o /dev/null -w '%{http_code}' "$BASE/api/accounts" -H "authorization
 [ "$CODE" = "401" ] || die "device binding not enforced (got $CODE)"
 ok "device binding enforced (wrong device → 401)"
 
-say "[4/9] Bank link & domestic payment (₹0 fee)"
+say "[4/9] Bank link, top-up & domestic payment (₹0 fee)"
 R=$(A -X POST "$BASE/api/accounts/link" -H 'content-type: application/json' -d '{"bank":"HDFC Bank","pin":"4321"}')
-[ "$(echo "$R" | json balance)" = "250000" ] || die "link: $R"
-ok "bank linked, opening balance ₹2,50,000"
+[ "$(echo "$R" | json balance)" = "0" ] || die "link must start at ₹0: $R"
+ok "bank linked, balance starts at ₹0 (no invented money)"
+CODE=$(A -o /dev/null -w '%{http_code}' -X POST "$BASE/api/upi/pay" -H 'content-type: application/json' \
+  -d '{"amount":10,"pin":"4321","payee":{"name":"X","kind":"upi"}}')
+[ "$CODE" = "402" ] || die "unfunded account must not be able to pay ($CODE)"
+ok "unfunded account cannot pay"
+R=$(A -X POST "$BASE/api/topup" -H 'content-type: application/json' -H "idempotency-key: smoke-topup-1" \
+  -d '{"amount":5000,"pin":"4321"}')
+[ "$(echo "$R" | json receipt.kind)" = "topup" ] || die "topup: $R"
+[ "$(echo "$R" | json receipt.settlementMode)" = "sandbox" ] || die "topup receipt must be stamped sandbox: $R"
+ok "top-up settled and honestly stamped sandbox"
 R=$(A -X POST "$BASE/api/upi/pay" -H 'content-type: application/json' -H "idempotency-key: smoke-upi-1" \
   -d '{"amount":250,"pin":"4321","payee":{"name":"Smoke Payee","kind":"upi"}}')
 [ "$(echo "$R" | json receipt.status)" = "settled" ] || die "upi pay: $R"
