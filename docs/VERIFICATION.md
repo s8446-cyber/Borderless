@@ -14,7 +14,7 @@
 | 5 | Ledger invariant: top-up legs are zero-sum against `funding:sandbox`; `/api/ready` passes after every new flow | ✓ verified |
 | 6 | Velocity isolation: a maxed day of top-ups does NOT consume the spending allowance (and vice versa) | ✓ verified |
 | 7 | Cross-user isolation: payees derive strictly from the caller's own history | ✓ verified |
-| 8 | Mobile unit tests (`cd mobile && npm test`) | ✓ **20/20** |
+| 8 | Mobile unit tests (`cd mobile && npm test`) | ✓ **24/24** |
 | 9 | Mobile: `App.js` + all `src/` modules parse (Babel, JSX-aware) after the demo-mode excision | ✓ clean |
 | 10 | Mobile full bundle: `expo export --platform web` compiles the real `App.js` with zero errors | ✓ exported |
 | 11 | Zero-fake-data sweep: no `demo.js`, no seeded contacts/requests, no invented balances, no demo-QR in release paths (`grep` sweep across app code) | ✓ clean |
@@ -22,8 +22,9 @@
 | 13 | Shell scripts (`release-smoke.sh`) `bash -n` | ✓ clean |
 | 14 | Sign-in lifecycle E2E: passwordless endpoint 404 → signup on phone-1 → sign-in on phone-2 restores real name + `bankLinked` via `/api/me` → expired access token silently renewed by refresh rotation (no password re-entry) → fully-revoked session correctly lands on welcome, never a signed-out home | ✓ 10/10 checks |
 | 15 | Persistent sign-in E2E (production mode): web reload silently restores + rotates the session and routes link→home from `/api/me` with the balance intact; stolen refresh token rejected (device-bound); rotated-token replay revokes everything and the next restore fails clean to welcome; logout terminal; mobile boot ignores a stale local `onboarded` flag (bank linked on another device → home, never re-link); unlock slides the 30-day refresh window; forgot-password request + prod-mode no-token-leak | ✓ 13/13 checks |
+| 16 | Renewal-concurrency E2E (production mode): first REPRODUCES the hazard (a duplicate renewal race → reuse detector revokes every session, even the winner's), then proves the fixed clients clean — single-flighted renewal (two racing 401s share one rotation; `mobile/src/singleflight.js` unit-tested, mobile suite now **24**) and the web's freshest-token-from-storage renewal surviving a second-tab rotation | ✓ 9/9 checks |
 
-**Result: 15/15 check groups passed · 0 defects.**
+**Result: 16/16 check groups passed · 0 defects.**
 
 Known non-code items (unchanged, tracked, not defects): sandbox KYC provider and simulated anchor writer await licensed vendors (`docs/COMPLIANCE.md`); Terms/Privacy v1.0 templates pending counsel; transactional email provider account; physical-device pass for biometric/camera dialogs; Docker build validated in CI.
 

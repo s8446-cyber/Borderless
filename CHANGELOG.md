@@ -127,6 +127,23 @@ live rails until the licensed integrations exist. Backend + mobile → **1.3.0**
   session now boots into a branded "Signing you in securely…" splash while
   the silent restore runs; every restore outcome (home, link, signed-out,
   offline) leaves the splash deterministically.
+- **CRITICAL: duplicate session renewals looked like token theft.** The
+  refresh token is single-use with reuse detection — the right server
+  design — but the clients could race it: two API calls hitting 401
+  together, or a second browser tab rotating the shared token, made the
+  next renewal present an already-rotated token. The server correctly
+  treated that as theft and **revoked every session on every device** —
+  opening the web app in two tabs could sign you out everywhere. Renewal is
+  now **single-flighted** (concurrent 401s share one rotation; new
+  `mobile/src/singleflight.js`, unit-tested) and the web client always
+  rotates the **freshest stored token** (re-read from this browser's
+  storage, where another tab keeps it current). Verified by a dedicated
+  9-check concurrency E2E that first reproduces the revoke-everything
+  hazard, then proves both fixed flows clean. Mobile tests 20 → **24**.
+- Privacy policy: the data-collection table now explicitly discloses the
+  **on-device session credentials** (access + rotating refresh token), where
+  they live (OS keystore in the app; browser storage on the web) and every
+  event that deletes them.
 
 ## [1.2.0] — Mobile app 1.1.0: professional relaunch, app lock, sign-in
 
