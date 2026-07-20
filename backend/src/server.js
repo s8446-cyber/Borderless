@@ -598,7 +598,6 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
     return { contacts: payees };
   });
 
-
   // Service catalogs (billers / operators) for the domestic flows.
   add("GET", /^\/api\/billers$/, async () => ({ billers: BILLERS }));
   add("GET", /^\/api\/operators$/, async () => ({ operators: OPERATORS }));
