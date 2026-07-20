@@ -74,8 +74,8 @@ See **SECURITY.md** for the full threat model and **DEPLOYMENT.md** for shipping
 | GET | `/api/metrics` | Prometheus metrics (token-gated in prod) |
 | GET | `/api/meta` | honest deployment disclosure: settlement mode + KYC provider |
 | GET | `/api/policies` | current Terms/Privacy versions |
-| POST | `/api/kyc/verify` | KYC + create user (consent required; sandbox provider until a licensed vendor is integrated) |
-| POST | `/api/auth/signup` · `/api/auth/login` | email+password accounts (consent required) |
+| GET | `/api/me` | the caller's own profile + onboarding state (restores name/bank-linked on sign-in) |
+| POST | `/api/auth/signup` · `/api/auth/login` | email+password accounts — the ONLY account-creation path (consent required; KYC runs inside signup via the provider registry) |
 | POST | `/api/auth/2fa/setup` · `/api/auth/2fa/enable` | TOTP two-factor |
 | POST | `/api/auth/password/reset-request` · `/api/auth/password/reset` | password reset |
 | POST | `/api/sessions/refresh` · `/api/sessions/revoke-all` · `/api/logout` | session lifecycle |
