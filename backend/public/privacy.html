@@ -3,22 +3,29 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Privacy Policy — Borderless Pay</title>
+<meta name="color-scheme" content="dark" />
+<title>Borderless Pay — Privacy Policy</title>
+<link rel="stylesheet" href="/styles.css" />
 <style>
-  :root { color-scheme: dark; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:#070d1f; color:#e8ecf8; max-width:760px; margin:0 auto; padding:32px 20px 80px; line-height:1.65; }
-  h1 { font-size:28px; letter-spacing:-.5px; } h2 { font-size:19px; margin-top:34px; letter-spacing:-.3px; color:#7cf5c8; }
-  p, li, td { color:#aab3cf; font-size:15px; } strong { color:#e8ecf8; }
-  table { border-collapse: collapse; width:100%; margin:14px 0; } td, th { border:1px solid #223055; padding:9px 11px; text-align:left; font-size:14px; } th { color:#e8ecf8; background:#0d1631; }
-  code { background:#0d1631; padding:2px 6px; border-radius:6px; font-size:13px; }
-  .back { color:#7cf5c8; text-decoration:none; font-size:14px; }
-  .meta { color:#5c6784; font-size:13px; }
+  .doc { max-width: 640px; margin: 0 auto; padding: 24px 18px 60px; line-height: 1.6; }
+  .doc h1 { font-size: 24px; margin: 18px 0 4px; }
+  .doc h2 { font-size: 17px; margin: 26px 0 8px; color: #cdd6f4; }
+  .doc p, .doc li { color: var(--muted, #8b93b8); font-size: 14px; }
+  .doc strong { color: #cdd6f4; }
+  .doc .meta { font-size: 12px; color: var(--muted, #8b93b8); }
+  .doc .draft { border: 1px solid rgba(255, 196, 87, .5); background: rgba(255, 196, 87, .08); color: #ffc457; border-radius: 12px; padding: 12px 14px; font-size: 13px; margin: 14px 0; }
+  .doc table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .doc td, .doc th { border: 1px solid #26315c; padding: 8px 10px; text-align: left; color: var(--muted, #8b93b8); }
+  .doc th { color: #cdd6f4; }
+  .backlink { display: inline-block; margin-top: 22px; color: var(--muted, #8b93b8); font-size: 13px; }
 </style>
 </head>
 <body>
-  <a class="back" href="/">← Back to Borderless Pay</a>
+<div class="doc">
+  <div class="brand"><div class="logo">🌍</div> Borderless Pay</div>
   <h1>Privacy Policy</h1>
-  <p class="meta">Version 1.0 · Template pending final legal review · Aligned with the Digital Personal Data Protection Act, 2023 (India)</p>
+  <p class="meta">Version 1.0 · Structured for the Digital Personal Data Protection Act, 2023 (India)</p>
+  <div class="draft">⚠️ <strong>Template status:</strong> this policy is a working draft prepared for legal review. It becomes binding only after finalization by counsel and formal publication. Borderless Pay currently operates in sandbox settlement mode — <strong>no real money moves and no real KYC documents are collected</strong> until licensed rails and a KYC vendor are live.</div>
 
   <h2>1. Who we are</h2>
   <p>Borderless Pay ("we") provides a payments application for domestic (India) and cross-border payments. For personal data collected through the app, we act as the <strong>Data Fiduciary</strong> under the DPDP Act, 2023.</p>
@@ -34,35 +41,29 @@
     <tr><td>Transaction records (amount, payee you enter, timestamps)</td><td>Executing payments; tamper-evident receipts; legal record-keeping</td><td>Contract performance; statutory retention (PMLA/RBI when live)</td></tr>
     <tr><td>Bank account reference (masked; full reference encrypted)</td><td>Linking your bank account</td><td>Your consent; AES-256-GCM field encryption at rest</td></tr>
   </table>
-
-  <h2>3. What we do NOT collect</h2>
   <p><strong>Camera:</strong> used only while you scan a payment QR, with your permission asked at that moment; the QR is decoded on your device and no photo or video is ever captured, stored, or uploaded. <strong>We do not collect:</strong> your contacts, location, microphone audio, photos, advertising identifiers, or any data unrelated to payments. We do not sell or share personal data for advertising. Device permissions are requested only when a feature genuinely needs them, at the moment of use.</p>
 
-  <h2>4. How we protect it</h2>
+  <h2>3. How we protect it</h2>
   <p>Field-level AES-256-GCM encryption at rest, scrypt hashing for secrets, TLS in transit, tamper-evident hash-chained ledgers, device-bound sessions, and strict access controls. Our security posture is documented publicly in the project's security documentation.</p>
 
-  <h2>5. Consent</h2>
-  <p>Account creation requires your explicit, versioned consent to this policy and the Terms of Service. We record which version you accepted and when, in a tamper-evident audit log. You may withdraw consent at any time by closing your account.</p>
+  <h2>4. Retention</h2>
+  <p>Profile data is kept while your account is active. If you close your account, profile data is erased; <strong>transaction records are retained pseudonymously</strong> where law requires (PMLA record-retention when live operations begin).</p>
 
-  <h2>6. Your rights (DPDP Act, 2023)</h2>
+  <h2>5. Your rights (DPDP Act)</h2>
   <ul>
-    <li><strong>Access:</strong> request a summary of your personal data we hold.</li>
-    <li><strong>Correction:</strong> ask us to correct inaccurate personal data.</li>
+    <li><strong>Access:</strong> view your transaction history in-app at any time.</li>
+    <li><strong>Correction:</strong> contact us to correct inaccurate profile data.</li>
     <li><strong>Erasure / consent withdrawal:</strong> close your account in-app (Profile → Close account) or via <code>POST /api/account/close</code>; profile data is erased immediately and all sessions revoked.</li>
-    <li><strong>Grievance redressal:</strong> contact our grievance officer (below); escalation to the Data Protection Board of India is your statutory right.</li>
-    <li><strong>Nominate:</strong> nominate a person to exercise these rights in case of death or incapacity.</li>
+    <li><strong>Grievance:</strong> Grievance Officer — <em>[name and contact to be appointed before public launch]</em>. You may escalate to the Data Protection Board of India.</li>
   </ul>
 
-  <h2>7. Retention</h2>
-  <p>Profile data lives only while your account is open. When you close your account, profile PII is erased immediately. Transaction records are retained <strong>pseudonymously</strong> (an internal identifier only — no name, email, or bank reference) because payment-systems law (PMLA/RBI record-keeping) requires it; the hash-chained ledger is append-only by design and cannot be silently rewritten.</p>
+  <h2>6. Data location</h2>
+  <p>Payment-system data is stored in India, in line with RBI data-localisation requirements.</p>
 
-  <h2>8. Sharing</h2>
-  <p>We share data only with processors strictly necessary to run the service (e.g., a licensed KYC provider during verification, a PSP/sponsor bank for settlement — once live rails launch), each bound by contract to this policy's standards. We never sell personal data.</p>
+  <h2>7. Changes</h2>
+  <p>Policy versions are numbered. If this policy changes materially, you will be asked to review and re-accept before continuing to use the app.</p>
 
-  <h2>9. Grievance officer</h2>
-  <p>[Name pending] · grievance@borderlesspay.example · response within the statutory timeline.</p>
-
-  <h2>10. Changes</h2>
-  <p>Policy changes are versioned; material changes will re-prompt for consent in-app before they apply to you.</p>
+  <a class="backlink" href="/">← Back to the app</a> · <a class="backlink" href="/terms.html">Terms of Service</a>
+</div>
 </body>
 </html>
