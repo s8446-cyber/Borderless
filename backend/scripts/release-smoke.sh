@@ -48,6 +48,11 @@ TOK=$(echo "$R" | json token); RTK=$(echo "$R" | json refreshToken)
 [ "$(echo "$R" | json kyc.status)" = "verified" ] || die "kyc stub"
 ok "signup issues session + refresh token"
 A() { req "$@" -H "authorization: Bearer $TOK" -H "x-device-id: smoke-device"; }
+CODE=$(req -o /dev/null -w '%{http_code}' -X POST "$BASE/api/kyc/verify" -H 'content-type: application/json' -d '{"fullName":"X","documentId":"P1","country":"IN","consent":true}')
+[ "$CODE" = "404" ] || die "passwordless account creation must be gone (got $CODE)"
+ok "no passwordless account-creation endpoint (404)"
+[ "$(A "$BASE/api/me" | json name)" = "Release Smoke" ] || die "/api/me profile restore"
+ok "/api/me restores the profile (name + onboarding state)"
 CODE=$(req -o /dev/null -w '%{http_code}' "$BASE/api/accounts" -H "authorization: Bearer $TOK" -H "x-device-id: wrong-device")
 [ "$CODE" = "401" ] || die "device binding not enforced (got $CODE)"
 ok "device binding enforced (wrong device → 401)"

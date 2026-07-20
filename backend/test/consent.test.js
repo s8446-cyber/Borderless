@@ -30,29 +30,22 @@ async function withServer(fn) {
 
 test("consent: account creation is refused without it, recorded with it", async () => {
   await withServer(async ({ call, app }) => {
-    // demo KYC path
-    let r = await call("/api/kyc/verify", { method: "POST", body: { fullName: "No Consent", documentId: "P1", country: "IN" } });
+    // signup without consent is refused
+    let r = await call("/api/auth/signup", { method: "POST", body: { email: "c@d.com", password: "long-enough-pw1", fullName: "C D" } });
     assert.equal(r.status, 400);
     assert.equal(r.data.error, "consent_required");
 
-    r = await call("/api/kyc/verify", { method: "POST", body: { fullName: "Aarav Shah", documentId: "P1", country: "IN", consent: { tosVersion: "1.0", privacyVersion: "1.0" } } });
+    // versioned consent is recorded on the user
+    r = await call("/api/auth/signup", { method: "POST", body: { email: "c@d.com", password: "long-enough-pw1", fullName: "C D", consent: { tosVersion: "1.0", privacyVersion: "1.0" } } });
     assert.equal(r.status, 200);
     const user = app.store.data.users[r.data.userId];
     assert.equal(user.consent.tosVersion, "1.0");
     assert.equal(user.consent.privacyVersion, "1.0");
     assert.ok(user.consent.acceptedAt > 0);
 
-    // email+password path
-    r = await call("/api/auth/signup", { method: "POST", body: { email: "c@d.com", password: "long-enough-pw1", fullName: "C D" } });
-    assert.equal(r.status, 400);
-    assert.equal(r.data.error, "consent_required");
-    r = await call("/api/auth/signup", { method: "POST", body: { email: "c@d.com", password: "long-enough-pw1", fullName: "C D", consent: true } });
-    assert.equal(r.status, 200);
-    assert.ok(app.store.data.users[r.data.userId].consent.acceptedAt > 0);
-
     // the audit log carries the consent versions (tamper-evident record)
     const consentAudits = app.audit.entries.filter((e) => e.data && e.data.consent);
-    assert.ok(consentAudits.length >= 2, "consent recorded in the audit chain");
+    assert.ok(consentAudits.length >= 1, "consent recorded in the audit chain");
   });
 });
 

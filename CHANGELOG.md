@@ -35,6 +35,10 @@ live rails until the licensed integrations exist. Backend + mobile → **1.3.0**
 - Name-only "quick demo" onboarding in both clients — onboarding is now a
   full **email + password sign-up** (scrypt, lockout, consent-gated) on web
   and mobile alike.
+- **`POST /api/kyc/verify` (passwordless account creation) is deleted** —
+  accounts exist exclusively behind email + password; KYC screening runs
+  inside signup via the provider registry. All tests onboard through the
+  real path.
 
 ### Added
 - **`POST /api/topup` — Add money, the ONLY funding path.** PIN-authorized,
@@ -55,9 +59,22 @@ live rails until the licensed integrations exist. Backend + mobile → **1.3.0**
 - **Mobile email sign-up** (`/api/auth/signup`) with consent, plus a visible
   warning when a **release** build is still pointing at the local-dev fallback
   instead of a configured `EXPO_PUBLIC_API_BASE`.
+- **`GET /api/me`** — the caller's own profile + onboarding state. Sign-in on
+  a new device now restores the **real name** and routes on `bankLinked`
+  (GPay/PhonePe behavior) instead of guessing from the email or — worse —
+  from a failed request.
 - **8 new backend tests** (`test/topup.test.js`): zero-fake-data guarantees,
   top-up PIN/amount/limit enforcement, ledger zero-sum invariant, payee
   derivation + cross-user isolation, `/api/meta`, unfunded-402.
+- **Web PWA: persistent sign-in** — you now stay signed in on a browser until
+  you log out, exactly like the mobile app. Only the rotating, device-bound
+  refresh token is persisted (access tokens stay memory-only; strict CSP,
+  rotation + reuse-detection protect the stored copy); a page load silently
+  rotates it and routes home/link from `GET /api/me`. Logout, account
+  closure, revoke-all, password reset, and refresh-token death all clear it.
+- **Mobile: in-app password reset** — "Forgot password?" on the sign-in
+  screen drives the full `reset-request → token → new password` flow
+  (single-use 30-minute token; completing it signs out every device).
 
 ### Changed
 - Release smoke suite now asserts the ₹0 start, the unfunded-402, and the
@@ -67,7 +84,66 @@ live rails until the licensed integrations exist. Backend + mobile → **1.3.0**
   posture; test counts updated (**93 backend / 20 mobile**).
 - Web PWA: welcome screen leads with account creation; camera-less QR path
   offers manual entry (no fake merchant card); forgot-password copy no longer
-  says "demo environment"; service-worker cache bumped to v6.
+  says "demo environment"; service-worker cache bumped to v7.
+
+### Fixed (session-lifecycle audit — "signed in until you log out", done right)
+- **Stranded-on-home bug:** when the stored session could no longer be renewed
+  (refresh token expired/revoked), the unlock flow routed to a clean welcome
+  …and then overrode it with a **signed-out, empty home screen**. `finishUnlock`
+  and the Activity handlers now check `hasSession()` after refreshing and never
+  override the expiry redirect. Unlock also surfaces connection errors instead
+  of silently rendering ₹0.
+- **Flaky-network → re-link bug (web + mobile):** sign-in treated ANY failure
+  of the account probe as "no bank linked" and pushed fully-onboarded users
+  into re-linking (which could overwrite their PIN). Routing now uses
+  `/api/me.bankLinked`; a network blip simply shows the error.
+- Sign-in restores the **real profile name** via `/api/me` (previously the
+  greeting showed the email prefix after signing in on a new device).
+- **Mobile boot routed from a stale local flag:** the keystore's cached
+  `onboarded` value decided lock-vs-link at launch — link your bank on
+  another device and this one stayed stranded on the link screen (where
+  completing it would overwrite your payment PIN). Boot now always goes
+  lock → unlock → `GET /api/me`, and the server decides; the cached flag is
+  only the offline fallback. Routing through `/api/me` also renews an
+  expired access token on every unlock, so the 30-day refresh window slides
+  forward on every open — signed in until you log out, for any active user.
+- **Mid-onboarding sessions skipped the app lock:** a persisted
+  `onboarded: "link"` session went straight to the bank-link screen without
+  local authentication. Any persisted session now unlocks first.
+- A session that died at unlock produced **two stacked alerts** ("Session
+  expired" + "Connection problem: your session has expired"); the second is
+  now suppressed.
+- Web logout/close-account left the previous user's **recent payees** in
+  memory; all account state is cleared.
+- **Unlock no longer waits for the network (GPay/PhonePe launch feel):**
+  biometric unlock lands on the last-known screen INSTANTLY; `GET /api/me`
+  reconciles in the background and re-routes only if the server disagrees
+  (bank linked elsewhere, dead session → clean welcome). Previously the user
+  was held at the lock screen for two sequential round-trips.
+- **The home balance never fakes ₹0 while loading** — until the account
+  arrives, the card shows a spinner with "Fetching your balance… (tap to
+  retry)" instead of rendering a zero balance that reads as lost money.
+- **No welcome flash for signed-in web users** — a remembered browser
+  session now boots into a branded "Signing you in securely…" splash while
+  the silent restore runs; every restore outcome (home, link, signed-out,
+  offline) leaves the splash deterministically.
+- **CRITICAL: duplicate session renewals looked like token theft.** The
+  refresh token is single-use with reuse detection — the right server
+  design — but the clients could race it: two API calls hitting 401
+  together, or a second browser tab rotating the shared token, made the
+  next renewal present an already-rotated token. The server correctly
+  treated that as theft and **revoked every session on every device** —
+  opening the web app in two tabs could sign you out everywhere. Renewal is
+  now **single-flighted** (concurrent 401s share one rotation; new
+  `mobile/src/singleflight.js`, unit-tested) and the web client always
+  rotates the **freshest stored token** (re-read from this browser's
+  storage, where another tab keeps it current). Verified by a dedicated
+  9-check concurrency E2E that first reproduces the revoke-everything
+  hazard, then proves both fixed flows clean. Mobile tests 20 → **24**.
+- Privacy policy: the data-collection table now explicitly discloses the
+  **on-device session credentials** (access + rotating refresh token), where
+  they live (OS keystore in the app; browser storage on the web) and every
+  event that deletes them.
 
 ## [1.2.0] — Mobile app 1.1.0: professional relaunch, app lock, sign-in
 

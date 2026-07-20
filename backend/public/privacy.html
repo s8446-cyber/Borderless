@@ -35,6 +35,7 @@
     <tr><th>Data</th><th>Purpose</th><th>Legal basis</th></tr>
     <tr><td>Name (and email, if you create an email login)</td><td>Account creation, identity verification (KYC)</td><td>Your consent; legal obligation (KYC/AML when live)</td></tr>
     <tr><td>Hashed device identifier</td><td>Binding your session to your device (security)</td><td>Your consent; legitimate security purpose</td></tr>
+    <tr><td>Session credentials (access &amp; rotating refresh token)</td><td>Keeping you signed in on your device until you log out — stored only on your device (OS keystore/keychain in the app; this browser's storage on the web), rotated automatically, and deleted on logout, account closure, sign-out-everywhere, password reset, or expiry</td><td>Your consent; necessary to provide the service</td></tr>
     <tr><td>Payment PIN / password</td><td>Authorizing payments / signing in</td><td>Stored only as salted scrypt hashes — never in plain text</td></tr>
     <tr><td>Two-factor secret (if you enable 2FA)</td><td>Login protection</td><td>Stored AES-256-GCM encrypted</td></tr>
     <tr><td>Transaction records (amount, payee you enter, timestamps)</td><td>Executing payments; tamper-evident receipts; legal record-keeping</td><td>Contract performance; statutory retention (PMLA/RBI when live)</td></tr>

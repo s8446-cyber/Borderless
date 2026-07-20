@@ -27,8 +27,9 @@ async function withServer(fn) {
   }
 }
 
+let seq = 0;
 async function onboard(call, setToken, pin = "4321") {
-  let r = await call("/api/kyc/verify", { method: "POST", body: { fullName: "Test User", documentId: "P1", country: "IN", consent: true } });
+  let r = await call("/api/auth/signup", { method: "POST", body: { fullName: "Test User", email: "user" + (++seq) + "@topup.test", password: "long-enough-pw1", country: "IN", consent: true } });
   setToken(r.data.token);
   r = await call("/api/accounts/link", { method: "POST", body: { bank: "HDFC", pin } });
   return r;
@@ -44,6 +45,8 @@ test("no fake data: fresh accounts start with zero balance, no requests, no paye
     assert.equal(r.data.contacts.length, 0, "no fake contact directory");
     r = await call("/api/accounts");
     assert.equal(r.data.balanceMinor, 0);
+    r = await call("/api/me");
+    assert.equal(r.data.bankLinked, true, "/api/me reports the linked bank for sign-in routing");
   });
 });
 

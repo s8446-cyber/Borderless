@@ -87,7 +87,7 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
   const metrics = new Metrics();
   const limiterFor = (path) => {
     if (/^\/api\/(payments|transfers|upi|bills|recharge|topup)/.test(path) || /^\/api\/requests\/pay$/.test(path)) return paymentLimiter;
-    if (/^\/api\/(kyc|accounts\/link|waitlist|sessions|auth|account\/close)/.test(path)) return authLimiter;
+    if (/^\/api\/(accounts\/link|waitlist|sessions|auth|account\/close)/.test(path)) return authLimiter;
     return null;
   };
 
@@ -130,25 +130,22 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
     return { ok: true, count: store.data.waitlist.length };
   });
 
-  // KYC + create user. Optionally binds the session to a client device
-  // identifier (G-3): if `deviceId` is provided, every subsequent authed call
-  // must present the same device via the `x-device-id` header, and the issued
-  // refresh token is bound to it too. A refresh token enables silent session
-  // renewal with rotation + reuse detection.
-  add("POST", /^\/api\/kyc\/verify$/, async (req, body) => {
-    asString(body.fullName, "fullName", { max: 120 });
-    asString(body.documentId, "documentId", { max: 120 });
-    asString(body.country, "country", { max: 60 });
-    const consent = requireConsent(body);
-    const deviceId = asString(body.deviceId, "deviceId", { required: false, max: 200 });
-    const deviceHash = deviceId ? sha256(deviceId) : null;
-    const kyc = runKyc(body);
-    const userId = "usr_" + randomUUID();
-    store.data.users[userId] = { id: userId, name: body.fullName, country: body.country, kyc, consent };
-    const { token, refreshToken } = issueSession(userId, deviceHash);
-    audit.append("user_created", { userId, country: body.country, kycStatus: kyc.status, deviceBound: Boolean(deviceHash), consent: { tosVersion: consent.tosVersion, privacyVersion: consent.privacyVersion } });
-    persist();
-    return { userId, token, refreshToken, kyc };
+  // Who am I — the caller's own profile + onboarding state. This is how a
+  // fresh sign-in on a new device restores the user (real name for the
+  // greeting, whether a bank is linked, KYC status) instead of guessing.
+  // Returns only the caller's own data; no secrets.
+  add("GET", /^\/api\/me$/, async (req) => {
+    const userId = requireAuth(req, store);
+    const u = store.data.users[userId] || {};
+    return {
+      userId,
+      name: u.name || null,
+      email: u.email || null,
+      country: u.country || null,
+      kyc: u.kyc ? { status: u.kyc.status } : null,
+      bankLinked: Boolean(store.data.accounts[userId]),
+      consent: u.consent ? { tosVersion: u.consent.tosVersion, privacyVersion: u.consent.privacyVersion } : null,
+    };
   });
 
   function issueSession(userId, deviceHash) {
@@ -186,11 +183,12 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
     documents: { terms: "/terms.html", privacy: "/privacy.html" },
   }));
 
-  // ---- Email + password authentication (production path) ----
-  // The demo KYC flow above stays for testers; these routes add real account
-  // security: scrypt-hashed passwords, lockout-guarded login, optional TOTP
-  // 2FA (secret AES-256-GCM-encrypted at rest), and a password-reset flow
-  // that revokes every session on completion.
+  // ---- Email + password authentication (the ONLY account-creation path) ----
+  // Accounts exist exclusively behind a password: scrypt-hashed credentials,
+  // lockout-guarded login, optional TOTP 2FA (secret AES-256-GCM-encrypted at
+  // rest), and a password-reset flow that revokes every session on completion.
+  // KYC screening runs inside signup via the pluggable provider registry
+  // (src/kyc.js) — there is no passwordless account-creation endpoint.
   add("POST", /^\/api\/auth\/signup$/, async (req, body) => {
     const email = asEmail(body.email);
     const password = asPassword(body.password);
@@ -271,7 +269,7 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
   add("POST", /^\/api\/auth\/2fa\/setup$/, async (req) => {
     const userId = requireAuth(req, store);
     const found = credentialsByUser(userId);
-    if (!found) throw new ApiError(409, "no_credentials", "This account uses the demo KYC flow — sign up with email + password to enable 2FA");
+    if (!found) throw new ApiError(409, "no_credentials", "No password credentials found for this account");
     const secret = generateTotpSecret();
     found.cred.totpSecretEnc = encryptField(secret);
     found.cred.totpEnabled = false; // enforced only after a verified code
