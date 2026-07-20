@@ -345,46 +345,45 @@ export default function App() {
     }
   }
 
+  function routeToStage(stage) {
+    if (stage === "home") {
+      setScreen("home");
+    } else {
+      setNewPin(""); setConfirmPin(""); setPinStage("create");
+      setScreen("link");
+    }
+  }
+
   async function finishUnlock() {
-    setBusy(true);
+    // Land INSTANTLY on the last known screen — professional apps never hold
+    // you at the door for the network (GPay/PhonePe show home immediately and
+    // stream the data in; the balance card shows a loading state, never a
+    // fake ₹0). The SERVER is still the authority: /api/me reconciles in the
+    // background and re-routes if this device's cached stage is stale (e.g.
+    // the bank was linked on another phone). Touching /api/me also renews an
+    // expired access token via refresh rotation, so the 30-day refresh
+    // window slides forward on every open — signed in until you log out.
+    routeToStage(lastKnownStage.current);
     try {
-      // Ask the SERVER where this account stands (GET /api/me) — the real
-      // name and whether a bank is linked. A stale local flag must never
-      // route (the bank may have been linked on another device since this
-      // one last opened). Touching /api/me also renews an expired access
-      // token through refresh rotation, so the 30-day refresh window slides
-      // forward on EVERY unlock — you stay signed in until you log out.
-      let me;
-      try {
-        me = await api("/api/me");
-      } catch (e) {
-        // The stored session may be dead (refresh token expired/revoked) —
-        // the session-expiry handler has then already routed to a clean
-        // welcome with one clear alert. Never override that.
-        if (!hasSession()) return;
-        // Otherwise it's a network problem: fall back to the last known
-        // stage so the owner isn't locked out of the app by a blip.
-        appAlert("Connection problem", "Couldn't reach Borderless Pay: " + e.message);
-        if (lastKnownStage.current === "home") setScreen("home");
-        else {
-          setNewPin(""); setConfirmPin(""); setPinStage("create");
-          setScreen("link");
-        }
-        return;
-      }
+      const me = await api("/api/me");
       const displayName = me.name || name;
       setName(displayName);
-      lastKnownStage.current = me.bankLinked ? "home" : "link";
-      await rememberProfile({ name: displayName, onboarded: lastKnownStage.current }).catch(() => {});
-      if (me.bankLinked) {
-        await refresh({ quiet: false });
-        if (hasSession()) setScreen("home");
-      } else {
-        setNewPin(""); setConfirmPin(""); setPinStage("create");
-        setScreen("link");
+      const stage = me.bankLinked ? "home" : "link";
+      if (stage !== lastKnownStage.current) {
+        lastKnownStage.current = stage;
+        routeToStage(stage);
       }
-    } finally {
-      setBusy(false);
+      rememberProfile({ name: displayName, onboarded: stage }).catch(() => {});
+      if (stage === "home") refresh(); // balance & history stream in behind the UI
+    } catch (e) {
+      // A dead session (refresh token expired/revoked) has already been
+      // handled: the expiry handler wiped state and routed to a clean
+      // welcome with ONE clear alert — never override it.
+      if (!hasSession()) return;
+      // Anything else is a network blip: stay on the optimistic screen; the
+      // balance card keeps its loading state and the next successful refresh
+      // (retry button / Activity tab / relaunch) fills it in.
+      if (lastKnownStage.current === "home") refresh();
     }
   }
 
@@ -1461,9 +1460,16 @@ export default function App() {
 
             <Card glow>
               <Text style={s.muted}>Available to spend</Text>
-              <Text style={s.balance}>{fmtINR(account ? account.balance : 0)}</Text>
+              {account ? (
+                <Text style={s.balance}>{fmtINR(account.balance)}</Text>
+              ) : (
+                <TouchableOpacity activeOpacity={0.7} onPress={() => refresh({ quiet: false })} style={[{ flexDirection: "row", alignItems: "center", marginVertical: rs(12) }]}>
+                  <ActivityIndicator color={C.accent} />
+                  <Text style={[{ color: C.muted, fontSize: 13, marginLeft: 10, fontWeight: "600" }]}>Fetching your balance… (tap to retry)</Text>
+                </TouchableOpacity>
+              )}
               <View style={s.balanceRow}>
-                <Pill>{account ? account.bank + " • " + account.maskedNumber : "Bank"}</Pill>
+                <Pill>{account ? account.bank + " • " + account.maskedNumber : "Loading account…"}</Pill>
                 <View style={[{ flexDirection: "row", alignItems: "center" }]}>
                   {meta && meta.settlementMode === "sandbox" ? (
                     <TouchableOpacity
