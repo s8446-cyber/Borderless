@@ -161,6 +161,42 @@ function loadRememberedSession() {
   }
 }
 
+// Renew the session via the rotating refresh token.
+// SINGLE-FLIGHT + FRESHEST-TOKEN: the refresh token is single-use (rotation
+// with reuse detection), so (a) parallel 401s inside this tab must share ONE
+// renewal, and (b) we always rotate the LATEST stored token — another tab of
+// this browser may have rotated it since this tab loaded. A duplicate or
+// stale rotation looks exactly like token theft to the server, which rightly
+// answers by revoking every session for the account.
+let renewInFlight = null;
+function renewSession() {
+  if (!renewInFlight) {
+    renewInFlight = (async () => {
+      const saved = loadRememberedSession();
+      const rt = (saved && saved.refreshToken) || state.refreshToken;
+      if (!rt) return { ok: false, status: 0 };
+      try {
+        const r = await fetch(API + "/api/sessions/refresh", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-device-id": DEVICE_ID },
+          body: JSON.stringify({ refreshToken: rt, deviceId: DEVICE_ID }),
+        });
+        const rd = await r.json().catch(() => ({}));
+        if (r.ok && rd.token) {
+          state.token = rd.token;
+          state.refreshToken = rd.refreshToken;
+          rememberSession(); // keep the persisted copy rotated in place
+          return { ok: true };
+        }
+        return { ok: false, status: r.status };
+      } catch (e) {
+        return { ok: false, status: 0 }; // network error — no verdict on the token
+      }
+    })().finally(() => { renewInFlight = null; });
+  }
+  return renewInFlight;
+}
+
 async function api(path, { method = "GET", body, idempotencyKey, _retried } = {}) {
   const headers = { "content-type": "application/json", "x-device-id": DEVICE_ID };
   if (state.token) headers.authorization = "Bearer " + state.token;
@@ -171,31 +207,19 @@ async function api(path, { method = "GET", body, idempotencyKey, _retried } = {}
     // Silent session renewal (once): rotate the refresh token and retry.
     if (res.status === 401 && !_retried && state.refreshToken &&
         (data.error === "session_expired" || data.error === "unauthorized")) {
-      try {
-        const r = await fetch(API + "/api/sessions/refresh", {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-device-id": DEVICE_ID },
-          body: JSON.stringify({ refreshToken: state.refreshToken, deviceId: DEVICE_ID }),
-        });
-        const rd = await r.json().catch(() => ({}));
-        if (r.ok && rd.token) {
-          state.token = rd.token;
-          state.refreshToken = rd.refreshToken;
-          rememberSession(); // keep the persisted copy rotated in place
-          return api(path, { method, body, idempotencyKey, _retried: true });
-        }
-        if (r.status === 401) {
-          // the refresh token itself is dead (expired / revoked / reuse-
-          // detected) — this session cannot be saved. Clean sign-out.
-          expireLocalSession();
-          const dead = new Error("Your session has expired — please sign in again.");
-          dead.code = "session_expired";
-          throw dead;
-        }
-      } catch (e) {
-        if (e && e.code === "session_expired") throw e;
-        /* network error during refresh — fall through to the original error */
+      const renewed = await renewSession();
+      if (renewed.ok) {
+        return api(path, { method, body, idempotencyKey, _retried: true });
       }
+      if (renewed.status === 401) {
+        // the refresh token itself is dead (expired / revoked / reuse-
+        // detected) — this session cannot be saved. Clean sign-out.
+        expireLocalSession();
+        const dead = new Error("Your session has expired — please sign in again.");
+        dead.code = "session_expired";
+        throw dead;
+      }
+      // network failure during renewal — fall through to the original error
     }
     const err = new Error(data.message || data.error || "Request failed");
     err.code = data.error;
@@ -1387,22 +1411,16 @@ render();
 (async () => {
   const saved = loadRememberedSession();
   if (!saved) return; // first run / signed out — already on welcome
+  state.refreshToken = saved.refreshToken;
+  state.name = saved.name || "";
+  const renewed = await renewSession(); // single-flight, freshest stored token
+  if (!renewed.ok) {
+    if (renewed.status === 401) forgetSession(); // expired / revoked — not an error, just signed out
+    // offline (status 0): keep the stored session so the next load retries
+    go("welcome");
+    return;
+  }
   try {
-    const r = await fetch(API + "/api/sessions/refresh", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-device-id": DEVICE_ID },
-      body: JSON.stringify({ refreshToken: saved.refreshToken, deviceId: DEVICE_ID }),
-    });
-    const rd = await r.json().catch(() => ({}));
-    if (!r.ok || !rd.token) {
-      if (r.status === 401) forgetSession(); // expired / revoked — not an error, just signed out
-      go("welcome");
-      return;
-    }
-    state.token = rd.token;
-    state.refreshToken = rd.refreshToken;
-    state.name = saved.name || "";
-    rememberSession();
     // Route from server truth (the bank may have been linked elsewhere since)
     const me = await api("/api/me");
     state.name = me.name || state.name;
@@ -1415,9 +1433,9 @@ render();
       go("link");
     }
   } catch (e) {
-    // Offline or a mid-restore failure. If the session was expired, the
-    // handler already routed to welcome; otherwise leave the splash for
-    // welcome ourselves (the stored session stays for the next load).
+    // A dead session was already routed to welcome by the expiry handler;
+    // any other mid-restore failure leaves the splash for welcome ourselves
+    // (the stored session stays for the next load).
     if (state.screen === "boot") go("welcome");
   }
 })();
