@@ -876,6 +876,14 @@ export default function App() {
   }
 
   function payIncomingRequest(r) {
+    // fail early: don't take a biometric + PIN for a request the balance can't cover
+    if (account && r.amount > account.balance) {
+      return appAlert(
+        "Insufficient balance",
+        "This request needs " + fmtINR(r.amount) + " but you have " + fmtINR(account.balance) + ". Add money first.",
+        [{ text: "Cancel", style: "cancel" }, { text: "➕ Add money", onPress: () => startDom("topup") }]
+      );
+    }
     setForm({ ...EMPTY_FORM, amount: String(r.amount) });
     setDomIntent({ kind: "payrequest", requestId: r.id, title: "Pay request", sub: r.fromName + (r.note ? " • " + r.note : "") });
     setFlow("domestic");

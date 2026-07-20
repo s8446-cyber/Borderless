@@ -145,6 +145,29 @@ live rails until the licensed integrations exist. Backend + mobile → **1.3.0**
   they live (OS keystore in the app; browser storage on the web) and every
   event that deletes them.
 
+### Fixed (in-app screen audit — every flow, both clients, driven in a real browser)
+- **Web lost the scanned QR's merchant name:** paying a scanned `upi://pay`
+  QR sent the raw VPA as the payee name — receipts read "to teststore@axis"
+  and the recent-payees row filled with VPAs. The web client now sends the
+  QR's merchant name (mobile already did).
+- **Web took your PIN for payments it knew you couldn't afford:** unlike
+  mobile, the web app walked you to the PIN pad and failed at the server.
+  All web pay paths now fail EARLY — compose and both quote screens show the
+  shortfall with "Change amount" / "➕ Add money" actions, and typed amounts
+  are re-checked before the PIN pad.
+- **Web quotes silently died at 60 seconds:** no countdown, and an expired
+  quote bounced you back to a dead screen. The web quote screens now show
+  the visible **🔒 rate-lock countdown** and an expired quote **auto-fetches
+  a fresh one** (mobile parity).
+- **Web Activity hid money requests:** the Activity tab now lists incoming +
+  outgoing requests with status and a "Pay now →" action (mobile parity).
+- **Both clients could PIN-authorize an incoming request beyond the
+  balance** — `payIncomingRequest` now checks the balance first and offers
+  "➕ Add money".
+- **Web home never greeted the user:** the restored real name was invisible
+  (mobile greets by first name). The web home now shows the same
+  time-of-day greeting.
+
 ## [1.2.0] — Mobile app 1.1.0: professional relaunch, app lock, sign-in
 
 A co-founder-level cross-check of the mobile app against how professional
