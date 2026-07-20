@@ -46,6 +46,19 @@ export async function markOnboarded(onboarded) {
   await persistSession({ ...s, onboarded });
 }
 
+// Refresh the cached profile facts (display name, onboarding stage) from the
+// server's answer. The cache exists ONLY as an offline fallback — routing
+// decisions are always made from /api/me when the network is up.
+export async function rememberProfile({ name, onboarded } = {}) {
+  const s = await loadPersistedSession();
+  if (!s) return;
+  await persistSession({
+    ...s,
+    name: name !== undefined && name !== null ? name : s.name,
+    onboarded: onboarded || s.onboarded,
+  });
+}
+
 export async function clearPersistedSession() {
   await deleteSecure(KEY);
 }
