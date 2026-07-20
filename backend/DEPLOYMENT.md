@@ -78,7 +78,9 @@ HTTPS, autoscaling, and health checks are configured in `fly.toml`.
 ## 4. Render.com (blueprint)
 
 1. Push this repo to GitHub.
-2. Render → **New → Blueprint**, point at the repo (`render.yaml`).
+2. Render → **New → Blueprint**, point at the repo — it picks up the
+   **repo-root** `render.yaml` (Render only discovers blueprints at the root;
+   `rootDir: backend` inside it targets this service).
 3. `BP_SIGNING_SECRET` / `BP_ENC_KEY` are auto-generated; set `BP_CORS_ORIGINS`.
 4. A 1GB persistent disk is mounted at `/app/data`.
 
