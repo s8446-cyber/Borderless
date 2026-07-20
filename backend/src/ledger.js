@@ -75,7 +75,7 @@ export function verifyMerkleProof(leafHash, path, root) {
 // Default anchor publisher: simulates a public-chain write. In production this
 // is swapped (via DualLedger's `publisher` option) for a writer that commits
 // the Merkle root to an actual public chain and returns the real tx hash.
-export function simulatedPublisher({ fromIndex, toIndex }) {
+function simulatedPublisher({ fromIndex, toIndex }) {
   return "0x" + sha256("anchor" + fromIndex + toIndex + Date.now()).slice(0, 40);
 }
 

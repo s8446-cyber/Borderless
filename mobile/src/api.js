@@ -21,10 +21,6 @@ let _token = null;
 let _refresh = null;
 let _onSessionExpired = null;
 
-export function setToken(t) {
-  _token = t;
-}
-
 export function setSession({ token, refreshToken } = {}) {
   _token = token || null;
   _refresh = refreshToken || null;
