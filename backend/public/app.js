@@ -770,15 +770,20 @@ async function doLogin() {
     const r = await api("/api/auth/login", { method: "POST", body });
     state.token = r.token;
     state.refreshToken = r.refreshToken || null;
-    state.name = a.email.split("@")[0];
     state.auth.password = "";
     state.auth.totp = "";
     state.auth.totpNeeded = false;
-    try {
+    // Restore the profile from the server (real name + onboarding state) —
+    // never guess from the email, and never route to bank-linking because a
+    // request merely failed (a network blip is not "no bank linked").
+    const me = await api("/api/me");
+    state.name = me.name || a.email.split("@")[0];
+    if (me.bankLinked) {
       await refresh();
       go("home");
-    } catch (err) {
-      go("link"); // signed in but no bank linked yet
+    } else {
+      state.newPin = "";
+      go("link");
     }
   } catch (e) {
     if (e.code === "totp_required") {
