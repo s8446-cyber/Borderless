@@ -255,6 +255,8 @@ function go(screen) {
   if (screen !== "scanDom") stopCam(); // never leave the camera running off-screen
   state.screen = screen;
   render();
+  if (screen === "quote") startQuoteTimer();
+  else clearInterval(quoteTimerId);
 }
 
 function setModel(path, value) {
@@ -314,6 +316,12 @@ function pinPad(action) {
 const scanner = () =>
   `<div class="scanner"><div class="scanline"></div>` +
   `<div class="qrbox">${Array.from({ length: 25 }).map(() => "<i></i>").join("")}</div></div>`;
+
+// Personalized home greeting (parity with the mobile app's top bar).
+function greeting() {
+  const h = new Date().getHours();
+  return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+}
 
 // ---- transaction helpers ----
 function txnIcon(p) {
@@ -528,6 +536,7 @@ function screenHome() {
     : "";
   return `
     ${brand()}
+    <p class="sub" id="greeting" style="margin:2px 0 12px">${esc(greeting())}${state.name ? ", " + esc(state.name.split(" ")[0]) : ""} 👋</p>
     ${card(
       `<span class="muted">Available to spend</span>
        <div class="balance">${fmtINR(a ? a.balance : 0)}</div>
@@ -655,6 +664,11 @@ function screenCompose() {
   const amt = Number(f.amount) || 0;
   const isRequest = d.kind === "request";
   const isTopup = d.kind === "topup";
+  // Fail early, not late: a payment (never a top-up or request) that exceeds
+  // the balance shows the shortfall instead of walking the user to the PIN
+  // pad only to fail at the server. Typed amounts are re-checked in
+  // proceedDomestic (typing live-updates the preview without a re-render).
+  const short = !isRequest && !isTopup && state.account && amt > state.account.balance;
   return `
     <h2>${esc(d.title)}</h2>
     ${d.sub ? `<p class="sub">${esc(d.sub)}</p>` : ""}
@@ -671,8 +685,38 @@ function screenCompose() {
         ? primary("Send request", "submit-request")
         : isTopup
         ? `<button class="btn" data-action="proceed-domestic">Add <span id="btn-pay-amount">${fmtINR(amt)}</span> to balance</button>`
+        : short
+        ? `<p class="api-note" style="color:#ff8b8b;font-size:13px">Insufficient balance. You have ${fmtINR(state.account.balance)} — add money first.</p>
+           ${primary("➕ Add money", "dom", "topup")}`
         : `<button class="btn" data-action="proceed-domestic">Proceed to pay <span id="btn-pay-amount">${fmtINR(amt)}</span></button>`
     }`;
+}
+
+// The 60-second rate lock is VISIBLE (professional apps never let a quote
+// silently die under the user's finger). The timer element is updated in
+// place; at zero the label flips and authorize() auto-refetches on expiry.
+let quoteTimerId = null;
+function startQuoteTimer() {
+  clearInterval(quoteTimerId);
+  const tick = () => {
+    const el = document.getElementById("quote-timer");
+    if (!el || !state.quote || !state.quote.expiresAt) return clearInterval(quoteTimerId);
+    const left = Math.max(0, Math.ceil((state.quote.expiresAt - Date.now()) / 1000));
+    el.textContent = left > 0
+      ? `🔒 Rate locked · 0:${String(left).padStart(2, "0")}`
+      : "⏳ Rate lock expired — paying fetches a fresh quote";
+    if (left <= 0) clearInterval(quoteTimerId);
+  };
+  quoteTimerId = setInterval(tick, 500);
+  tick();
+}
+
+// Fail early: a quote whose total exceeds the balance never reaches the PIN pad.
+function quoteShortfall(q, backAction) {
+  if (!(state.account && q.total > state.account.balance)) return null;
+  return `<p class="api-note" style="color:#ff8b8b;font-size:13px">Insufficient balance. You have ${fmtINR(state.account.balance)} — this needs ${fmtINR(q.total)}.</p>
+    <button class="btn secondary" data-action="${backAction}">Change amount</button>
+    ${primary("➕ Add money", "dom", "topup")}`;
 }
 
 function screenQuote() {
@@ -691,7 +735,8 @@ function screenQuote() {
           row("Total from bank", fmtINR(q.total), { accent: true, big: true })
       )}
       <p class="api-note accent">Real rate, no markup — they get every rupee converted fairly.</p>
-      ${primary("Slide to send 🔒", "quote-pay")}`;
+      <p class="api-note" id="quote-timer"></p>
+      ${quoteShortfall(q, "start-send") || primary("Slide to send 🔒", "quote-pay")}`;
   }
   const c = CORRIDORS[state.corridor];
   const cardCost = q.amount * 1.035 + 200;
@@ -707,7 +752,8 @@ function screenQuote() {
         row("Total from bank", fmtINR(q.total), { accent: true, big: true })
     )}
     <p class="api-note accent">You save ~${fmtINR(cardCost - q.total)} vs a typical bank card</p>
-    ${primary("Slide to pay 🔒", "quote-pay")}`;
+    <p class="api-note" id="quote-timer"></p>
+    ${quoteShortfall(q, "start-scan-intl") || primary("Slide to pay 🔒", "quote-pay")}`;
 }
 
 function screenAuth() {
@@ -769,7 +815,30 @@ function screenReceipt() {
 }
 
 function screenHistory() {
-  return `<h2>Activity</h2>${historyList(state.history)}`;
+  const reqs = state.requests || [];
+  const requestsBlock = reqs.length
+    ? `<div class="section">Requests</div>` +
+      reqs
+        .map(
+          (r) => `
+      <div class="txn">
+        <div style="display:flex;align-items:center">
+          <div class="t-ic">${r.direction === "incoming" ? "📥" : "📤"}</div>
+          <div><div style="font-weight:600">${esc(r.direction === "incoming" ? r.fromName + " requested you" : "You requested " + r.fromName)}</div>
+          <div class="muted" style="font-size:12px">${esc(r.note ? r.note + " • " : "")}${new Date(r.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</div></div>
+        </div>
+        <div style="text-align:right"><div style="font-weight:700">${fmtINR(r.amount)}</div>
+        ${
+          r.direction === "incoming" && r.status === "pending"
+            ? `<a href="#" data-action="pay-request" data-arg="${esc(r.id)}" class="accent" style="font-size:12px;font-weight:700">Pay now →</a>`
+            : `<div class="${r.status === "paid" ? "accent" : "muted"}" style="font-size:11px;font-weight:700">${r.status === "paid" ? "✓ PAID" : "PENDING"}</div>`
+        }</div>
+      </div>`
+        )
+        .join("") +
+      `<div class="section">Payments</div>`
+    : "";
+  return `<h2>Activity</h2>${requestsBlock}${historyList(state.history)}`;
 }
 
 const SCREENS = {
@@ -1117,6 +1186,10 @@ function payContact(i) {
 function payIncomingRequest(id) {
   const r = state.requests.find((x) => x.id === id);
   if (!r) return;
+  // fail early: don't take a PIN for a request the balance can't cover
+  if (state.account && r.amount > state.account.balance) {
+    return toast("Insufficient balance — you have " + fmtINR(state.account.balance) + ". Add money first.");
+  }
   state.flow = "domestic";
   state.form = { ...EMPTY_FORM, amount: String(r.amount) };
   state.domIntent = { kind: "payrequest", requestId: r.id, title: "Pay request", sub: r.fromName + (r.note ? " • " + r.note : "") };
@@ -1142,6 +1215,11 @@ async function submitRequest() {
 function proceedDomestic() {
   const amount = Number(state.form.amount);
   if (!(amount > 0)) return toast("Enter an amount to pay");
+  // fail early: never take a PIN for a payment the balance can't cover
+  const kind = state.domIntent ? state.domIntent.kind : "upi";
+  if (kind !== "topup" && state.account && amount > state.account.balance) {
+    return toast("Insufficient balance — you have " + fmtINR(state.account.balance) + ". Add money first.");
+  }
   state.flow = "domestic";
   openAuth();
 }
@@ -1156,7 +1234,9 @@ function buildDomesticRequest() {
   if (k === "bill") return { endpoint: "/api/bills/pay", body: { amount, biller: { category: f.billCategory, name: f.biller || f.billCategory, consumerId: f.consumerId } } };
   let payee;
   if (k === "bank") payee = { kind: "bank", type: "bank", name: f.payeeName || "Bank account", account: f.account, ifsc: f.ifsc };
-  else if (k === "upiid") payee = { kind: "upi", type: "upi", name: f.vpa || "UPI ID", vpa: f.vpa };
+  // payeeName first: a scanned QR carries the real merchant name — losing it
+  // to the raw VPA would corrupt receipts and the recent-payees list.
+  else if (k === "upiid") payee = { kind: "upi", type: "upi", name: f.payeeName || f.vpa || "UPI ID", vpa: f.vpa };
   else if (k === "phone") payee = { kind: "upi", type: "phone", name: f.payeeName || f.phone || "Payee", phone: f.phone };
   else if (k === "merchant") payee = { kind: "upi", type: "merchant", name: f.payeeName || "Merchant" };
   else payee = { kind: "upi", type: "contact", name: f.payeeName || "Payee", phone: f.phone, vpa: f.vpa };
@@ -1204,6 +1284,13 @@ async function authorize() {
       go("receipt");
     }, steps.length * 520 + 300);
   } catch (e) {
+    // A 60-second quote can lapse while the user hesitates — recover by
+    // fetching a fresh one instead of stranding them on a dead quote.
+    if (state.flow !== "domestic" && /expired/i.test(e.message || "")) {
+      toast("Rate expired — fetching you a fresh quote");
+      setTimeout(() => (state.flow === "send" ? getTransferQuote() : getQuote()), 400);
+      return;
+    }
     toast(e.message);
     setTimeout(() => {
       if (state.flow === "domestic")
