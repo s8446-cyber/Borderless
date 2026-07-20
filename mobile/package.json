@@ -26,7 +26,6 @@
     "expo": "~51.0.28",
     "expo-camera": "~15.0.16",
     "expo-contacts": "~13.0.5",
-    "expo-file-system": "~17.0.1",
     "expo-local-authentication": "~14.0.1",
     "expo-notifications": "~0.28.19",
     "expo-secure-store": "~13.0.2",

@@ -13,8 +13,7 @@
     "dev": "node --watch src/server.js",
     "test": "node --test",
     "smoke": "bash scripts/release-smoke.sh",
-    "check": "for f in src/*.js test/*.js; do node --check \"$f\"; done",
-    "audit:verify": "node -e \"import('./src/ledger.js')\""
+    "check": "for f in src/*.js test/*.js; do node --check \"$f\"; done"
   },
   "keywords": [
     "payments",
