@@ -9,7 +9,7 @@
 |---|---|---|
 | 1 | Backend test suite (`cd backend && npm test`) — incl. 8 new top-up / no-fake-data / payees / meta tests | ✓ **89 pass / 4 Postgres self-skip / 0 fail** (93 total; CI runs the 4 against Postgres 16) |
 | 2 | Syntax: every backend `src/`, `test/`, `public/` JS (`node --check`) | ✓ clean |
-| 3 | Production smoke suite (`scripts/release-smoke.sh`, live server in `BP_ENV=production`) — now asserts ₹0 opening balance, unfunded-402, sandbox-stamped top-up | ✓ **21/21 assertions** |
+| 3 | Production smoke suite (`scripts/release-smoke.sh`, live server in `BP_ENV=production`) — asserts ₹0 opening balance, unfunded-402, sandbox-stamped top-up, the removed passwordless endpoint (404), and `/api/me` profile restore | ✓ **23/23 assertions** |
 | 4 | Full HTTP E2E journey (the exact client call sequence): meta disclosure → email signup → link (₹0) → unfunded pay refused → top-up (idempotent, sandbox-stamped) → UPI pay → cross-border with user-entered merchant → public Merkle proof → payees-from-history → refresh rotation → ledger/audit integrity | ✓ 13/13 checks |
 | 5 | Ledger invariant: top-up legs are zero-sum against `funding:sandbox`; `/api/ready` passes after every new flow | ✓ verified |
 | 6 | Velocity isolation: a maxed day of top-ups does NOT consume the spending allowance (and vice versa) | ✓ verified |
@@ -20,8 +20,9 @@
 | 11 | Zero-fake-data sweep: no `demo.js`, no seeded contacts/requests, no invented balances, no demo-QR in release paths (`grep` sweep across app code) | ✓ clean |
 | 12 | Fail-closed: `BP_SETTLEMENT_MODE=live` refuses to boot without a licensed PSP adapter | ✓ refuses (by construction in `config.js`) |
 | 13 | Shell scripts (`release-smoke.sh`) `bash -n` | ✓ clean |
+| 14 | Sign-in lifecycle E2E: passwordless endpoint 404 → signup on phone-1 → sign-in on phone-2 restores real name + `bankLinked` via `/api/me` → expired access token silently renewed by refresh rotation (no password re-entry) → fully-revoked session correctly lands on welcome, never a signed-out home | ✓ 10/10 checks |
 
-**Result: 13/13 check groups passed · 0 defects.**
+**Result: 14/14 check groups passed · 0 defects.**
 
 Known non-code items (unchanged, tracked, not defects): sandbox KYC provider and simulated anchor writer await licensed vendors (`docs/COMPLIANCE.md`); Terms/Privacy v1.0 templates pending counsel; transactional email provider account; physical-device pass for biometric/camera dialogs; Docker build validated in CI.
 
@@ -65,7 +66,7 @@ Known non-code items (unchanged, tracked, not defects): sandbox KYC provider and
 `/api/sessions/refresh` is absent from the mobile demo simulator. **Verified correct-by-design with evidence:** the refresh call lives inside `real()` in `mobile/src/api.js` (the raw-fetch path) and is unreachable in demo mode, where tokens never expire. Not a defect.
 
 ## Known non-code items (unchanged, tracked, not defects)
-Simulated bank rails / KYC / anchor writer (await sponsor-bank licensing — `docs/COMPLIANCE.md`) · Terms/Privacy v1.0 templates pending counsel + named grievance officer · transactional email provider · physical-device pass for biometric/camera/permission dialogs (requires real hardware) · Docker base-image pull untestable in the verification sandbox (Dockerfile config verified; CI builds it).
+Simulated bank rails / KYC / anchor writer (await sponsor-bank licensing — `docs/COMPLIANCE.md`) · Terms/Privacy v1.0 templates pending counsel finalization + a named grievance officer · transactional email provider · physical-device pass for biometric/camera/permission dialogs (requires real hardware) · Docker base-image pull untestable in the verification sandbox (Dockerfile config verified; CI builds it).
 
 ## How to re-run the essentials
 ```bash

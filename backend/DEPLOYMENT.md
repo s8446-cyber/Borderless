@@ -110,7 +110,7 @@ Put Nginx/Caddy in front for TLS termination and set `BP_TRUST_PROXY=true`.
 curl https://YOUR_HOST/api/health        # {"ok":true}
 curl https://YOUR_HOST/api/ready         # ledger + audit integrity
 curl https://YOUR_HOST/api/meta          # honest settlement-mode disclosure ("sandbox" until PSP rails)
-bash scripts/release-smoke.sh https://YOUR_HOST [METRICS_TOKEN]   # 21-assertion live journey
+bash scripts/release-smoke.sh https://YOUR_HOST [METRICS_TOKEN]   # 23-assertion live journey
 curl -D - -o /dev/null https://YOUR_HOST/  # confirm CSP/HSTS headers present
 ```
 

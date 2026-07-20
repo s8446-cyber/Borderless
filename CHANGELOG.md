@@ -35,6 +35,10 @@ live rails until the licensed integrations exist. Backend + mobile → **1.3.0**
 - Name-only "quick demo" onboarding in both clients — onboarding is now a
   full **email + password sign-up** (scrypt, lockout, consent-gated) on web
   and mobile alike.
+- **`POST /api/kyc/verify` (passwordless account creation) is deleted** —
+  accounts exist exclusively behind email + password; KYC screening runs
+  inside signup via the provider registry. All tests onboard through the
+  real path.
 
 ### Added
 - **`POST /api/topup` — Add money, the ONLY funding path.** PIN-authorized,
@@ -55,6 +59,10 @@ live rails until the licensed integrations exist. Backend + mobile → **1.3.0**
 - **Mobile email sign-up** (`/api/auth/signup`) with consent, plus a visible
   warning when a **release** build is still pointing at the local-dev fallback
   instead of a configured `EXPO_PUBLIC_API_BASE`.
+- **`GET /api/me`** — the caller's own profile + onboarding state. Sign-in on
+  a new device now restores the **real name** and routes on `bankLinked`
+  (GPay/PhonePe behavior) instead of guessing from the email or — worse —
+  from a failed request.
 - **8 new backend tests** (`test/topup.test.js`): zero-fake-data guarantees,
   top-up PIN/amount/limit enforcement, ledger zero-sum invariant, payee
   derivation + cross-user isolation, `/api/meta`, unfunded-402.
@@ -68,6 +76,20 @@ live rails until the licensed integrations exist. Backend + mobile → **1.3.0**
 - Web PWA: welcome screen leads with account creation; camera-less QR path
   offers manual entry (no fake merchant card); forgot-password copy no longer
   says "demo environment"; service-worker cache bumped to v6.
+
+### Fixed (session-lifecycle audit — "signed in until you log out", done right)
+- **Stranded-on-home bug:** when the stored session could no longer be renewed
+  (refresh token expired/revoked), the unlock flow routed to a clean welcome
+  …and then overrode it with a **signed-out, empty home screen**. `finishUnlock`
+  and the Activity handlers now check `hasSession()` after refreshing and never
+  override the expiry redirect. Unlock also surfaces connection errors instead
+  of silently rendering ₹0.
+- **Flaky-network → re-link bug (web + mobile):** sign-in treated ANY failure
+  of the account probe as "no bank linked" and pushed fully-onboarded users
+  into re-linking (which could overwrite their PIN). Routing now uses
+  `/api/me.bankLinked`; a network blip simply shows the error.
+- Sign-in restores the **real profile name** via `/api/me` (previously the
+  greeting showed the email prefix after signing in on a new device).
 
 ## [1.2.0] — Mobile app 1.1.0: professional relaunch, app lock, sign-in
 
