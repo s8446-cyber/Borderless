@@ -29,11 +29,17 @@ async function withServer(fn) {
 
 test("full journey: onboard → pay → send → domestic → bills → request → verify", async () => {
   await withServer(async ({ call, setToken }) => {
-    // --- KYC + session ---
-    let r = await call("/api/kyc/verify", { method: "POST", body: { fullName: "Aarav Shah", documentId: "P1", country: "IN", consent: true } });
+    // --- create account (email + password is the ONLY onboarding path) ---
+    let r = await call("/api/auth/signup", { method: "POST", body: { fullName: "Aarav Shah", email: "aarav@journey.test", password: "long-enough-pw1", country: "IN", consent: true } });
     assert.equal(r.status, 200);
     assert.equal(r.data.kyc.status, "verified");
     setToken(r.data.token);
+
+    // --- /api/me restores the profile on a fresh device ---
+    r = await call("/api/me");
+    assert.equal(r.data.name, "Aarav Shah");
+    assert.equal(r.data.email, "aarav@journey.test");
+    assert.equal(r.data.bankLinked, false, "no bank yet");
 
     // --- link bank: balances always start at ZERO (no invented money) ---
     r = await call("/api/accounts/link", { method: "POST", body: { bank: "HDFC Bank", pin: "4321" } });

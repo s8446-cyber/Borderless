@@ -137,16 +137,12 @@ test("auth: TOTP setup → enable → login requires and verifies the code", asy
   });
 });
 
-test("auth: demo-KYC accounts cannot enable 2FA (no credentials)", async () => {
+test("auth: the passwordless account-creation endpoint is gone (404)", async () => {
   await withServer(async ({ call }) => {
     const r = await call("/api/kyc/verify", { method: "POST", body: { fullName: "Demo User", documentId: "P1", country: "IN", consent: true } });
-    const out = await call("/api/auth/2fa/setup", { method: "POST", token: r.data.token });
-    assert.equal(out.status, 409);
-    assert.equal(out.data.error, "no_credentials");
+    assert.equal(r.status, 404, "accounts exist only behind email + password");
   });
 });
-
-// ---------- password reset ----------
 
 test("auth: password reset revokes all sessions and rotates the password", async () => {
   await withServer(async ({ call, app }) => {

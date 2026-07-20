@@ -88,13 +88,14 @@ async function withServer(fn) {
   }
 }
 
-const KYC = (extra = {}) => ({ method: "POST", body: { fullName: "Aarav Shah", documentId: "P1", country: "IN", consent: true, ...extra } });
+let seq = 0;
+const SIGNUP = (extra = {}) => ({ method: "POST", body: { fullName: "Aarav Shah", email: "user" + (++seq) + "@sessions.test", password: "long-enough-pw1", country: "IN", consent: true, ...extra } });
 
 // ---------- G-3: device binding ----------
 
 test("G-3: device-bound session rejects requests from another device", async () => {
   await withServer(async ({ call }) => {
-    const r = await call("/api/kyc/verify", KYC({ deviceId: "pixel-8-abc123" }));
+    const r = await call("/api/auth/signup", SIGNUP({ deviceId: "pixel-8-abc123" }));
     assert.equal(r.status, 200);
     assert.ok(r.data.refreshToken, "refresh token issued");
     const token = r.data.token;
@@ -111,7 +112,7 @@ test("G-3: device-bound session rejects requests from another device", async () 
     assert.equal(a.status, 401);
 
     // sessions created WITHOUT a deviceId keep the old behavior
-    const legacy = await call("/api/kyc/verify", KYC());
+    const legacy = await call("/api/auth/signup", SIGNUP());
     const t2 = legacy.data.token;
     const ok = await call("/api/accounts/link", { method: "POST", body: { bank: "SBI", pin: "1111" }, token: t2 });
     assert.equal(ok.status, 200);
@@ -122,7 +123,7 @@ test("G-3: device-bound session rejects requests from another device", async () 
 
 test("G-3: refresh rotates tokens; reusing a rotated token revokes everything", async () => {
   await withServer(async ({ call, app }) => {
-    const r = await call("/api/kyc/verify", KYC({ deviceId: "dev-1" }));
+    const r = await call("/api/auth/signup", SIGNUP({ deviceId: "dev-1" }));
     const rt1 = r.data.refreshToken;
 
     // rotate: old refresh retired, new pair issued
@@ -149,7 +150,7 @@ test("G-3: refresh rotates tokens; reusing a rotated token revokes everything", 
 
 test("G-3: refresh is device-bound and expiry is enforced", async () => {
   await withServer(async ({ call, app }) => {
-    const r = await call("/api/kyc/verify", KYC({ deviceId: "dev-A" }));
+    const r = await call("/api/auth/signup", SIGNUP({ deviceId: "dev-A" }));
     const rt = r.data.refreshToken;
 
     // wrong device → rejected
@@ -175,7 +176,7 @@ test("G-3: refresh is device-bound and expiry is enforced", async () => {
 test("G-3: revoke-all kills every session and refresh token for the user", async () => {
   await withServer(async ({ call, app }) => {
     // two "devices" logged in — simulate by two KYC sessions for the same human
-    const r1 = await call("/api/kyc/verify", KYC());
+    const r1 = await call("/api/auth/signup", SIGNUP());
     const tok1 = r1.data.token;
     // second session for the SAME user via refresh
     const ref = await call("/api/sessions/refresh", { method: "POST", body: { refreshToken: r1.data.refreshToken } });
@@ -199,7 +200,7 @@ test("G-3: revoke-all kills every session and refresh token for the user", async
 
 test("G-3: maintenance sweep garbage-collects expired refresh tokens", async () => {
   await withServer(async ({ call, app }) => {
-    const r = await call("/api/kyc/verify", KYC());
+    const r = await call("/api/auth/signup", SIGNUP());
     const rt = r.data.refreshToken;
     app.store.data.refresh[rt].exp = Date.now() - 1;
     const swept = app.sweepExpired();
@@ -212,7 +213,7 @@ test("G-3: maintenance sweep garbage-collects expired refresh tokens", async () 
 
 test("G-4: /api/ledger/proof/:index lets a third party verify a receipt", async () => {
   await withServer(async ({ call }) => {
-    const r = await call("/api/kyc/verify", KYC());
+    const r = await call("/api/auth/signup", SIGNUP());
     const token = r.data.token;
     await call("/api/accounts/link", { method: "POST", body: { bank: "HDFC", pin: "4321" }, token });
     await call("/api/topup", { method: "POST", body: { amount: 200000, pin: "4321" }, token });

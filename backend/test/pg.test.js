@@ -123,7 +123,7 @@ test("PG: full HTTP journey on Postgres, then restart — money and history inta
   // life 1: onboard + pay
   const store1 = await PgStore.create(URL);
   const { token, totalMinor } = await run(store1, async (call) => {
-    const r = await call("/api/kyc/verify", { method: "POST", body: { fullName: "Aarav Shah", documentId: "P1", country: "IN", consent: true } });
+    const r = await call("/api/auth/signup", { method: "POST", body: { fullName: "Aarav Shah", email: "pg@t.test", password: "long-enough-pw1", country: "IN", consent: true } });
     const token = r.data.token;
     await call("/api/accounts/link", { method: "POST", body: { bank: "HDFC", pin: "4321" }, token });
     await call("/api/topup", { method: "POST", body: { amount: 200000, pin: "4321" }, token });

@@ -63,7 +63,7 @@ async function withServer(fn) {
 test("G-7: /api/metrics serves Prometheus text with business + gauge series", async () => {
   await withServer(async ({ call }) => {
     // drive one real settlement so business counters move
-    const r = await call("/api/kyc/verify", { method: "POST", body: { fullName: "Aarav Shah", documentId: "P1", country: "IN", consent: true } });
+    const r = await call("/api/auth/signup", { method: "POST", body: { fullName: "Aarav Shah", email: "m1@t.test", password: "long-enough-pw1", country: "IN", consent: true } });
     const token = r.data.token;
     await call("/api/accounts/link", { method: "POST", body: { bank: "HDFC", pin: "4321" }, token });
     await call("/api/topup", { method: "POST", body: { amount: 200000, pin: "4321" }, token });
@@ -85,7 +85,7 @@ test("G-7: /api/metrics serves Prometheus text with business + gauge series", as
 
 test("G-7: idempotent replays are excluded from settlement counters", async () => {
   await withServer(async ({ call, app }) => {
-    const r = await call("/api/kyc/verify", { method: "POST", body: { fullName: "Aarav Shah", documentId: "P1", country: "IN", consent: true } });
+    const r = await call("/api/auth/signup", { method: "POST", body: { fullName: "Aarav Shah", email: "m2@t.test", password: "long-enough-pw1", country: "IN", consent: true } });
     const token = r.data.token;
     await call("/api/accounts/link", { method: "POST", body: { bank: "HDFC", pin: "4321" }, token });
     await call("/api/topup", { method: "POST", body: { amount: 200000, pin: "4321" }, token });

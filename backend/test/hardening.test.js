@@ -176,7 +176,7 @@ async function withServer(fn) {
 
 test("G-2: logout revokes the session token immediately", async () => {
   await withServer(async ({ call }) => {
-    let r = await call("/api/kyc/verify", { method: "POST", body: { fullName: "Aarav Shah", documentId: "P1", country: "IN", consent: true } });
+    let r = await call("/api/auth/signup", { method: "POST", body: { fullName: "Aarav Shah", email: "h1@t.test", password: "long-enough-pw1", country: "IN", consent: true } });
     assert.equal(r.status, 200);
     const token = r.data.token;
 
@@ -195,7 +195,7 @@ test("G-2: logout revokes the session token immediately", async () => {
 
 test("G-2: maintenance sweep garbage-collects expired sessions and quotes", async () => {
   await withServer(async ({ call, app }) => {
-    const r = await call("/api/kyc/verify", { method: "POST", body: { fullName: "Aarav Shah", documentId: "P1", country: "IN", consent: true } });
+    const r = await call("/api/auth/signup", { method: "POST", body: { fullName: "Aarav Shah", email: "h2@t.test", password: "long-enough-pw1", country: "IN", consent: true } });
     const token = r.data.token;
     assert.ok(app.store.data.sessions[token]);
 
@@ -220,7 +220,7 @@ test("G-2: maintenance sweep garbage-collects expired sessions and quotes", asyn
 
 test("G-2: sweep GCs idempotency keys 24h after settlement — fresh keys still dedupe", async () => {
   await withServer(async ({ call, app }) => {
-    const r = await call("/api/kyc/verify", { method: "POST", body: { fullName: "Aarav Shah", documentId: "P1", country: "IN", consent: true } });
+    const r = await call("/api/auth/signup", { method: "POST", body: { fullName: "Aarav Shah", email: "h3@t.test", password: "long-enough-pw1", country: "IN", consent: true } });
     const token = r.data.token;
     await call("/api/accounts/link", { method: "POST", body: { bank: "HDFC", pin: "4321" }, token });
     await call("/api/topup", { method: "POST", body: { amount: 200000, pin: "4321" }, token });
