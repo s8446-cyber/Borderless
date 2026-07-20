@@ -26,7 +26,7 @@ import * as Notifications from "expo-notifications";
 import { appAlert, AlertHost, simulateBiometric, getSimPerm, requestSimPerm } from "./src/alert";
 import { C, TINTS, CORRIDORS, P2P_CURRENCIES, OPERATORS, BILL_CATEGORIES, BILLERS } from "./src/theme";
 import { fmtINR } from "./src/format";
-import { api, setSession, onSessionExpired } from "./src/api";
+import { api, setSession, hasSession, onSessionExpired } from "./src/api";
 import { CONFIG } from "./src/config";
 import { getDeviceId } from "./src/device";
 import { foldMerkleProof } from "./src/sha256";
@@ -335,8 +335,12 @@ export default function App() {
   async function finishUnlock() {
     setBusy(true);
     try {
-      await refresh();
-      setScreen("home");
+      await refresh({ quiet: false });
+      // refresh() may discover the stored session is dead (refresh token
+      // expired or revoked) — the session-expiry handler has then already
+      // routed to a clean welcome. Never override that with a signed-out
+      // home screen.
+      if (hasSession()) setScreen("home");
     } finally {
       setBusy(false);
     }
@@ -365,19 +369,21 @@ export default function App() {
       setLoginPassword("");
       setLoginTotp("");
       setTotpNeeded(false);
-      const displayName = email.split("@")[0];
-      setName((n) => n || displayName);
-      let hasAccount = true;
-      try {
-        await api("/api/accounts");
-      } catch {
-        hasAccount = false;
-      }
-      await persistSession({ token: r.token, refreshToken: r.refreshToken, name: displayName, onboarded: hasAccount ? "home" : "link" });
-      if (hasAccount) {
+      // Restore the profile like a professional app: the real name and the
+      // onboarding state come from the server (GET /api/me) — never guessed
+      // from the email, and never inferred from a failed request (a network
+      // blip must not shunt a fully-onboarded user into re-linking a bank).
+      const me = await api("/api/me");
+      const displayName = me.name || email.split("@")[0];
+      setName(displayName);
+      await persistSession({ token: r.token, refreshToken: r.refreshToken, name: displayName, onboarded: me.bankLinked ? "home" : "link" });
+      if (me.bankLinked) {
         await refresh();
         setScreen("home");
       } else {
+        setNewPin("");
+        setConfirmPin("");
+        setPinStage("create");
         setScreen("link");
       }
     } catch (e) {
@@ -1136,7 +1142,7 @@ export default function App() {
         {screen === "signin" && (
           <View>
             <ScreenHeader title="Sign in" onBack={() => setScreen("welcome")} />
-            <Text style={s.sub}>Use the email and password from your Borderless Pay web account.</Text>
+            <Text style={s.sub}>Sign in with your Borderless Pay email and password — your account works across the app and the web. You stay signed in on this device until you log out.</Text>
             <Text style={s.label}>Email</Text>
             <TextInput
               style={s.input}
@@ -1410,7 +1416,7 @@ export default function App() {
               </View>
             )}
 
-            <SectionHeader title="Recent" action={history.length ? "See all" : null} onAction={async () => { await refresh({ quiet: false }); setScreen("history"); }} />
+            <SectionHeader title="Recent" action={history.length ? "See all" : null} onAction={async () => { await refresh({ quiet: false }); if (hasSession()) setScreen("history"); }} />
             <HistoryList history={history} />
           </View>
         )}
@@ -1898,7 +1904,7 @@ export default function App() {
             active={screen === "history"}
             onPress={async () => {
               await refresh({ quiet: false });
-              setScreen("history");
+              if (hasSession()) setScreen("history");
             }}
           />
           </View>
