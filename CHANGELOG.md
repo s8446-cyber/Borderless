@@ -168,6 +168,31 @@ live rails until the licensed integrations exist. Backend + mobile → **1.3.0**
   (mobile greets by first name). The web home now shows the same
   time-of-day greeting.
 
+### Fixed (deploy-readiness pass — dead code out, every deploy path executed)
+- **Render blueprint could never deploy:** `render.yaml` lived in `backend/`,
+  but Render only discovers blueprints at the **repository root** — the
+  documented "New → Blueprint" flow silently found nothing. Moved to the root
+  with `rootDir: backend` + `dockerfilePath` so the Docker build targets the
+  backend, and YAML-validated.
+- **Lockfiles were git-ignored:** `.gitignore` listed `package-lock.json`
+  while both lockfiles are committed — a regenerated lock would silently never
+  appear in `git status`, breaking reproducible installs. Un-ignored.
+- **Dead code removed:** agent-tooling artifacts accidentally committed to the
+  product repo (`.claude/skills/…`, `skills-lock.json`, now git-ignored); the
+  no-op `audit:verify` npm script (it only imported a module — real integrity
+  verification lives at `/api/ready` and in the smoke suite); the superseded
+  `setToken()` in `mobile/src/api.js`; the unused `expo-file-system` direct
+  dependency (still present transitively via `expo`); and `export` keywords on
+  four internal-only symbols.
+- **Dockerfile healthcheck comment** said "readiness" while probing the
+  liveness endpoint — corrected (deliberate: containers shouldn't
+  restart-loop on an integrity failure; monitor `/api/ready` instead).
+- **Deploy paths executed, not assumed:** full backend suite against a real
+  local PostgreSQL 16 — **93/93, zero skips**; production boot on Postgres
+  persistence with the 23-assertion smoke suite green and the append-only
+  ledger/audit mirrors verified populated; SIGTERM → restart → complete state
+  survival confirmed via `/api/ready`.
+
 ## [1.2.0] — Mobile app 1.1.0: professional relaunch, app lock, sign-in
 
 A co-founder-level cross-check of the mobile app against how professional
