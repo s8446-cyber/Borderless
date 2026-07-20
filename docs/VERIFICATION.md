@@ -21,8 +21,9 @@
 | 12 | Fail-closed: `BP_SETTLEMENT_MODE=live` refuses to boot without a licensed PSP adapter | ✓ refuses (by construction in `config.js`) |
 | 13 | Shell scripts (`release-smoke.sh`) `bash -n` | ✓ clean |
 | 14 | Sign-in lifecycle E2E: passwordless endpoint 404 → signup on phone-1 → sign-in on phone-2 restores real name + `bankLinked` via `/api/me` → expired access token silently renewed by refresh rotation (no password re-entry) → fully-revoked session correctly lands on welcome, never a signed-out home | ✓ 10/10 checks |
+| 15 | Persistent sign-in E2E (production mode): web reload silently restores + rotates the session and routes link→home from `/api/me` with the balance intact; stolen refresh token rejected (device-bound); rotated-token replay revokes everything and the next restore fails clean to welcome; logout terminal; mobile boot ignores a stale local `onboarded` flag (bank linked on another device → home, never re-link); unlock slides the 30-day refresh window; forgot-password request + prod-mode no-token-leak | ✓ 13/13 checks |
 
-**Result: 14/14 check groups passed · 0 defects.**
+**Result: 15/15 check groups passed · 0 defects.**
 
 Known non-code items (unchanged, tracked, not defects): sandbox KYC provider and simulated anchor writer await licensed vendors (`docs/COMPLIANCE.md`); Terms/Privacy v1.0 templates pending counsel; transactional email provider account; physical-device pass for biometric/camera dialogs; Docker build validated in CI.
 
@@ -66,7 +67,7 @@ Known non-code items (unchanged, tracked, not defects): sandbox KYC provider and
 `/api/sessions/refresh` is absent from the mobile demo simulator. **Verified correct-by-design with evidence:** the refresh call lives inside `real()` in `mobile/src/api.js` (the raw-fetch path) and is unreachable in demo mode, where tokens never expire. Not a defect.
 
 ## Known non-code items (unchanged, tracked, not defects)
-Simulated bank rails / KYC / anchor writer (await sponsor-bank licensing — `docs/COMPLIANCE.md`) · Terms/Privacy v1.0 templates pending counsel + named grievance officer · transactional email provider · physical-device pass for biometric/camera/permission dialogs (requires real hardware) · Docker base-image pull untestable in the verification sandbox (Dockerfile config verified; CI builds it).
+Simulated bank rails / KYC / anchor writer (await sponsor-bank licensing — `docs/COMPLIANCE.md`) · Terms/Privacy v1.0 templates pending counsel finalization + a named grievance officer · transactional email provider · physical-device pass for biometric/camera/permission dialogs (requires real hardware) · Docker base-image pull untestable in the verification sandbox (Dockerfile config verified; CI builds it).
 
 ## How to re-run the essentials
 ```bash

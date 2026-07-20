@@ -66,6 +66,15 @@ live rails until the licensed integrations exist. Backend + mobile → **1.3.0**
 - **8 new backend tests** (`test/topup.test.js`): zero-fake-data guarantees,
   top-up PIN/amount/limit enforcement, ledger zero-sum invariant, payee
   derivation + cross-user isolation, `/api/meta`, unfunded-402.
+- **Web PWA: persistent sign-in** — you now stay signed in on a browser until
+  you log out, exactly like the mobile app. Only the rotating, device-bound
+  refresh token is persisted (access tokens stay memory-only; strict CSP,
+  rotation + reuse-detection protect the stored copy); a page load silently
+  rotates it and routes home/link from `GET /api/me`. Logout, account
+  closure, revoke-all, password reset, and refresh-token death all clear it.
+- **Mobile: in-app password reset** — "Forgot password?" on the sign-in
+  screen drives the full `reset-request → token → new password` flow
+  (single-use 30-minute token; completing it signs out every device).
 
 ### Changed
 - Release smoke suite now asserts the ₹0 start, the unfunded-402, and the
@@ -75,7 +84,7 @@ live rails until the licensed integrations exist. Backend + mobile → **1.3.0**
   posture; test counts updated (**93 backend / 20 mobile**).
 - Web PWA: welcome screen leads with account creation; camera-less QR path
   offers manual entry (no fake merchant card); forgot-password copy no longer
-  says "demo environment"; service-worker cache bumped to v6.
+  says "demo environment"; service-worker cache bumped to v7.
 
 ### Fixed (session-lifecycle audit — "signed in until you log out", done right)
 - **Stranded-on-home bug:** when the stored session could no longer be renewed
@@ -90,6 +99,22 @@ live rails until the licensed integrations exist. Backend + mobile → **1.3.0**
   `/api/me.bankLinked`; a network blip simply shows the error.
 - Sign-in restores the **real profile name** via `/api/me` (previously the
   greeting showed the email prefix after signing in on a new device).
+- **Mobile boot routed from a stale local flag:** the keystore's cached
+  `onboarded` value decided lock-vs-link at launch — link your bank on
+  another device and this one stayed stranded on the link screen (where
+  completing it would overwrite your payment PIN). Boot now always goes
+  lock → unlock → `GET /api/me`, and the server decides; the cached flag is
+  only the offline fallback. Routing through `/api/me` also renews an
+  expired access token on every unlock, so the 30-day refresh window slides
+  forward on every open — signed in until you log out, for any active user.
+- **Mid-onboarding sessions skipped the app lock:** a persisted
+  `onboarded: "link"` session went straight to the bank-link screen without
+  local authentication. Any persisted session now unlocks first.
+- A session that died at unlock produced **two stacked alerts** ("Session
+  expired" + "Connection problem: your session has expired"); the second is
+  now suppressed.
+- Web logout/close-account left the previous user's **recent payees** in
+  memory; all account state is cleared.
 
 ## [1.2.0] — Mobile app 1.1.0: professional relaunch, app lock, sign-in
 
