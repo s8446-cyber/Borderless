@@ -40,7 +40,7 @@ export function appAlert(title, message, buttons) {
 
 // Web-only: an OS-style permission sheet. Resolves `true` when allowed.
 // On native, callers use the real expo permission APIs instead.
-export function simulateOSPrompt({ icon = "🔐", title, message, allowText = "Allow", denyText = "Don't Allow" }) {
+function simulateOSPrompt({ icon = "🔐", title, message, allowText = "Allow", denyText = "Don't Allow" }) {
   return new Promise((resolve) => {
     push({
       kind: "os",
