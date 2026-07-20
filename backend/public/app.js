@@ -78,7 +78,10 @@ const EMPTY_FORM = {
 };
 
 const state = {
-  screen: "welcome",
+  // A remembered session boots into a branded splash while it's silently
+  // restored — a signed-in user must never see the signed-out welcome flash.
+  // (loadRememberedSession is a hoisted function declaration, defined below.)
+  screen: loadRememberedSession() ? "boot" : "welcome",
   token: null,
   refreshToken: null,
   name: "",
@@ -320,6 +323,14 @@ function historyList(history) {
 }
 
 // ---- screens ----
+// Branded splash shown while a remembered session is silently restored.
+function screenBoot() {
+  return `
+    ${brand()}
+    <div class="spinner" style="margin-top:90px"></div>
+    <p class="sub" style="text-align:center;margin-top:16px">Signing you in securely…</p>`;
+}
+
 function screenWelcome() {
   return `
     ${brand()}
@@ -738,6 +749,7 @@ function screenHistory() {
 }
 
 const SCREENS = {
+  boot: screenBoot,
   welcome: screenWelcome,
   signup: screenSignup,
   login: screenLogin,
@@ -1368,11 +1380,13 @@ render();
 // Silent sign-in restore: if this browser holds a remembered session, rotate
 // the refresh token into a fresh access+refresh pair and land the user where
 // they belong — home (bank linked) or the link step — exactly like reopening
-// a signed-in mobile app. A dead/revoked token is forgotten quietly and the
-// welcome screen simply stays; being offline changes nothing (retry next load).
+// a signed-in mobile app. The user waits on the branded splash, never a
+// welcome flash. A dead/revoked token is forgotten and lands on welcome;
+// being offline also lands on welcome but KEEPS the stored session so the
+// next load retries.
 (async () => {
   const saved = loadRememberedSession();
-  if (!saved) return;
+  if (!saved) return; // first run / signed out — already on welcome
   try {
     const r = await fetch(API + "/api/sessions/refresh", {
       method: "POST",
@@ -1382,6 +1396,7 @@ render();
     const rd = await r.json().catch(() => ({}));
     if (!r.ok || !rd.token) {
       if (r.status === 401) forgetSession(); // expired / revoked — not an error, just signed out
+      go("welcome");
       return;
     }
     state.token = rd.token;
@@ -1399,5 +1414,10 @@ render();
       state.newPin = "";
       go("link");
     }
-  } catch (e) { /* offline — stay on welcome; the stored session is untouched */ }
+  } catch (e) {
+    // Offline or a mid-restore failure. If the session was expired, the
+    // handler already routed to welcome; otherwise leave the splash for
+    // welcome ourselves (the stored session stays for the next load).
+    if (state.screen === "boot") go("welcome");
+  }
 })();
