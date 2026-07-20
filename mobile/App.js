@@ -32,7 +32,7 @@ import { getDeviceId } from "./src/device";
 import { foldMerkleProof } from "./src/sha256";
 import { parseUpiQr } from "./src/upi";
 import { rs, CONTENT } from "./src/responsive";
-import { persistSession, loadPersistedSession, markOnboarded, clearPersistedSession } from "./src/session";
+import { persistSession, loadPersistedSession, markOnboarded, rememberProfile, clearPersistedSession } from "./src/session";
 import { pinIssue } from "./src/pin";
 
 // Version stamp (from package.json, inlined by Metro). Shown on the welcome
@@ -184,6 +184,11 @@ export default function App() {
   const [loginTotp, setLoginTotp] = useState("");
   const [totpNeeded, setTotpNeeded] = useState(false);
 
+  // In-app account recovery (forgot password): "none" | "request" | "confirm".
+  const [resetStage, setResetStage] = useState("none");
+  const [resetToken, setResetToken] = useState("");
+  const [resetNewPassword, setResetNewPassword] = useState("");
+
   const [quoteExpired, setQuoteExpired] = useState(false);
   const bgSince = useRef(0);
 
@@ -195,6 +200,13 @@ export default function App() {
   const incomingRequest = requests.find((r) => r.direction === "incoming" && r.status === "pending");
 
   // ---- boot: restore the previous session, land on the right screen ----
+  // ANY persisted session — even one from an interrupted onboarding — goes
+  // through the app lock first: a live session is a live session, and
+  // professional apps never hand one over without local authentication.
+  // WHERE the user lands after unlocking is decided by the server
+  // (finishUnlock → /api/me), never by a stale local flag; the cached
+  // "onboarded" value below is only the offline fallback.
+  const lastKnownStage = useRef("home");
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -204,12 +216,9 @@ export default function App() {
           setSession(s);
           if (!alive) return;
           setName(s.name || "");
-          if (s.onboarded === "home") {
-            setLockState("device");
-            setScreen("lock");
-            return;
-          }
-          setScreen("link");
+          lastKnownStage.current = s.onboarded === "home" ? "home" : "link";
+          setLockState("device");
+          setScreen("lock");
           return;
         }
       } catch {
@@ -275,6 +284,10 @@ export default function App() {
 
   useEffect(() => {
     const onBack = () => {
+      if (screen === "signin" && resetStage !== "none") {
+        setResetStage("none"); // step out of password reset, back to sign-in
+        return true;
+      }
       const t = backTarget();
       if (t === null) return true; // swallow
       if (t === undefined) return false; // let the OS handle it
@@ -286,7 +299,7 @@ export default function App() {
     };
     const sub = BackHandler.addEventListener("hardwareBackPress", onBack);
     return () => sub.remove();
-  }, [screen, flow, domIntent]);
+  }, [screen, flow, domIntent, resetStage]);
 
   // ---- app unlock (returning users) ----
   // Auto-prompt once each time the lock screen appears — professional apps
@@ -335,12 +348,41 @@ export default function App() {
   async function finishUnlock() {
     setBusy(true);
     try {
-      await refresh({ quiet: false });
-      // refresh() may discover the stored session is dead (refresh token
-      // expired or revoked) — the session-expiry handler has then already
-      // routed to a clean welcome. Never override that with a signed-out
-      // home screen.
-      if (hasSession()) setScreen("home");
+      // Ask the SERVER where this account stands (GET /api/me) — the real
+      // name and whether a bank is linked. A stale local flag must never
+      // route (the bank may have been linked on another device since this
+      // one last opened). Touching /api/me also renews an expired access
+      // token through refresh rotation, so the 30-day refresh window slides
+      // forward on EVERY unlock — you stay signed in until you log out.
+      let me;
+      try {
+        me = await api("/api/me");
+      } catch (e) {
+        // The stored session may be dead (refresh token expired/revoked) —
+        // the session-expiry handler has then already routed to a clean
+        // welcome with one clear alert. Never override that.
+        if (!hasSession()) return;
+        // Otherwise it's a network problem: fall back to the last known
+        // stage so the owner isn't locked out of the app by a blip.
+        appAlert("Connection problem", "Couldn't reach Borderless Pay: " + e.message);
+        if (lastKnownStage.current === "home") setScreen("home");
+        else {
+          setNewPin(""); setConfirmPin(""); setPinStage("create");
+          setScreen("link");
+        }
+        return;
+      }
+      const displayName = me.name || name;
+      setName(displayName);
+      lastKnownStage.current = me.bankLinked ? "home" : "link";
+      await rememberProfile({ name: displayName, onboarded: lastKnownStage.current }).catch(() => {});
+      if (me.bankLinked) {
+        await refresh({ quiet: false });
+        if (hasSession()) setScreen("home");
+      } else {
+        setNewPin(""); setConfirmPin(""); setPinStage("create");
+        setScreen("link");
+      }
     } finally {
       setBusy(false);
     }
@@ -376,7 +418,8 @@ export default function App() {
       const me = await api("/api/me");
       const displayName = me.name || email.split("@")[0];
       setName(displayName);
-      await persistSession({ token: r.token, refreshToken: r.refreshToken, name: displayName, onboarded: me.bankLinked ? "home" : "link" });
+      lastKnownStage.current = me.bankLinked ? "home" : "link";
+      await persistSession({ token: r.token, refreshToken: r.refreshToken, name: displayName, onboarded: lastKnownStage.current });
       if (me.bankLinked) {
         await refresh();
         setScreen("home");
@@ -393,6 +436,52 @@ export default function App() {
       } else {
         appAlert("Sign-in failed", e.message);
       }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ---- in-app password reset (account recovery, like every real app) ----
+  // Request → a single-use, 30-minute token is issued (delivered by email in
+  // production; development returns it directly so the flow works end-to-end).
+  // Confirm → the password rotates and EVERY session on every device is
+  // revoked server-side.
+  async function handleForgotRequest() {
+    const email = loginEmail.trim().toLowerCase();
+    if (!email) return appAlert("Enter your email", "Type your account email first, then tap “Forgot password?”.");
+    setBusy(true);
+    try {
+      const r = await api("/api/auth/password/reset-request", { method: "POST", body: { email } });
+      setResetToken(r.resetToken || ""); // dev convenience; production delivers by email
+      setResetNewPassword("");
+      setResetStage("confirm");
+      appAlert(
+        "Check your email",
+        r.resetToken
+          ? "Development mode: the reset token was filled in for you (production delivers it by email). Choose a new password below."
+          : "If an account exists for " + email + ", a reset token is on its way (valid 30 minutes). Paste it below with a new password."
+      );
+    } catch (e) {
+      appAlert("Could not request a reset", e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleResetConfirm() {
+    if (!resetToken.trim() || !resetNewPassword) {
+      return appAlert("Missing details", "Paste the reset token from your email and choose a new password (8+ characters).");
+    }
+    setBusy(true);
+    try {
+      await api("/api/auth/password/reset", { method: "POST", body: { token: resetToken.trim(), newPassword: resetNewPassword } });
+      setResetStage("none");
+      setResetToken("");
+      setResetNewPassword("");
+      setLoginPassword("");
+      appAlert("Password changed", "Every session on every device was signed out for safety. Sign in with your new password.");
+    } catch (e) {
+      appAlert("Could not reset the password", e.message);
     } finally {
       setBusy(false);
     }
@@ -422,6 +511,7 @@ export default function App() {
       setSession(r);
       setLoginPassword("");
       // persist NOW so a kill between sign-up and bank-link resumes at link
+      lastKnownStage.current = "link";
       await persistSession({ token: r.token, refreshToken: r.refreshToken, name: name.trim(), onboarded: "link" });
       setNewPin("");
       setConfirmPin("");
@@ -472,6 +562,7 @@ export default function App() {
         method: "POST",
         body: { bank, pin: newPin },
       });
+      lastKnownStage.current = "home";
       await markOnboarded("home");
       setNewPin("");
       setConfirmPin("");
@@ -493,7 +584,9 @@ export default function App() {
       const h = await api("/api/payments");
       setHistory(h.payments || []);
     } catch (e) {
-      if (!quiet) appAlert("Connection problem", "Couldn't refresh your account: " + e.message);
+      // If the failure was a dead session, the expiry handler has already
+      // told the user once — don't stack a second "connection problem" alert.
+      if (!quiet && hasSession()) appAlert("Connection problem", "Couldn't refresh your account: " + e.message);
       return false;
     }
     try {
@@ -1064,6 +1157,9 @@ export default function App() {
     setLoginPassword("");
     setLoginTotp("");
     setTotpNeeded(false);
+    setResetStage("none");
+    setResetToken("");
+    setResetNewPassword("");
     setConsent(false); // a fresh onboarding must re-consent
     setScreen("welcome");
   }
@@ -1141,44 +1237,79 @@ export default function App() {
 
         {screen === "signin" && (
           <View>
-            <ScreenHeader title="Sign in" onBack={() => setScreen("welcome")} />
-            <Text style={s.sub}>Sign in with your Borderless Pay email and password — your account works across the app and the web. You stay signed in on this device until you log out.</Text>
-            <Text style={s.label}>Email</Text>
-            <TextInput
-              style={s.input}
-              placeholder="you@example.com"
-              placeholderTextColor={C.muted}
-              autoCapitalize="none"
-              autoComplete="email"
-              keyboardType="email-address"
-              value={loginEmail}
-              onChangeText={setLoginEmail}
-            />
-            <Text style={s.label}>Password</Text>
-            <TextInput
-              style={s.input}
-              placeholder="••••••••"
-              placeholderTextColor={C.muted}
-              secureTextEntry
-              autoCapitalize="none"
-              value={loginPassword}
-              onChangeText={setLoginPassword}
-            />
-            {totpNeeded && (
+            <ScreenHeader title={resetStage === "none" ? "Sign in" : "Reset your password"} onBack={() => (resetStage === "none" ? setScreen("welcome") : setResetStage("none"))} />
+            {resetStage === "none" ? (
               <View>
-                <Text style={s.label}>Two-factor code</Text>
+                <Text style={s.sub}>Sign in with your Borderless Pay email and password — your account works across the app and the web. You stay signed in on this device until you log out.</Text>
+                <Text style={s.label}>Email</Text>
                 <TextInput
                   style={s.input}
-                  placeholder="123 456"
+                  placeholder="you@example.com"
                   placeholderTextColor={C.muted}
-                  keyboardType="number-pad"
-                  value={loginTotp}
-                  onChangeText={setLoginTotp}
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  keyboardType="email-address"
+                  value={loginEmail}
+                  onChangeText={setLoginEmail}
                 />
+                <Text style={s.label}>Password</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="••••••••"
+                  placeholderTextColor={C.muted}
+                  secureTextEntry
+                  autoCapitalize="none"
+                  value={loginPassword}
+                  onChangeText={setLoginPassword}
+                />
+                {totpNeeded && (
+                  <View>
+                    <Text style={s.label}>Two-factor code</Text>
+                    <TextInput
+                      style={s.input}
+                      placeholder="123 456"
+                      placeholderTextColor={C.muted}
+                      keyboardType="number-pad"
+                      value={loginTotp}
+                      onChangeText={setLoginTotp}
+                    />
+                  </View>
+                )}
+                <PrimaryButton title="Sign in →" onPress={handleLogin} loading={busy} />
+                <TouchableOpacity onPress={handleForgotRequest} activeOpacity={0.7} style={[{ marginTop: 14 }]}>
+                  <Text style={[{ color: C.accent, fontSize: 13, textAlign: "center", fontWeight: "600" }]}>Forgot password?</Text>
+                </TouchableOpacity>
+                <Text style={s.apiNote}>POST /api/auth/login • lockout-guarded, optional TOTP 2FA</Text>
+              </View>
+            ) : (
+              <View>
+                <Text style={s.sub}>A single-use reset token was issued for {loginEmail.trim().toLowerCase() || "your email"} (valid 30 minutes). Completing the reset signs you out of every device.</Text>
+                <Text style={s.label}>Reset token (from your email)</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="prt_…"
+                  placeholderTextColor={C.muted}
+                  autoCapitalize="none"
+                  value={resetToken}
+                  onChangeText={setResetToken}
+                />
+                <Text style={s.label}>New password (min 8 characters)</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="••••••••"
+                  placeholderTextColor={C.muted}
+                  secureTextEntry
+                  autoCapitalize="none"
+                  value={resetNewPassword}
+                  onChangeText={setResetNewPassword}
+                />
+                <PrimaryButton title="Set new password →" onPress={handleResetConfirm} loading={busy} />
+                <TouchableOpacity onPress={() => setResetStage("none")} activeOpacity={0.7} style={[{ marginTop: 14 }]}>
+                  <Text style={[{ color: C.muted, fontSize: 13, textAlign: "center", fontWeight: "600" }]}>← Back to sign in</Text>
+                </TouchableOpacity>
+                <Text style={s.apiNote}>POST /api/auth/password/reset • single-use token • revokes all sessions</Text>
               </View>
             )}
-            <PrimaryButton title="Sign in →" onPress={handleLogin} loading={busy} />
-            <Text style={s.apiNote}>POST /api/auth/login • lockout-guarded, optional TOTP 2FA</Text>
           </View>
         )}
 
