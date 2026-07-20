@@ -128,6 +128,36 @@ const DEVICE_ID = (() => {
   }
 })();
 
+// ---- persistent sign-in (professional-app behavior) ----
+// You stay signed in on this browser until you log out. Only the ROTATING,
+// DEVICE-BOUND refresh token is persisted (plus the display name); the access
+// token lives in memory only. Defense in depth for the stored token:
+//   • the page ships a strict CSP (script-src 'self', no inline) against XSS
+//   • the token is bound server-side to this browser's device ID
+//   • it rotates on every use, and REUSE of a rotated token revokes every
+//     session for the account (theft signal)
+// Logout, account closure, revoke-all, password reset, and refresh-token
+// death all clear it.
+const SESSION_KEY = "bp_session_v1";
+function rememberSession() {
+  try {
+    if (state.refreshToken) {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ v: 1, refreshToken: state.refreshToken, name: state.name || "" }));
+    }
+  } catch (e) { /* storage unavailable — session stays memory-only */ }
+}
+function forgetSession() {
+  try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+}
+function loadRememberedSession() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+    return s && s.v === 1 && s.refreshToken ? s : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 async function api(path, { method = "GET", body, idempotencyKey, _retried } = {}) {
   const headers = { "content-type": "application/json", "x-device-id": DEVICE_ID };
   if (state.token) headers.authorization = "Bearer " + state.token;
@@ -148,15 +178,41 @@ async function api(path, { method = "GET", body, idempotencyKey, _retried } = {}
         if (r.ok && rd.token) {
           state.token = rd.token;
           state.refreshToken = rd.refreshToken;
+          rememberSession(); // keep the persisted copy rotated in place
           return api(path, { method, body, idempotencyKey, _retried: true });
         }
-      } catch (e) { /* fall through to the original error */ }
+        if (r.status === 401) {
+          // the refresh token itself is dead (expired / revoked / reuse-
+          // detected) — this session cannot be saved. Clean sign-out.
+          expireLocalSession();
+          const dead = new Error("Your session has expired — please sign in again.");
+          dead.code = "session_expired";
+          throw dead;
+        }
+      } catch (e) {
+        if (e && e.code === "session_expired") throw e;
+        /* network error during refresh — fall through to the original error */
+      }
     }
     const err = new Error(data.message || data.error || "Request failed");
     err.code = data.error;
     throw err;
   }
   return data;
+}
+
+// A session that can no longer be renewed: wipe local + persisted state and
+// return to a clean welcome (callers surface the one "expired" message).
+function expireLocalSession() {
+  forgetSession();
+  state.token = null;
+  state.refreshToken = null;
+  state.account = null;
+  state.history = [];
+  state.requests = [];
+  state.contacts = [];
+  state.auth = { ...state.auth, password: "", totp: "", totpNeeded: false, secret: "", otpauth: "", code: "", enabled: false };
+  go("welcome");
 }
 
 let toastTimer = null;
@@ -318,6 +374,7 @@ function screenLogin() {
   return `
     ${brand()}
     <h2>Sign in</h2>
+    <p class="sub">Your account works across the app and the web — you stay signed in on this browser until you log out.</p>
     <label>Email</label>
     <input data-model="auth.email" value="${esc(a.email)}" placeholder="you@example.com" type="email" autocapitalize="none" />
     <label>Password</label>
@@ -751,6 +808,7 @@ async function doSignup() {
     state.refreshToken = r.refreshToken || null;
     state.name = a.fullName || a.email.split("@")[0];
     state.auth.password = "";
+    rememberSession(); // signed in on this browser until logout
     toast("Account created — consent recorded");
     go("link");
   } catch (e) {
@@ -778,6 +836,7 @@ async function doLogin() {
     // request merely failed (a network blip is not "no bank linked").
     const me = await api("/api/me");
     state.name = me.name || a.email.split("@")[0];
+    rememberSession(); // signed in on this browser until logout
     if (me.bankLinked) {
       await refresh();
       go("home");
@@ -815,6 +874,9 @@ async function doReset() {
   try {
     await api("/api/auth/password/reset", { method: "POST", body: { token: a.resetToken.trim(), newPassword: a.newPassword } });
     state.auth = { ...state.auth, resetToken: "", newPassword: "", password: "" };
+    forgetSession(); // every session (incl. this browser's) is now revoked
+    state.token = null;
+    state.refreshToken = null;
     toast("Password changed — all sessions revoked. Sign in again.");
     go("login");
   } catch (e) {
@@ -855,6 +917,7 @@ async function doRevokeAll() {
   } catch (e) {
     return toast(e.message);
   }
+  forgetSession();
   state.token = null;
   state.refreshToken = null;
   go("welcome");
@@ -1162,11 +1225,13 @@ async function logout() {
   try {
     await api("/api/logout", { method: "POST" });
   } catch (e) {}
+  forgetSession();
   state.token = null;
   state.refreshToken = null;
   state.account = null;
   state.history = [];
   state.requests = [];
+  state.contacts = [];
   state.consent = false;
   state.auth = { ...state.auth, password: "", totp: "", totpNeeded: false, secret: "", otpauth: "", code: "", enabled: false };
   toast("Logged out — session revoked server-side");
@@ -1186,11 +1251,13 @@ async function closeAccount() {
   } catch (e) {
     return toast("Could not close account: " + e.message);
   }
+  forgetSession();
   state.token = null;
   state.refreshToken = null;
   state.account = null;
   state.history = [];
   state.requests = [];
+  state.contacts = [];
   state.consent = false;
   state.auth = { ...state.auth, password: "", totp: "", totpNeeded: false, secret: "", otpauth: "", code: "", enabled: false };
   toast("Account closed — profile data erased");
@@ -1296,4 +1363,41 @@ render();
     state.meta = await api("/api/meta");
     render();
   } catch (e) { /* offline shell — badge simply not shown */ }
+})();
+
+// Silent sign-in restore: if this browser holds a remembered session, rotate
+// the refresh token into a fresh access+refresh pair and land the user where
+// they belong — home (bank linked) or the link step — exactly like reopening
+// a signed-in mobile app. A dead/revoked token is forgotten quietly and the
+// welcome screen simply stays; being offline changes nothing (retry next load).
+(async () => {
+  const saved = loadRememberedSession();
+  if (!saved) return;
+  try {
+    const r = await fetch(API + "/api/sessions/refresh", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-device-id": DEVICE_ID },
+      body: JSON.stringify({ refreshToken: saved.refreshToken, deviceId: DEVICE_ID }),
+    });
+    const rd = await r.json().catch(() => ({}));
+    if (!r.ok || !rd.token) {
+      if (r.status === 401) forgetSession(); // expired / revoked — not an error, just signed out
+      return;
+    }
+    state.token = rd.token;
+    state.refreshToken = rd.refreshToken;
+    state.name = saved.name || "";
+    rememberSession();
+    // Route from server truth (the bank may have been linked elsewhere since)
+    const me = await api("/api/me");
+    state.name = me.name || state.name;
+    rememberSession();
+    if (me.bankLinked) {
+      await refresh();
+      go("home");
+    } else {
+      state.newPin = "";
+      go("link");
+    }
+  } catch (e) { /* offline — stay on welcome; the stored session is untouched */ }
 })();
