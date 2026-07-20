@@ -115,6 +115,18 @@ live rails until the licensed integrations exist. Backend + mobile → **1.3.0**
   now suppressed.
 - Web logout/close-account left the previous user's **recent payees** in
   memory; all account state is cleared.
+- **Unlock no longer waits for the network (GPay/PhonePe launch feel):**
+  biometric unlock lands on the last-known screen INSTANTLY; `GET /api/me`
+  reconciles in the background and re-routes only if the server disagrees
+  (bank linked elsewhere, dead session → clean welcome). Previously the user
+  was held at the lock screen for two sequential round-trips.
+- **The home balance never fakes ₹0 while loading** — until the account
+  arrives, the card shows a spinner with "Fetching your balance… (tap to
+  retry)" instead of rendering a zero balance that reads as lost money.
+- **No welcome flash for signed-in web users** — a remembered browser
+  session now boots into a branded "Signing you in securely…" splash while
+  the silent restore runs; every restore outcome (home, link, signed-out,
+  offline) leaves the splash deterministically.
 
 ## [1.2.0] — Mobile app 1.1.0: professional relaunch, app lock, sign-in
 
