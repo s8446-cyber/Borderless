@@ -7,7 +7,7 @@
 
 | # | Check | Result |
 |---|---|---|
-| 1 | Backend test suite (`cd backend && npm test`) — incl. 8 new top-up / no-fake-data / payees / meta tests | ✓ **89 pass / 4 Postgres self-skip / 0 fail** (93 total; CI runs the 4 against Postgres 16) |
+| 1 | Backend test suite (`cd backend && npm test`) — incl. top-up / no-fake-data / payees / meta + pass-8 security (login-timing, metric-cardinality) tests | ✓ **93 pass / 4 Postgres self-skip / 0 fail** (97 total; CI runs the 4 against Postgres 16 → 97/97) |
 | 2 | Syntax: every backend `src/`, `test/`, `public/` JS (`node --check`) | ✓ clean |
 | 3 | Production smoke suite (`scripts/release-smoke.sh`, live server in `BP_ENV=production`) — asserts ₹0 opening balance, unfunded-402, sandbox-stamped top-up, the removed passwordless endpoint (404), and `/api/me` profile restore | ✓ **23/23 assertions** |
 | 4 | Full HTTP E2E journey (the exact client call sequence): meta disclosure → email signup → link (₹0) → unfunded pay refused → top-up (idempotent, sandbox-stamped) → UPI pay → cross-border with user-entered merchant → public Merkle proof → payees-from-history → refresh rotation → ledger/audit integrity | ✓ 13/13 checks |
@@ -25,9 +25,10 @@
 | 16 | Renewal-concurrency E2E (production mode): first REPRODUCES the hazard (a duplicate renewal race → reuse detector revokes every session, even the winner's), then proves the fixed clients clean — single-flighted renewal (two racing 401s share one rotation; `mobile/src/singleflight.js` unit-tested, mobile suite now **24**) and the web's freshest-token-from-storage renewal surviving a second-tab rotation | ✓ 9/9 checks |
 | 17 | **In-app UI walkthrough in a REAL browser (Playwright + Chromium).** PWA: welcome → signup → bank-link (PIN pad) → ₹0 home + sandbox pill → fail-early unfunded pay → Add money → sandbox-stamped receipt → client-side Merkle verify → scanned-QR pay keeps the merchant name → phone/bill/recharge/request → Activity (payments + requests) → cross-border with visible rate-lock countdown → expired quote auto-refetches → over-balance quote shows shortfall → P2P send → 2FA setup/enable with a real TOTP → ledger verify → logout → 2FA step-up sign-in → reload restores to home → zero page errors | ✓ **30/30 clicks & assertions** |
 | 18 | **Mobile app walkthrough (the real `App.js` exported by Expo to web, same browser rig):** welcome → signup → weak-PIN rejected → confirm-PIN → home greeting/₹0/sandbox chip → Add money through the simulated biometric sheet + PIN pad → in-context notifications ask after the FIRST payment → sandbox receipt → on-device Merkle verify → biometric cancel blocks the PIN pad → wrong-PIN in-place retry → settle → over-balance compose blocked early → Activity | ✓ **21/21 clicks & assertions** |
-| 19 | **Deploy-readiness proof (pass 7).** Full backend suite against a real local **PostgreSQL 16** (`BP_PG_TEST_URL`): **93/93 — 0 skips, 0 fails** · production boot on **Postgres persistence** (`BP_PG_URL`) → smoke **23/23** with append-only `ledger_blocks`/`audit_entries` mirrors populated → **SIGTERM → restart → full state survives** (`/api/ready`: blocks 4, anchors 3, audit 10, integrity ok) · Render blueprint moved to the repo root (Render ignores blueprints in subdirectories) + `rootDir`/`dockerfilePath` added and YAML-validated · dead-code sweep: agent-tooling files removed from the repo, no-op `audit:verify` script deleted, dead `setToken()` removed, unused `expo-file-system` direct dep dropped (still transitive), internal-only exports un-exported · lockfiles un-ignored in `.gitignore` | ✓ all green |
+| 19 | **Deploy-readiness proof (pass 7).** Full backend suite against a real local **PostgreSQL 16** (`BP_PG_TEST_URL`): **97/97 — 0 skips, 0 fails** · production boot on **Postgres persistence** (`BP_PG_URL`) → smoke **23/23** with append-only `ledger_blocks`/`audit_entries` mirrors populated → **SIGTERM → restart → full state survives** (`/api/ready`: blocks 4, anchors 3, audit 10, integrity ok) · Render blueprint moved to the repo root (Render ignores blueprints in subdirectories) + `rootDir`/`dockerfilePath` added and YAML-validated · dead-code sweep: agent-tooling files removed from the repo, no-op `audit:verify` script deleted, dead `setToken()` removed, unused `expo-file-system` direct dep dropped (still transitive), internal-only exports un-exported · lockfiles un-ignored in `.gitignore` | ✓ all green |
+| 20 | **Code security audit (pass 8).** Two code-level findings reproduced then fixed, each with regression tests: (a) **login account-enumeration by timing** — `verifyPin` now runs unconditionally against a dummy hash for unknown emails, so response time no longer reveals whether an account exists (measured delta 2.5ms → 0.07ms); (b) **unauthenticated metric-cardinality memory-exhaustion DoS** — unmatched `/api/*` paths fold into one `unmatched` label + a hard `maxHttpSeries` cap (60 crafted junk paths → 60 series before, 0 new series after). Verified: backend **97/97** (PostgreSQL), mobile **24/24**, smoke **23/23**, 4 new SEC regression tests green. | ✓ all green |
 
-**Result: 19/19 check groups passed · 0 defects.**
+**Result: 20/20 check groups passed · 0 defects.**
 
 Known non-code items (unchanged, tracked, not defects): sandbox KYC provider and simulated anchor writer await licensed vendors (`docs/COMPLIANCE.md`); Terms/Privacy v1.0 templates pending counsel; transactional email provider account; physical-device pass for biometric/camera dialogs; Docker build validated in CI.
 
@@ -75,8 +76,8 @@ Simulated bank rails / KYC / anchor writer (await sponsor-bank licensing — `do
 
 ## How to re-run the essentials
 ```bash
-cd backend && npm test                          # 85 tests (+ cd mobile && npm test — 14 more)
-npm run smoke http://localhost:4000 [token]     # 19 live assertions vs a running server
+cd backend && npm test                          # 97 tests (+ cd mobile && npm test — 24 more)
+npm run smoke http://localhost:4000 [token]     # 23 live assertions vs a running server
 cd ../mobile && npm run doctor                  # environment preflight
 npm run live:check                              # backend connectivity probe
 ```
