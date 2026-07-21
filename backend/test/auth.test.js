@@ -193,3 +193,45 @@ test("explorer: /verify.html + /verify.js are served and PII-free", async () => 
     assert.match(js.text, /crypto\.subtle\.digest/);
   });
 });
+
+// ---------- security: login account-enumeration (pass 8) ----------
+
+test("SEC: login gives an identical response for unknown email vs wrong password", async () => {
+  await withServer(async ({ call }) => {
+    await call("/api/auth/signup", { method: "POST", body: { email: "known@ex.test", password: "correct-horse-9", fullName: "K", country: "IN", consent: true } });
+    // wrong password on a REAL account
+    const wrongPw = await call("/api/auth/login", { method: "POST", body: { email: "known@ex.test", password: "not-the-password" } });
+    // login attempt on an account that does not exist
+    const noAcct = await call("/api/auth/login", { method: "POST", body: { email: "ghost@ex.test", password: "not-the-password" } });
+    // Both must be indistinguishable at the response layer (status + body).
+    assert.equal(wrongPw.status, 401);
+    assert.equal(noAcct.status, 401);
+    assert.deepEqual(noAcct.data, wrongPw.data);
+    assert.equal(noAcct.data.error, "bad_credentials");
+  });
+});
+
+test("SEC: unknown-email login does the SAME work as a wrong-password login", async () => {
+  // Guards the timing-equalization fix. A login is dominated by the scrypt
+  // verification; if the unknown-email path short-circuited (the bug), it would
+  // be many times faster than a wrong-password attempt on a real account.
+  // Asserting the two are the SAME order of magnitude catches that regression
+  // without being flaky (both legitimately run scrypt, so the ratio is ~1).
+  await withServer(async ({ call }) => {
+    await call("/api/auth/signup", { method: "POST", body: { email: "timing@ex.test", password: "correct-horse-9", fullName: "T", country: "IN", consent: true } });
+    const median = async (email) => {
+      const xs = [];
+      for (let i = 0; i < 9; i++) {
+        const t = process.hrtime.bigint();
+        await call("/api/auth/login", { method: "POST", body: { email, password: "definitely-wrong" } });
+        xs.push(Number(process.hrtime.bigint() - t) / 1e6);
+      }
+      xs.sort((a, b) => a - b);
+      return xs[Math.floor(xs.length / 2)];
+    };
+    const real = await median("timing@ex.test");   // wrong password, real account
+    const ghost = await median("ghost3@ex.test");   // no such account
+    const ratio = Math.max(real, ghost) / Math.max(0.05, Math.min(real, ghost));
+    assert.ok(ratio < 4, `login work must match regardless of account existence (real ${real.toFixed(2)}ms vs unknown ${ghost.toFixed(2)}ms, ratio ${ratio.toFixed(2)})`);
+  });
+});
