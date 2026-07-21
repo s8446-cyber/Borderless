@@ -17,8 +17,8 @@ export const RATES = {
 
 export const FEE_PCT = 0.005;        // 0.5%
 export const FEE_MIN_MINOR = 200;    // ₹2.00 floor
-export const FEE_MAX_MINOR = 50000;  // ₹500.00 cap
-export const QUOTE_TTL_MS = 60_000;  // rate locked for 60s
+const FEE_MAX_MINOR = 50000;  // ₹500.00 cap
+const QUOTE_TTL_MS = 60_000;  // rate locked for 60s
 
 const HOME_DECIMALS = 2; // INR
 

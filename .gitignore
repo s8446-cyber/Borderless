@@ -36,4 +36,7 @@ data/
 *.sqlite
 *.db
 coverage/
-package-lock.json
+
+# Agent tooling (never part of the product)
+.claude/
+skills-lock.json

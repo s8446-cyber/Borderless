@@ -31,7 +31,8 @@ ENV NODE_ENV=production \
 USER app
 EXPOSE 4000
 
-# Container healthcheck hits the readiness endpoint (verifies ledger + audit)
+# Container healthcheck hits the liveness endpoint. (Integrity readiness lives
+# at /api/ready — monitor it, but don't restart-loop a container on it.)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||4000)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 

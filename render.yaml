@@ -1,10 +1,14 @@
 # Render.com blueprint. Deploy: push to GitHub, then "New > Blueprint" in Render.
+# NOTE: this file must live at the repository ROOT — Render only discovers
+# render.yaml there (a copy inside backend/ is silently ignored).
 # Secrets (BP_SIGNING_SECRET, BP_ENC_KEY) are auto-generated here; set
 # BP_CORS_ORIGINS to your real frontend origin(s).
 services:
   - type: web
     name: borderless-pay
     runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
     plan: starter
     healthCheckPath: /api/health
     autoDeploy: true

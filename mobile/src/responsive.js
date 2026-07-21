@@ -8,7 +8,7 @@
 import { Dimensions, PixelRatio } from "react-native";
 
 const BASE_WIDTH = 390; // design reference (Pixel 7 / iPhone 14 class)
-export const MAX_CONTENT_WIDTH = 480;
+const MAX_CONTENT_WIDTH = 480;
 
 const w = Math.min(Math.max(Dimensions.get("window").width, 320), MAX_CONTENT_WIDTH);
 const factor = w / BASE_WIDTH;
