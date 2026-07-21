@@ -78,10 +78,10 @@ live rails until the licensed integrations exist. Backend + mobile → **1.3.0**
 
 ### Changed
 - Release smoke suite now asserts the ₹0 start, the unfunded-402, and the
-  sandbox-stamped top-up (21 assertions, all green in production mode).
+  sandbox-stamped top-up (23 assertions, all green in production mode).
 - Terms/Privacy templates, READMEs, and the production-readiness checklist
   rewritten from "demo product" language to the precise **sandbox settlement**
-  posture; test counts updated (**93 backend / 20 mobile**).
+  posture; test counts updated (**97 backend / 24 mobile**).
 - Web PWA: welcome screen leads with account creation; camera-less QR path
   offers manual entry (no fake merchant card); forgot-password copy no longer
   says "demo environment"; service-worker cache bumped to v7.

@@ -14,7 +14,7 @@ enforced DPDP consent. Built with a **zero-dependency core** (Node.js built-ins;
 
 ```bash
 node src/server.js     # http://localhost:4000  (serves API + web client)
-npm test               # 93 tests (core + security + auth + consent + UPI-QR + mailer + top-up/no-fake-data + hardening + observability + Postgres + HTTP e2e)
+npm test               # 97 tests (93 pass + 4 Postgres self-skip locally): core + security + auth + consent + UPI-QR + mailer + top-up/no-fake-data + hardening + observability + Postgres + HTTP e2e
 ```
 
 ### Persistence backends
@@ -46,7 +46,7 @@ src/
 public/         installable PWA web client (+ /verify.html public proof explorer, /terms.html, /privacy.html)
 db/schema.sql   PostgreSQL target schema
 scripts/        release-smoke.sh (live end-to-end smoke suite)
-test/           core · security · auth · consent · upi · mailer · hardening · sessions · metrics · pg · topup · api (93 tests)
+test/           core · security · auth · consent · upi · mailer · hardening · sessions · metrics · pg · topup · waitlist · api (97 tests)
 ```
 
 ## Security highlights

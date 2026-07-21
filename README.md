@@ -84,7 +84,7 @@ Run through these to exercise every feature. Each payment asks for the **PIN you
 ### Run the automated test suite
 ```bash
 cd backend
-npm test             # 93 tests: unit + security + auth + consent + UPI-QR + mailer + top-up/no-fake-data + hardening + observability + Postgres + full HTTP e2e
+npm test             # 97 tests (93 pass + 4 Postgres self-skip locally): unit + security + auth + consent + UPI-QR + mailer + top-up/no-fake-data + hardening + observability + Postgres + full HTTP e2e
 ```
 All 93 should pass (4 Postgres tests self-skip without a live database; CI runs them against Postgres 16). This is the strongest proof the wiring is correct.
 
@@ -135,7 +135,7 @@ npm run run:android  # builds with Gradle and launches on an emulator/device
 Notes for testers:
 - The mobile app **always talks to a real backend** — there is no standalone demo mode. For local dev it auto-targets `10.0.2.2` (Android emulator) / `localhost` (iOS); for anything else set `EXPO_PUBLIC_API_BASE` (release builds show a visible warning if you forget).
 - The `npm install` message about **"N vulnerabilities"** is from Expo's dev tooling and is **harmless** — do **not** run `npm audit fix --force` (it breaks the Expo build). Details in `mobile/README.md`.
-- Run the mobile unit tests with `cd mobile && npm test` (20 tests: UPI QR parser, on-device SHA-256 + Merkle fold, PIN quality, INR formatting).
+- Run the mobile unit tests with `cd mobile && npm test` (24 tests: UPI QR parser, on-device SHA-256 + Merkle fold, PIN quality, INR formatting, single-flight session renewal).
 
 ---
 
