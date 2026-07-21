@@ -16,7 +16,7 @@ The server **refuses to start in production** without both (fail-closed).
 
 ```bash
 node src/server.js              # http://localhost:4000
-npm test                        # 93 tests
+npm test                        # 97 tests (93 pass + 4 Postgres self-skip locally)
 ```
 
 In development, ephemeral secrets are auto-generated and CORS is open (`*`).

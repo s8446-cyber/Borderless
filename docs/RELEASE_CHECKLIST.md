@@ -8,9 +8,9 @@ demo-data product (real rails/KYC come with the sponsor-bank integration).
 ---
 
 ## A. Code & build — DONE ✅ (verified this release)
-- [x] **85/85 backend + 14/14 mobile automated tests** pass (unit + security + auth + consent + UPI-QR + mailer + hardening + observability + Postgres + full HTTP journey)
+- [x] **97/97 backend + 24/24 mobile automated tests** pass (unit + security + auth + consent + UPI-QR + mailer + hardening + observability + Postgres + full HTTP journey)
 - [x] All source files syntax-checked (`npm run check`)
-- [x] **Release smoke suite** (`npm run smoke <url>`) — 18 live assertions pass against a production-mode server
+- [x] **Release smoke suite** (`npm run smoke <url>`) — 23 live assertions pass against a production-mode server
 - [x] **Fail-closed** verified: production boot refuses without `BP_SIGNING_SECRET` + `BP_ENC_KEY`
 - [x] **PostgreSQL persistence** verified: full journey + **process restart** with balance, sessions, and ledger/audit integrity all durable
 - [x] Security headers (CSP, HSTS, frame/sniff/COOP/CORP) present on every response
@@ -56,7 +56,7 @@ openssl rand -hex 32   # → BP_METRICS_TOKEN    (Prometheus scrape auth)
 ```bash
 cd backend && npm run smoke https://your-live-host BP_METRICS_TOKEN_VALUE
 ```
-- [ ] All 18 assertions pass → deployment is release-healthy
+- [ ] All 23 assertions pass → deployment is release-healthy
 - [ ] `curl https://your-live-host/api/ready` returns `ready:true`
 
 ## C. Legal/compliance gates before REAL money (not required for V1 demo launch)
