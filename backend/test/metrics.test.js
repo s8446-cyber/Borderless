@@ -101,3 +101,29 @@ test("G-7: idempotent replays are excluded from settlement counters", async () =
     assert.match(out, /bp_payments_settled_total\{kind="payment"\} 1/, "replay not double-counted");
   });
 });
+
+// ---------- security: metric-cardinality memory exhaustion (pass 8) ----------
+
+test("SEC: unmatched /api paths never explode HTTP label cardinality", async () => {
+  await withServer(async ({ call, app }) => {
+    // An attacker hitting many distinct never-registered paths must NOT create
+    // one metric series each (that would be an unauthenticated memory-DoS).
+    for (let i = 0; i < 80; i++) await call("/api/nonexistent-" + i);
+    const out = app.metrics.render();
+    const junk = (out.match(/route="\/api\/nonexistent-/g) || []).length;
+    assert.equal(junk, 0, "raw junk paths must not appear as labels");
+    assert.match(out, /route="\/api\/unmatched"/, "they fold into a single 'unmatched' bucket");
+  });
+});
+
+test("SEC: recordHttp caps distinct series as a defense-in-depth backstop", () => {
+  const m = new Metrics();
+  m.maxHttpSeries = 10; // shrink for the test
+  // Distinct, non-normalizable labels (route() collapses numeric/ID segments,
+  // so use letter-suffixed tokens that stay distinct) to exercise the cap.
+  for (let i = 0; i < 100; i++) m.recordHttp("GET", "/api/seg-x" + i + "q", 200, 1);
+  // The registry must refuse to grow past the cap regardless of input.
+  assert.ok(m.http.size <= 11, "series count stays bounded (cap + the 'other' bucket), got " + m.http.size);
+  const out = m.render();
+  assert.match(out, /route="\/other"/, "overflow folds into the 'other' route");
+});

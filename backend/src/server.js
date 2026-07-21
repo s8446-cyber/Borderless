@@ -81,6 +81,14 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
     store.persist();
   };
 
+  // A throwaway scrypt hash used to equalize login work when an email is
+  // unknown. Without it, `verifyPin` short-circuits for non-existent accounts
+  // and returns measurably faster than for real ones, leaking which emails are
+  // registered (account enumeration by timing). Verifying against this dummy
+  // makes both paths do the same scrypt work. Value is irrelevant (never a
+  // real credential); it just needs to be a valid stored-hash shape.
+  const DUMMY_PASS_HASH = hashPin("bp:login-timing-equalizer:" + randomUUID());
+
   const globalLimiter = new RateLimiter({ windowMs: config.rateLimit.windowMs, max: config.rateLimit.max });
   const authLimiter = new RateLimiter({ windowMs: config.rateLimit.windowMs, max: config.rateLimit.authMax });
   const paymentLimiter = new RateLimiter({ windowMs: config.rateLimit.windowMs, max: config.rateLimit.paymentMax });
@@ -236,9 +244,14 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
     const password = asString(body.password, "password", { max: 200 });
     const cred = store.data.credentials[email];
     if (cred) guard.assertNotLocked(cred.userId);
-    // Uniform error whether the email or the password is wrong — no account
-    // enumeration. Failed attempts count toward the same lockout as PINs.
-    if (!cred || !verifyPin(password, cred.passHash)) {
+    // Uniform error AND uniform work whether the email or the password is
+    // wrong — no account enumeration. When the email is unknown we still run a
+    // scrypt verification against a dummy hash so the response time doesn't
+    // reveal that the account exists. `verifyPin` is called unconditionally
+    // (no short-circuit) for the same reason. Failed attempts count toward the
+    // same lockout as PINs.
+    const passOk = verifyPin(password, cred ? cred.passHash : DUMMY_PASS_HASH);
+    if (!cred || !passOk) {
       if (cred) {
         const r = guard.recordFail(cred.userId);
         audit.append("login_failed", { userId: cred.userId, locked: r.locked });
@@ -639,9 +652,14 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
       const path = url.pathname;
 
       if (path.startsWith("/api/")) {
-        // record every API request's route/status/latency at response time
+        // Record every API request's route/status/latency at response time.
+        // The label is a STABLE route, never the raw path: an unmatched path is
+        // fully attacker-controlled, so folding it into a single "unmatched"
+        // bucket prevents metric-cardinality memory exhaustion (a flood of
+        // distinct /api/<junk> paths would otherwise allocate one series each).
+        let routeLabel = "/api/unmatched";
         if (path !== "/api/metrics") {
-          res.on("finish", () => metrics.recordHttp(req.method, path, res.statusCode, Date.now() - t0));
+          res.on("finish", () => metrics.recordHttp(req.method, routeLabel, res.statusCode, Date.now() - t0));
         }
 
         // Prometheus scrape endpoint (G-7). Text format, not JSON. In
@@ -669,6 +687,9 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
 
         const matching = routes.filter((r) => r.pattern.test(path));
         if (!matching.length) return send(res, 404, { error: "not_found", path }, requestId);
+        // The path matched a known route pattern — safe to record its
+        // normalized (ID-collapsed) form as the metrics label.
+        routeLabel = metrics.route(path);
         const match = matching.find((r) => r.method === req.method);
         if (!match) {
           res.setHeader("allow", matching.map((r) => r.method).join(", "));
