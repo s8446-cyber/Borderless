@@ -12,15 +12,22 @@
       "resizeMode": "contain",
       "backgroundColor": "#0b1020"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.borderlesspay.app",
-      "infoPlist": { "NSFaceIDUsageDescription": "Authenticate with Face ID to unlock the app and authorize your payments." }
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Authenticate with Face ID to unlock the app and authorize your payments."
+      }
     },
     "android": {
       "package": "com.borderlesspay.app",
-      "adaptiveIcon": { "foregroundImage": "./assets/adaptive-icon.png", "backgroundColor": "#0b1020" },
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0b1020"
+      },
       "permissions": [
         "android.permission.USE_BIOMETRIC",
         "android.permission.USE_FINGERPRINT",
@@ -36,9 +43,12 @@
         "android.permission.WRITE_CONTACTS"
       ]
     },
-    "web": { "favicon": "./assets/favicon.png" },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
     "plugins": [
       "./plugins/with-cleartext-http.js",
+      "./plugins/with-secure-flag.js",
       "expo-local-authentication",
       "expo-secure-store",
       [
