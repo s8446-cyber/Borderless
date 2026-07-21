@@ -515,7 +515,7 @@ or even `npm install` required:
 
 ```bash
 cd mobile
-npm test        # node --test — 20 tests
+npm test        # node --test — 24 tests
 ```
 
 Covered: the **UPI QR parser** (hostile-input matrix: malformed VPAs, non-INR
