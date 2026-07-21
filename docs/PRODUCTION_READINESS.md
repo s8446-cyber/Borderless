@@ -18,7 +18,7 @@ or investor can verify status against the code.
 - ✅ Public Merkle inclusion proofs (`GET /api/ledger/proof/:index`, PII-free) — any third party can verify a receipt against a published anchor; anchor publisher is pluggable for a real public-chain writer; standalone public verifier page (`/verify.html`, client-side Web Crypto)
 - ✅ Email+password accounts (scrypt, enumeration-safe login, lockout-guarded), **TOTP 2FA** (RFC 6238, secret AES-256-GCM-encrypted at rest), password reset with full session revocation
 - ✅ Transactional email delivery wired end-to-end (`src/mailer.js`): pluggable zero-dependency providers (Resend / SendGrid via HTTPS, console transport in dev), fail-closed prod config (console refused, API key required), delivery failures audited without becoming response oracles — ⬜ remaining: create the provider account + verify the sending domain (SPF/DKIM), set `BP_EMAIL_PROVIDER`/`BP_EMAIL_API_KEY`
-- ✅ CI: 93 backend + 20 mobile automated tests incl. security, platform-hardening, observability, email delivery, top-up/no-fake-data guarantees + Postgres persistence regressions + full HTTP journey
+- ✅ CI: 97 backend + 24 mobile automated tests incl. security, platform-hardening, observability, email delivery, top-up/no-fake-data guarantees + Postgres persistence regressions + full HTTP journey
 - ⬜ Independent third-party penetration test + source audit
 - ⬜ Private bug-bounty program (policy ready in `SECURITY.md`)
 - 🟨 Dependency scanning in CI (`npm audit --omit=dev --audit-level=high` gate on runtime deps); SAST/DAST still pending
