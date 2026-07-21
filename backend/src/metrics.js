@@ -7,6 +7,12 @@ export class Metrics {
   constructor() {
     this.startedAt = Date.now();
     this.http = new Map();      // "METHOD|route|status" -> count
+    // Hard cap on distinct HTTP series. route() collapses known dynamic
+    // segments, but an unmatched path label is only trustworthy if the caller
+    // passes one it controls; this cap is a defense-in-depth backstop so a
+    // flood of never-before-seen labels can never grow the map without bound
+    // (metric-cardinality memory exhaustion). Overflow folds into "other".
+    this.maxHttpSeries = 500;
     this.latency = {
       buckets: [5, 10, 25, 50, 100, 250, 500, 1000, 2500],
       counts: new Array(10).fill(0), // one per bucket + +Inf
@@ -26,7 +32,13 @@ export class Metrics {
   }
 
   recordHttp(method, path, status, ms) {
-    const key = method + "|" + this.route(path) + "|" + status;
+    let key = method + "|" + this.route(path) + "|" + status;
+    // Cardinality backstop: if this is a brand-new series and we're already at
+    // the cap, bucket it under a single "other" route rather than allocating
+    // an unbounded number of Map entries from crafted/unknown paths.
+    if (!this.http.has(key) && this.http.size >= this.maxHttpSeries) {
+      key = method + "|/other|" + status;
+    }
     this.http.set(key, (this.http.get(key) || 0) + 1);
     const L = this.latency;
     L.sum += ms;
