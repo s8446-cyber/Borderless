@@ -134,7 +134,7 @@ npm run run:android  # builds with Gradle and launches on an emulator/device
 
 Notes for testers:
 - The mobile app **always talks to a real backend** — there is no standalone demo mode. For local dev it auto-targets `10.0.2.2` (Android emulator) / `localhost` (iOS); for anything else set `EXPO_PUBLIC_API_BASE` (release builds show a visible warning if you forget).
-- The `npm install` message about **"N vulnerabilities"** is from Expo's dev tooling and is **harmless** — do **not** run `npm audit fix --force` (it breaks the Expo build). Details in `mobile/README.md`.
+- The `npm install` message about vulnerabilities in `mobile/` is **real, not harmless** — `npm audit` reports 27 advisories (1 critical, 12 high) in the Expo SDK 51 / RN 0.74 toolchain. They are tracked release blockers whose fix is upgrading to a supported Expo SDK, not `npm audit fix --force` (which breaks the SDK 51 build). See `mobile/README.md` §0 and `mobile/SECURITY.md`.
 - Run the mobile unit tests with `cd mobile && npm test` (24 tests: UPI QR parser, on-device SHA-256 + Merkle fold, PIN quality, INR formatting, single-flight session renewal).
 
 ---
@@ -186,7 +186,7 @@ Same FX math, fee policy, and dual-ledger logic across every client — one back
 - **Web app loads but actions do nothing** → make sure you completed onboarding (create account → link bank + PIN) first; open the browser console (F12) for any message.
 - **"Insufficient funds" on your first payment** → that's correct behavior: balances start at ₹0. Tap **➕ Add money** first.
 - **Mobile app can't reach the backend** → on Android, `localhost` points at the emulator, not your PC. Use `npm run live` (it picks the right address automatically), or set `EXPO_PUBLIC_API_BASE` to your PC's LAN IP. See `mobile/README.md`.
-- **"N vulnerabilities" after `npm install` in `mobile/`** → expected, harmless dev-tooling advisories; don't `--force` fix them.
+- **Vulnerabilities after `npm install` in `mobile/`** → these are **real and tracked** (Expo SDK 51 / RN 0.74 toolchain: 27 advisories incl. 1 critical); the fix is upgrading to a supported Expo SDK, not `--force`. Not harmless — see `mobile/README.md` §0.
 - **Forgot your PIN** → re-link your bank from a fresh sign-in to set a new PIN (your balance is preserved), or reset the dev server (`npm start` with the default in-memory store) and re-onboard.
 
 ---
@@ -196,6 +196,7 @@ Same FX math, fee policy, and dual-ledger logic across every client — one back
 Security and regulatory trust are first-class here. Key documents:
 
 - **[Security policy / responsible disclosure](./SECURITY.md)** — how to report a vulnerability.
+- **[Security review response (external audit cross-verification)](./docs/SECURITY_REVIEW_RESPONSE.md)** — point-by-point status of the 5 critical blockers.
 - **[Internal security audit report](./docs/SECURITY_AUDIT.md)** — STRIDE threat model, controls, and found-and-fixed findings.
 - **[Engineering threat model & controls](./backend/SECURITY.md)** — the in-code defenses.
 - **[Regulatory & compliance roadmap](./docs/COMPLIANCE.md)** — RBI PA-CB, FEMA/LRS, sponsor bank, FIU-IND/PMLA, DPDP Act 2023, PCI scope.
