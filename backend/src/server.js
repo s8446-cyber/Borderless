@@ -697,6 +697,13 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
         }
         const body = req.method === "POST" ? await readBody(req) : {};
         const result = await match.handler(req, body, url, { ip, requestId });
+        // Durability-before-ACK: money-moving handlers have already called
+        // persist(). For the async Postgres store, AWAIT the durable write
+        // before returning success — so a crash can never lose a payment the
+        // client was told settled. If the durable write failed, flush()
+        // rejects and this becomes a 500 (no false "success"). The file store
+        // has no flush() and is already synchronous, so this is a no-op there.
+        if (result && result.receipt && typeof store.flush === "function") await store.flush();
         // business metrics: count fresh settlements (idempotent replays excluded)
         if (result && result.receipt && result.replayed === false) metrics.recordPayment(result.receipt);
         return send(res, 200, result, requestId);
