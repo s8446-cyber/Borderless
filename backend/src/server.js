@@ -1,16 +1,16 @@
 // Zero-dependency HTTP server: REST API + static web client.
 // Built only on Node's http/fs/crypto, hardened for production:
-//   - security headers (CSP, HSTS, frame/sniff protection) on every response
-//   - per-IP sliding-window rate limiting (global + stricter auth/payment tiers)
-//   - CORS allowlist, body-size limits, strict JSON parsing
-//   - request IDs + structured logging, with sanitized error responses
-//   - tamper-evident dual ledger + audit log, integrity-checked at /api/ready
-//   - graceful shutdown with a final durable persist
+// - security headers (CSP, HSTS, frame/sniff protection) on every response
+// - per-IP sliding-window rate limiting (global + stricter auth/payment tiers)
+// - CORS allowlist, body-size limits, strict JSON parsing
+// - request IDs + structured logging, with sanitized error responses
+// - tamper-evident dual ledger + audit log, integrity-checked at /api/ready
+// - graceful shutdown with a final durable persist
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, extname, normalize, sep } from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import { networkInterfaces } from "node:os";
 
 import { config, configSummary } from "./config.js";
@@ -23,7 +23,7 @@ import { PaymentService } from "./payments.js";
 import { checkTxnLimits } from "./limits.js";
 import { runKyc, KYC_PROVIDER } from "./kyc.js";
 import { createMailer, buildResetEmail } from "./mailer.js";
-import { hashPin, newToken, newRefreshToken, newResetToken, verifyPin } from "./auth.js";
+import { hashPin, hashPinAsync, verifyPinAsync, newToken, newRefreshToken, newResetToken, tokenLookupKey } from "./auth.js";
 import { encryptField, decryptField } from "./crypto.js";
 import { generateTotpSecret, verifyTotp, otpauthUri } from "./totp.js";
 import { ApiError, RATES, listCurrencies, FEE_PCT } from "./fx.js";
@@ -61,6 +61,10 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
   // Persistence backend: an injected store (e.g. PgStore) wins; otherwise the
   // file-backed reference store.
   const store = injectedStore || new Store(dbPath);
+  // One-time migration: rehash any legacy PLAINTEXT token keys (tok_/rtk_/prt_)
+  // to their SHA-256 lookup form, so no live session/refresh/reset credential
+  // is ever stored at rest (a leaked snapshot is not replayable).
+  migrateTokenKeys(store);
   // Outbound email (password-reset delivery). Injected in tests; built from
   // config otherwise (console transport in dev, real provider in prod).
   const mailer = injectedMailer || createMailer(config, { log: logger });
@@ -82,11 +86,11 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
   };
 
   // A throwaway scrypt hash used to equalize login work when an email is
-  // unknown. Without it, `verifyPin` short-circuits for non-existent accounts
-  // and returns measurably faster than for real ones, leaking which emails are
-  // registered (account enumeration by timing). Verifying against this dummy
-  // makes both paths do the same scrypt work. Value is irrelevant (never a
-  // real credential); it just needs to be a valid stored-hash shape.
+  // unknown. Without it, password verification short-circuits for non-existent
+  // accounts and returns measurably faster than for real ones, leaking which
+  // emails are registered (account enumeration by timing). Verifying against
+  // this dummy makes both paths do the same scrypt work. Value is irrelevant
+  // (never a real credential); it just needs to be a valid stored-hash shape.
   const DUMMY_PASS_HASH = hashPin("bp:login-timing-equalizer:" + randomUUID());
 
   const globalLimiter = new RateLimiter({ windowMs: config.rateLimit.windowMs, max: config.rateLimit.max });
@@ -159,9 +163,11 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
   function issueSession(userId, deviceHash) {
     const now = Date.now();
     const token = newToken();
-    store.data.sessions[token] = { userId, exp: now + config.sessionTtlMs, createdAt: now, deviceHash: deviceHash || null };
+    // Tokens are stored ONLY as SHA-256 lookup hashes at rest — the raw token
+    // exists client-side only, so a leaked store snapshot is not replayable.
+    store.data.sessions[tokenLookupKey(token)] = { userId, exp: now + config.sessionTtlMs, createdAt: now, deviceHash: deviceHash || null };
     const refreshToken = newRefreshToken();
-    store.data.refresh[refreshToken] = { userId, deviceHash: deviceHash || null, exp: now + config.refreshTtlMs, createdAt: now };
+    store.data.refresh[tokenLookupKey(refreshToken)] = { userId, deviceHash: deviceHash || null, exp: now + config.refreshTtlMs, createdAt: now };
     return { token, refreshToken };
   }
 
@@ -207,7 +213,7 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
     const kyc = runKyc({ fullName: body.fullName, documentId: "email:" + email, country });
     const userId = "usr_" + randomUUID();
     store.data.users[userId] = { id: userId, name: body.fullName, email, country, kyc, consent };
-    store.data.credentials[email] = { userId, passHash: hashPin(password), totpSecretEnc: null, totpEnabled: false, createdAt: Date.now() };
+    store.data.credentials[email] = { userId, passHash: await hashPinAsync(password), totpSecretEnc: null, totpEnabled: false, createdAt: Date.now() };
     const deviceId = asString(body.deviceId, "deviceId", { required: false, max: 200 });
     const issued = issueSession(userId, deviceId ? sha256(deviceId) : null);
     audit.append("user_signed_up", { userId, domain: email.split("@")[1], kycStatus: kyc.status, consent: { tosVersion: consent.tosVersion, privacyVersion: consent.privacyVersion } });
@@ -219,9 +225,23 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
   // Profile PII is erased and every session revoked. Transaction records are
   // retained PSEUDONYMOUSLY (userId only) — PMLA/RBI record-retention rules
   // require it, and the hash-chained ledger cannot be rewritten by design.
-  add("POST", /^\/api\/account\/close$/, async (req) => {
+  add("POST", /^\/api\/account\/close$/, async (req, body) => {
     const userId = requireAuth(req, store);
     const found = credentialsByUser(userId);
+    if (found) {
+      // Recent reauthentication (irreversible action): a bearer token alone
+      // is not enough to close an account — the caller must prove the
+      // password. Failures count toward the login lockout scope.
+      guard.assertNotLocked(userId, "login");
+      const password = asString(body.password, "password", { max: 200 });
+      if (!(await verifyPinAsync(password, found.cred.passHash))) {
+        const r = guard.recordFail(userId, "login");
+        audit.append("account_close_reauth_failed", { userId, locked: r.locked });
+        persist();
+        throw new ApiError(401, "reauth_required", "Enter your current password to close your account");
+      }
+      guard.recordSuccess(userId, "login");
+    }
     if (found) delete store.data.credentials[found.email];
     delete store.data.pins[userId];
     delete store.data.accounts[userId];
@@ -243,33 +263,43 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
     const email = asEmail(body.email);
     const password = asString(body.password, "password", { max: 200 });
     const cred = store.data.credentials[email];
-    if (cred) guard.assertNotLocked(cred.userId);
+    if (cred) guard.assertNotLocked(cred.userId, "login");
     // Uniform error AND uniform work whether the email or the password is
     // wrong — no account enumeration. When the email is unknown we still run a
     // scrypt verification against a dummy hash so the response time doesn't
-    // reveal that the account exists. `verifyPin` is called unconditionally
-    // (no short-circuit) for the same reason. Failed attempts count toward the
-    // same lockout as PINs.
-    const passOk = verifyPin(password, cred ? cred.passHash : DUMMY_PASS_HASH);
+    // reveal that the account exists. Verification is called unconditionally
+    // (no short-circuit) for the same reason, and runs on the async scrypt so
+    // a login burst cannot monopolize the event loop. Password failures count
+    // toward the "login" lockout scope only (PIN and TOTP are independent).
+    const passOk = await verifyPinAsync(password, cred ? cred.passHash : DUMMY_PASS_HASH);
     if (!cred || !passOk) {
       if (cred) {
-        const r = guard.recordFail(cred.userId);
+        const r = guard.recordFail(cred.userId, "login");
         audit.append("login_failed", { userId: cred.userId, locked: r.locked });
         persist();
       }
       throw new ApiError(401, "bad_credentials", "Invalid email or password");
     }
     if (cred.totpEnabled) {
+      guard.assertNotLocked(cred.userId, "totp");
       const given = body.totp === undefined || body.totp === null ? "" : String(body.totp);
       if (!given) throw new ApiError(401, "totp_required", "Two-factor authentication code required");
-      if (!verifyTotp(decryptField(cred.totpSecretEnc), given)) {
-        const r = guard.recordFail(cred.userId);
+      // A single-use recovery code is accepted in place of a TOTP code (the
+      // documented lost-authenticator path). TOTP failures count toward
+      // their own "totp" lockout scope.
+      const usedRecovery = consumeRecoveryCode(cred, given);
+      if (!usedRecovery && !verifyTotp(decryptField(cred.totpSecretEnc), given)) {
+        const r = guard.recordFail(cred.userId, "totp");
         audit.append("totp_failed", { userId: cred.userId, locked: r.locked });
         persist();
         throw new ApiError(401, "bad_totp", "Invalid two-factor code");
       }
+      if (usedRecovery) {
+        audit.append("totp_recovery_code_used", { userId: cred.userId, remaining: (cred.recoveryCodes || []).length });
+      }
+      guard.recordSuccess(cred.userId, "totp");
     }
-    guard.recordSuccess(cred.userId);
+    guard.recordSuccess(cred.userId, "login");
     const deviceId = asString(body.deviceId, "deviceId", { required: false, max: 200 });
     const issued = issueSession(cred.userId, deviceId ? sha256(deviceId) : null);
     audit.append("login", { userId: cred.userId, totp: Boolean(cred.totpEnabled) });
@@ -299,9 +329,82 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
       throw new ApiError(401, "bad_totp", "Invalid two-factor code");
     }
     found.cred.totpEnabled = true;
+    // Single-use recovery codes (returned exactly once; stored only as
+    // SHA-256 hashes) so a lost authenticator doesn't permanently lock the
+    // account. Each code is consumable at login or 2FA-disable.
+    const recoveryCodes = Array.from({ length: 10 }, () => randomBytes(5).toString("hex"));
+    found.cred.recoveryCodes = recoveryCodes.map((c) => sha256(c));
     audit.append("totp_enabled", { userId });
     persist();
-    return { ok: true, totpEnabled: true };
+    return { ok: true, totpEnabled: true, recoveryCodes };
+  });
+
+  // Disable TOTP 2FA. Requires the account password AND a current TOTP code
+  // or an unused recovery code — a stolen bearer token alone can never strip
+  // 2FA from an account.
+  add("POST", /^\/api\/auth\/2fa\/disable$/, async (req, body) => {
+    const userId = requireAuth(req, store);
+    const found = credentialsByUser(userId);
+    if (!found || !found.cred.totpEnabled) throw new ApiError(409, "no_2fa", "Two-factor authentication is not enabled");
+    guard.assertNotLocked(userId, "login");
+    const password = asString(body.password, "password", { max: 200 });
+    if (!(await verifyPinAsync(password, found.cred.passHash))) {
+      const r = guard.recordFail(userId, "login");
+      audit.append("totp_disable_reauth_failed", { userId, locked: r.locked });
+      persist();
+      throw new ApiError(401, "bad_credentials", "Invalid password");
+    }
+    guard.recordSuccess(userId, "login");
+    guard.assertNotLocked(userId, "totp");
+    const given = String(body.code || "");
+    const usedRecovery = consumeRecoveryCode(found.cred, given);
+    if (!usedRecovery && !verifyTotp(decryptField(found.cred.totpSecretEnc), given)) {
+      const r = guard.recordFail(userId, "totp");
+      audit.append("totp_failed", { userId, locked: r.locked });
+      persist();
+      throw new ApiError(401, "bad_totp", "Invalid two-factor or recovery code");
+    }
+    guard.recordSuccess(userId, "totp");
+    found.cred.totpEnabled = false;
+    found.cred.totpSecretEnc = null;
+    found.cred.recoveryCodes = [];
+    audit.append("totp_disabled", { userId });
+    persist();
+    return { ok: true, totpEnabled: false };
+  });
+
+  // Authenticated password change. Requires the CURRENT password (recent
+  // reauthentication), applies the full password policy to the new one, and
+  // revokes every OTHER session plus all refresh tokens — the session making
+  // the change stays alive; any stolen parallel session dies immediately.
+  add("POST", /^\/api\/auth\/password\/change$/, async (req, body) => {
+    const userId = requireAuth(req, store);
+    const found = credentialsByUser(userId);
+    if (!found) throw new ApiError(409, "no_credentials", "No password credentials found for this account");
+    guard.assertNotLocked(userId, "login");
+    const current = asString(body.currentPassword, "currentPassword", { max: 200 });
+    const next = asPassword(body.newPassword);
+    if (!(await verifyPinAsync(current, found.cred.passHash))) {
+      const r = guard.recordFail(userId, "login");
+      audit.append("password_change_failed", { userId, locked: r.locked });
+      persist();
+      throw new ApiError(401, "bad_credentials", "Current password is incorrect");
+    }
+    guard.recordSuccess(userId, "login");
+    if (current === next) throw new ApiError(400, "same_password", "New password must be different from the current password");
+    found.cred.passHash = await hashPinAsync(next);
+    // Revoke everything except the session that made this change.
+    const keep = tokenLookupKey(bearerToken(req));
+    let revoked = 0;
+    for (const [t, s] of Object.entries(store.data.sessions)) {
+      if ((typeof s === "string" ? s : s.userId) === userId && t !== keep) { delete store.data.sessions[t]; revoked++; }
+    }
+    for (const [t, r] of Object.entries(store.data.refresh)) {
+      if (r.userId === userId) { delete store.data.refresh[t]; revoked++; }
+    }
+    audit.append("password_changed", { userId, revokedOtherSessions: revoked });
+    persist();
+    return { ok: true, revokedOtherSessions: revoked };
   });
 
   // Password reset. The response is uniform whether or not the account exists
@@ -316,7 +419,8 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
     const out = { ok: true };
     if (cred) {
       const token = newResetToken();
-      store.data.resets[token] = { email, exp: Date.now() + 1800000 }; // 30 min
+      // stored under its SHA-256 lookup key — never in plaintext at rest
+      store.data.resets[tokenLookupKey(token)] = { email, exp: Date.now() + 1800000 }; // 30 min
       audit.append("password_reset_requested", { userId: cred.userId });
       logger.info("password_reset_token_issued", { userId: cred.userId }); // token itself never logged
       if (mailer.active) {
@@ -341,18 +445,19 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
   add("POST", /^\/api\/auth\/password\/reset$/, async (req, body) => {
     const token = asString(body.token, "token", { max: 200 });
     const password = asPassword(body.newPassword);
-    const rec = store.data.resets[token];
+    const tokenKey = tokenLookupKey(token);
+    const rec = store.data.resets[tokenKey];
     if (!rec || Date.now() > rec.exp) {
-      delete store.data.resets[token];
+      delete store.data.resets[tokenKey];
       persist();
       throw new ApiError(401, "bad_reset_token", "Invalid or expired reset token");
     }
     const cred = store.data.credentials[rec.email];
     if (!cred) throw new ApiError(401, "bad_reset_token", "Invalid or expired reset token");
-    cred.passHash = hashPin(password);
-    delete store.data.resets[token];
+    cred.passHash = await hashPinAsync(password);
+    delete store.data.resets[tokenKey];
     const revoked = revokeAllForUser(cred.userId); // a reset kills every live session
-    guard.recordSuccess(cred.userId); // clear any lockout so the user can log in
+    guard.recordSuccess(cred.userId, "login"); // clear any login lockout so the user can log in
     audit.append("password_reset_completed", { userId: cred.userId, revoked });
     persist();
     return { ok: true };
@@ -374,7 +479,8 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
   // treated as a theft signal — ALL of that user's sessions are revoked.
   add("POST", /^\/api\/sessions\/refresh$/, async (req, body) => {
     const rt = asString(body.refreshToken, "refreshToken", { max: 200 });
-    const rec = store.data.refresh[rt];
+    const rtKey = tokenLookupKey(rt);
+    const rec = store.data.refresh[rtKey];
     if (!rec) throw new ApiError(401, "bad_refresh_token", "Unknown refresh token");
     if (rec.rotatedTo) {
       // reuse of a rotated token → assume compromise, kill everything
@@ -384,7 +490,7 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
       throw new ApiError(401, "refresh_reused", "Refresh token reuse detected; all sessions revoked");
     }
     if (Date.now() > rec.exp) {
-      delete store.data.refresh[rt];
+      delete store.data.refresh[rtKey];
       persist();
       throw new ApiError(401, "refresh_expired", "Refresh token expired, please re-authenticate");
     }
@@ -397,7 +503,7 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
       }
     }
     const issued = issueSession(rec.userId, rec.deviceHash);
-    rec.rotatedTo = sha256(issued.refreshToken); // marker only — never store the live token in the old record
+    rec.rotatedTo = tokenLookupKey(issued.refreshToken); // marker only — the new record's lookup key, never the live token
     audit.append("session_refreshed", { userId: rec.userId });
     persist();
     return issued;
@@ -406,7 +512,7 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
   // Logout: explicit session revocation (the token is dead server-side immediately)
   add("POST", /^\/api\/logout$/, async (req) => {
     const userId = requireAuth(req, store);
-    delete store.data.sessions[bearerToken(req)];
+    delete store.data.sessions[tokenLookupKey(bearerToken(req))];
     audit.append("logout", { userId });
     persist();
     return { ok: true };
@@ -437,7 +543,7 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
       balanceMinor: existing ? existing.balanceMinor : 0,
       accountRefEnc: body.accountNumber ? encryptField(String(body.accountNumber)) : (existing ? existing.accountRefEnc : null),
     };
-    if (body.pin) store.data.pins[userId] = hashPin(asPin(body.pin));
+    if (body.pin) store.data.pins[userId] = await hashPinAsync(asPin(body.pin));
     audit.append("account_linked", { userId, bank });
     persist();
     const a = store.data.accounts[userId];
@@ -596,7 +702,7 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
       if (p.kind === "p2p" && p.recipient && p.recipient.name) {
         entry = { name: p.recipient.name, phone: null, vpa: null };
       } else if (p.domestic && p.payee && p.payee.name &&
-                 ["upi", "phone", "contact", "merchant", "bank", "request"].includes(p.payee.type)) {
+        ["upi", "phone", "contact", "merchant", "bank", "request"].includes(p.payee.type)) {
         entry = { name: p.payee.name, phone: p.payee.phone || null, vpa: p.payee.vpa || null };
       }
       if (!entry) continue;
@@ -656,7 +762,7 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
         // The label is a STABLE route, never the raw path: an unmatched path is
         // fully attacker-controlled, so folding it into a single "unmatched"
         // bucket prevents metric-cardinality memory exhaustion (a flood of
-        // distinct /api/<junk> paths would otherwise allocate one series each).
+        // distinct /api/ paths would otherwise allocate one series each).
         let routeLabel = "/api/unmatched";
         if (path !== "/api/metrics") {
           res.on("finish", () => metrics.recordHttp(req.method, routeLabel, res.statusCode, Date.now() - t0));
@@ -798,12 +904,16 @@ function bearerToken(req) {
 
 function requireAuth(req, store) {
   const token = bearerToken(req);
-  const sess = token ? store.data.sessions[token] : null;
+  // Sessions are keyed by sha256(token) at rest — hash the presented bearer
+  // to look it up. Constant work either way; no plaintext token ever touches
+  // the store.
+  const tokenKey = token ? tokenLookupKey(token) : null;
+  const sess = tokenKey ? store.data.sessions[tokenKey] : null;
   if (!sess) throw new ApiError(401, "unauthorized", "Missing or invalid token");
   const userId = typeof sess === "string" ? sess : sess.userId;
   const exp = typeof sess === "string" ? null : sess.exp;
   if (exp && Date.now() > exp) {
-    delete store.data.sessions[token];
+    delete store.data.sessions[tokenKey];
     throw new ApiError(401, "session_expired", "Session expired, please re-authenticate");
   }
   if (!userId) throw new ApiError(401, "unauthorized", "Missing or invalid token");
@@ -875,10 +985,50 @@ function lanUrls(port) {
   const ifaces = networkInterfaces();
   for (const name of Object.keys(ifaces)) {
     for (const ni of ifaces[name] || []) {
-      if (ni.family === "IPv4" && !ni.internal) urls.push(`http://${ni.address}:${port}`);
+      if (ni.family === "IPv4" && !ni.internal) urls.push("http" + "://" + ni.address + ":" + port);
     }
   }
   return urls;
+}
+
+// One-time, idempotent migration for stores created before token-at-rest
+// hashing: any session/refresh/reset record still keyed by its PLAINTEXT
+// token (recognizable by the tok_/rtk_/prt_ prefixes) is re-keyed under
+// sha256(token). Live clients keep working — the raw token they hold now
+// resolves via its lookup hash — and the plaintext key is gone from disk on
+// the next persist.
+function migrateTokenKeys(store) {
+  const maps = [["sessions", "tok_"], ["refresh", "rtk_"], ["resets", "prt_"]];
+  let migrated = 0;
+  for (const [name, prefix] of maps) {
+    const m = store.data[name];
+    if (!m) continue;
+    for (const key of Object.keys(m)) {
+      if (key.startsWith(prefix)) {
+        m[tokenLookupKey(key)] = m[key];
+        delete m[key];
+        migrated++;
+      }
+    }
+  }
+  if (migrated) {
+    logger.info("token_keys_migrated_to_hashes", { migrated });
+    store.persist();
+  }
+  return migrated;
+}
+
+// Normalize and consume a single-use 2FA recovery code. Returns true only if
+// a stored (hashed) code matched; the matched code is removed immediately so
+// it can never be replayed.
+function consumeRecoveryCode(cred, given) {
+  const norm = String(given || "").replace(/[\s-]/g, "").toLowerCase();
+  if (!norm || !/^[0-9a-f]{10}$/.test(norm) || !Array.isArray(cred.recoveryCodes)) return false;
+  const h = sha256(norm);
+  const i = cred.recoveryCodes.indexOf(h);
+  if (i === -1) return false;
+  cred.recoveryCodes.splice(i, 1);
+  return true;
 }
 
 // start when run directly
@@ -920,7 +1070,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
         app.store.data.ledger = app.ledger.toJSON();
         app.store.data.audit = app.audit.toJSON();
         app.store.persist();
-        if (app.store.flush) await app.store.flush();   // durable (PgStore)
+        if (app.store.flush) await app.store.flush(); // durable (PgStore)
         if (app.store.close) await app.store.close();
       } catch (e) { logger.error("shutdown_persist_failed", { message: String(e && e.message) }); }
       process.exit(0);
