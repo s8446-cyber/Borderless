@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { Store } from "../src/store.js";
 import { DualLedger } from "../src/ledger.js";
 import { PaymentService } from "../src/payments.js";
-import { hashPin } from "../src/auth.js";
+import { hashPin, tokenLookupKey } from "../src/auth.js";
 import { buildApp } from "../src/server.js";
 
 function seedUser(store, id, balanceMinor, pin) {
@@ -197,7 +197,7 @@ test("G-2: maintenance sweep garbage-collects expired sessions and quotes", asyn
   await withServer(async ({ call, app }) => {
     const r = await call("/api/auth/signup", { method: "POST", body: { fullName: "Aarav Shah", email: "h2@t.test", password: "long-enough-pw1", country: "IN", consent: true } });
     const token = r.data.token;
-    assert.ok(app.store.data.sessions[token]);
+    assert.ok(app.store.data.sessions[tokenLookupKey(token)], "session stored under its hashed lookup key");
 
     const q = await call("/api/quotes", { method: "POST", body: { currency: "AED", localAmount: 10 } });
     assert.ok(app.store.data.quotes[q.data.quoteId]);
@@ -208,12 +208,12 @@ test("G-2: maintenance sweep garbage-collects expired sessions and quotes", asyn
     assert.equal(swept.quotes, 0);
 
     // force-expire both, then sweep
-    app.store.data.sessions[token].exp = Date.now() - 1;
+    app.store.data.sessions[tokenLookupKey(token)].exp = Date.now() - 1;
     app.store.data.quotes[q.data.quoteId].expiresAt = Date.now() - 1;
     swept = app.sweepExpired();
     assert.equal(swept.sessions, 1);
     assert.equal(swept.quotes, 1);
-    assert.equal(app.store.data.sessions[token], undefined);
+    assert.equal(app.store.data.sessions[tokenLookupKey(token)], undefined);
     assert.equal(app.store.data.quotes[q.data.quoteId], undefined);
   });
 });
