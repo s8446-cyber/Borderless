@@ -147,3 +147,50 @@ test("PG: full HTTP journey on Postgres, then restart — money and history inta
   });
   await store2.close();
 });
+
+// ---- pass 10: single-writer safety + durability-before-ACK (blocker 4) ----
+
+test("PG: a second writer instance is refused (fail-closed advisory lock)", opts, async () => {
+  const PgStore = await freshDb();
+  const s1 = await PgStore.create(URL);
+  try {
+    let refused = false;
+    let s2 = null;
+    try {
+      s2 = await PgStore.create(URL); // must throw — s1 holds the writer lock
+    } catch (e) {
+      refused = /advisory lock|already holds|one writer|Refusing to boot/i.test(e.message);
+    }
+    if (s2) await s2.close();
+    assert.ok(refused, "a concurrent second writer must fail closed, not clobber shared state");
+  } finally {
+    await s1.close();
+  }
+  // after the first writer releases the lock, a new writer may take over
+  const s3 = await PgStore.create(URL);
+  await s3.close();
+});
+
+test("PG: flush() awaits durability and rejects (never a false success) if the write cannot commit", opts, async () => {
+  const PgStore = await freshDb();
+  const s1 = await PgStore.create(URL);
+  // happy path: mutate → persist → flush → durable on reopen
+  s1.data.users["dur_1"] = { id: "dur_1", name: "Durable" };
+  s1.persist();
+  await s1.flush();
+  await s1.close();
+  const s2 = await PgStore.create(URL);
+  assert.equal(s2.data.users["dur_1"].name, "Durable", "flushed write is durable across a restart");
+
+  // failure path: make the durable write throw; flush() must REJECT (so the
+  // HTTP layer returns 500, never a false 200). We stub the write rather than
+  // ending the pool so cleanup stays clean.
+  s2._write = async () => { throw new Error("simulated durable-write failure"); };
+  s2.data.users["dur_2"] = { id: "dur_2", name: "Lost" };
+  s2.persist();
+  let rejected = false;
+  try { await s2.flush(); } catch { rejected = true; }
+  assert.ok(rejected, "flush() rejects when the durable write fails — the HTTP layer then returns 500, not a false 200");
+  s2._write = async () => {}; // let close() flush cleanly
+  await s2.close();
+});
