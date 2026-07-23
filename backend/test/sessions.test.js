@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 
 import { DualLedger, merkleRoot, merkleProof, verifyMerkleProof, sha256 } from "../src/ledger.js";
 import { buildApp } from "../src/server.js";
+import { tokenLookupKey } from "../src/auth.js";
 
 // ---------- G-4: Merkle proofs (pure math) ----------
 
@@ -144,7 +145,7 @@ test("G-3: refresh rotates tokens; reusing a rotated token revokes everything", 
     // tok2 and rt2 are dead too
     const after = await call("/api/accounts", { token: tok2, deviceId: "dev-1" });
     assert.equal(after.status, 401);
-    assert.equal(app.store.data.refresh[rt2], undefined, "successor refresh revoked");
+    assert.equal(app.store.data.refresh[tokenLookupKey(rt2)], undefined, "successor refresh revoked");
   });
 });
 
@@ -159,11 +160,11 @@ test("G-3: refresh is device-bound and expiry is enforced", async () => {
     assert.equal(ref.data.error, "device_mismatch");
 
     // expired → rejected and deleted
-    app.store.data.refresh[rt].exp = Date.now() - 1;
+    app.store.data.refresh[tokenLookupKey(rt)].exp = Date.now() - 1;
     ref = await call("/api/sessions/refresh", { method: "POST", body: { refreshToken: rt, deviceId: "dev-A" } });
     assert.equal(ref.status, 401);
     assert.equal(ref.data.error, "refresh_expired");
-    assert.equal(app.store.data.refresh[rt], undefined);
+    assert.equal(app.store.data.refresh[tokenLookupKey(rt)], undefined);
 
     // unknown token
     ref = await call("/api/sessions/refresh", { method: "POST", body: { refreshToken: "rtk_bogus" } });
@@ -202,10 +203,10 @@ test("G-3: maintenance sweep garbage-collects expired refresh tokens", async () 
   await withServer(async ({ call, app }) => {
     const r = await call("/api/auth/signup", SIGNUP());
     const rt = r.data.refreshToken;
-    app.store.data.refresh[rt].exp = Date.now() - 1;
+    app.store.data.refresh[tokenLookupKey(rt)].exp = Date.now() - 1;
     const swept = app.sweepExpired();
     assert.equal(swept.refresh, 1);
-    assert.equal(app.store.data.refresh[rt], undefined);
+    assert.equal(app.store.data.refresh[tokenLookupKey(rt)], undefined);
   });
 });
 
@@ -236,7 +237,7 @@ test("G-4: /api/ledger/proof/:index lets a third party verify a receipt", async 
     assert.ok(!raw.includes("usr_") && !raw.includes("merchant") && !raw.includes("amount"), "no PII in proof");
 
     // unknown block → 404
-    const missing = await call("/api/ledger/proof/99999");
+    const missing = await call(`/api/ledger/proof/99999`);
     assert.equal(missing.status, 404);
   });
 });

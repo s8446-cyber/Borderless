@@ -77,6 +77,8 @@ export class PaymentService {
   }
 
   // Shared actor checks: existence, KYC, account, lockout, then PIN.
+  // PIN failures use their own "pin" lockout scope so password-guessing
+  // failures at login can never lock payments, and vice versa.
   _authorize(d, userId, pin) {
     const user = d.users[userId];
     if (!user) throw new ApiError(404, "user_not_found", "Unknown user");
@@ -85,19 +87,19 @@ export class PaymentService {
     const acct = d.accounts[userId];
     if (!acct) throw new ApiError(409, "no_account", "No bank account linked");
 
-    if (this.guard) this.guard.assertNotLocked(userId);
+    if (this.guard) this.guard.assertNotLocked(userId, "pin");
 
     if (!verifyPin(pin, d.pins[userId])) {
       let locked = false;
       if (this.guard) {
-        const r = this.guard.recordFail(userId);
+        const r = this.guard.recordFail(userId, "pin");
         locked = r.locked;
         this.store.persist();
       }
       if (this.audit) this.audit.append("pin_failed", { userId, locked });
       throw new ApiError(401, "bad_pin", "Incorrect PIN");
     }
-    if (this.guard) this.guard.recordSuccess(userId);
+    if (this.guard) this.guard.recordSuccess(userId, "pin");
     return { user, acct };
   }
 

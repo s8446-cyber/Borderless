@@ -78,7 +78,8 @@ test("account close: PII erased, sessions dead, ledger + pseudonymous records in
     assert.equal(pay.status, 200);
     const paymentId = pay.data.receipt.paymentId;
 
-    r = await call("/api/account/close", { method: "POST", token });
+    // closure is a destructive, irreversible action — it now requires re-auth
+    r = await call("/api/account/close", { method: "POST", body: { password: "long-enough-pw1" }, token });
     assert.equal(r.status, 200);
     assert.ok(r.data.ok);
 

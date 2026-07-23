@@ -29,8 +29,24 @@ function resolveEncKey() {
   const raw = required("BP_ENC_KEY");
   if (!raw) return randomBytes(32);
   if (/^[0-9a-fA-F]{64}$/.test(raw)) return Buffer.from(raw, "hex");
-  // treat as a passphrase and derive a deterministic 32-byte key
-  return scryptSync(raw, "borderless-pay:enc:v1", 32);
+  // Treat as a passphrase and derive a deterministic 32-byte key.
+  // A passphrase-derived key needs a per-deployment salt: with a fixed,
+  // public salt an attacker who obtains a data snapshot can precompute
+  // dictionaries offline. Production therefore REQUIRES either a raw 64-hex
+  // key or a unique BP_ENC_SALT (fail-closed). The legacy fixed salt is only
+  // accepted in development so existing dev data keeps decrypting.
+  const salt = (process.env.BP_ENC_SALT || "").trim();
+  if (salt && salt.length < 16) {
+    throw new Error("FATAL config: BP_ENC_SALT must be at least 16 characters");
+  }
+  if (isProd && !salt) {
+    throw new Error(
+      "FATAL config: BP_ENC_KEY is a passphrase but BP_ENC_SALT is not set. In production, " +
+      "either set BP_ENC_KEY to 64 hex characters (a raw 32-byte key) or set a unique, " +
+      "per-deployment BP_ENC_SALT (>= 16 characters) for passphrase derivation."
+    );
+  }
+  return scryptSync(raw, salt || "borderless-pay:enc:v1", 32);
 }
 const encKey = resolveEncKey();
 
@@ -54,14 +70,14 @@ const kycProvider = (process.env.BP_KYC_PROVIDER || "sandbox").trim().toLowerCas
 
 // --- Settlement mode ---
 // "sandbox": money movement is SIMULATED end-to-end and every receipt says so.
-//   Balances are funded through the explicit /api/topup flow (no invented
-//   money), the double-entry ledger balances against the funding:sandbox
-//   account, and clients render a visible SANDBOX badge. This is the honest
-//   pre-license posture: real code, real crypto, real persistence — no
-//   pretend money.
+// Balances are funded through the explicit /api/topup flow (no invented
+// money), the double-entry ledger balances against the funding:sandbox
+// account, and clients render a visible SANDBOX badge. This is the honest
+// pre-license posture: real code, real crypto, real persistence — no
+// pretend money.
 // "live": real rails. Fail-closed — refuses to boot until a licensed PSP /
-//   sponsor-bank adapter is integrated and named in BP_PSP_PROVIDER, so nobody
-//   can flip a flag and pretend simulated settlement is real.
+// sponsor-bank adapter is integrated and named in BP_PSP_PROVIDER, so nobody
+// can flip a flag and pretend simulated settlement is real.
 const settlementMode = (process.env.BP_SETTLEMENT_MODE || "sandbox").trim().toLowerCase();
 if (!["sandbox", "live"].includes(settlementMode)) {
   throw new Error("FATAL config: BP_SETTLEMENT_MODE must be 'sandbox' or 'live', got '" + settlementMode + "'");
@@ -109,6 +125,7 @@ export const config = {
   refreshTtlMs: intEnv("BP_REFRESH_TTL_MS", 2592000000), // refresh-token lifetime (30 days)
   sweepIntervalMs: intEnv("BP_SWEEP_INTERVAL_MS", 300000), // maintenance GC cadence (5 min)
   idemTtlMs: intEnv("BP_IDEM_TTL_MS", 86400000), // idempotency-key retention after settlement (24h)
+  passwordMinLength: intEnv("BP_PASSWORD_MIN_LENGTH", 8), // raise per deployment policy
   rateLimit: {
     windowMs: intEnv("BP_RL_WINDOW_MS", 60000),
     max: intEnv("BP_RL_MAX", 120),
