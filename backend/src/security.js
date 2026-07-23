@@ -48,7 +48,14 @@ export class LoginGuard {
   _key(userId, scope) {
     return String(scope || "auth") + ":" + String(userId);
   }
-  assertNotLocked(userId, scope = "auth", now = Date.now()) {
+  _norm(scope, now) {
+    // Backward compatible: callers may pass (userId, now) with a numeric
+    // second argument, or (userId, scope, now) with an explicit scope string.
+    if (typeof scope === "number") return { scope: "auth", now: scope };
+    return { scope: scope || "auth", now: now === undefined ? Date.now() : now };
+  }
+  assertNotLocked(userId, scopeOrNow, maybeNow) {
+    const { scope, now } = this._norm(scopeOrNow, maybeNow);
     const s = this._sec();
     const key = this._key(userId, scope);
     const until = s.locks[key];
@@ -60,7 +67,8 @@ export class LoginGuard {
       delete s.fails[key];
     }
   }
-  recordFail(userId, scope = "auth", now = Date.now()) {
+  recordFail(userId, scopeOrNow, maybeNow) {
+    const { scope, now } = this._norm(scopeOrNow, maybeNow);
     const s = this._sec();
     const key = this._key(userId, scope);
     const arr = (s.fails[key] || []).filter((t) => now - t < this.windowMs);
