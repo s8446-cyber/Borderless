@@ -29,7 +29,10 @@ export class RateLimiter {
   }
 }
 
-// Per-user failed-PIN lockout, backed by the store so it survives restarts.
+// Per-user failed-attempt lockout, backed by the store so it survives
+// restarts. Lockouts are SCOPED ("login", "totp", "pin") so password, 2FA and
+// payment-PIN failures accumulate and lock independently — a password-guessing
+// burst cannot be used to lock a victim out of payments, and vice versa.
 export class LoginGuard {
   constructor(store, opts) {
     this.store = store;
@@ -42,33 +45,39 @@ export class LoginGuard {
     if (!d.security) d.security = { fails: {}, locks: {} };
     return d.security;
   }
-  assertNotLocked(userId, now = Date.now()) {
+  _key(userId, scope) {
+    return String(scope || "auth") + ":" + String(userId);
+  }
+  assertNotLocked(userId, scope = "auth", now = Date.now()) {
     const s = this._sec();
-    const until = s.locks[userId];
+    const key = this._key(userId, scope);
+    const until = s.locks[key];
     if (until && until > now) {
       throw new ApiError(423, "account_locked", "Too many failed attempts. Try again in " + Math.ceil((until - now) / 1000) + "s");
     }
     if (until && until <= now) {
-      delete s.locks[userId];
-      delete s.fails[userId];
+      delete s.locks[key];
+      delete s.fails[key];
     }
   }
-  recordFail(userId, now = Date.now()) {
+  recordFail(userId, scope = "auth", now = Date.now()) {
     const s = this._sec();
-    const arr = (s.fails[userId] || []).filter((t) => now - t < this.windowMs);
+    const key = this._key(userId, scope);
+    const arr = (s.fails[key] || []).filter((t) => now - t < this.windowMs);
     arr.push(now);
-    s.fails[userId] = arr;
+    s.fails[key] = arr;
     let locked = false;
     if (arr.length >= this.maxFails) {
-      s.locks[userId] = now + this.lockMs;
+      s.locks[key] = now + this.lockMs;
       locked = true;
     }
     return { fails: arr.length, locked };
   }
-  recordSuccess(userId) {
+  recordSuccess(userId, scope = "auth") {
     const s = this._sec();
-    delete s.fails[userId];
-    delete s.locks[userId];
+    const key = this._key(userId, scope);
+    delete s.fails[key];
+    delete s.locks[key];
   }
 }
 
@@ -153,9 +162,31 @@ export function asPin(v) {
   return s;
 }
 
+// Denylist of extremely common passwords (all >= 8 chars, lowercase). This is
+// a lightweight offline screen — production should ALSO screen against a
+// breached-corpus service such as the k-anonymity HIBP range API.
+const COMMON_PASSWORDS = new Set([
+  "password", "password1", "password12", "password123", "password1234",
+  "passw0rd", "p@ssw0rd", "p@ssword", "password!", "password@123",
+  "12345678", "123456789", "1234567890", "12345678910", "87654321",
+  "11111111", "00000000", "11223344", "123123123", "123321123",
+  "qwertyuiop", "qwerty123", "qwerty1234", "1q2w3e4r", "1q2w3e4r5t",
+  "q1w2e3r4", "zaq12wsx", "qazwsxedc", "asdfghjkl", "asdf1234",
+  "iloveyou", "sunshine", "princess", "football", "baseball",
+  "superman", "whatever", "trustno1", "letmein1", "welcome1",
+  "welcome123", "admin123", "administrator", "abc12345", "abcd1234",
+  "monkey12", "dragon12", "master123", "shadow12", "michael1",
+  "jessica1", "charlie1", "aa123456", "internet", "computer",
+  "borderless", "borderless1",
+]);
+
 export function asPassword(v) {
   const s = asString(v, "password", { max: 200 });
-  if (s.length < 8) throw new ApiError(400, "weak_password", "Password must be at least 8 characters");
+  const min = config.passwordMinLength || 8;
+  if (s.length < min) throw new ApiError(400, "weak_password", "Password must be at least " + min + " characters");
+  if (COMMON_PASSWORDS.has(s.toLowerCase()) || /^(.)\1+$/.test(s)) {
+    throw new ApiError(400, "weak_password", "This password is too common or predictable — choose a different one");
+  }
   return s;
 }
 
