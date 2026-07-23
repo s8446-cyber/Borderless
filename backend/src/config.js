@@ -103,6 +103,15 @@ const corsOrigins = corsRaw
   ? corsRaw.split(",").map((s) => s.trim()).filter(Boolean)
   : (isProd ? [] : ["*"]);
 
+// --- operations back office & PSP webhooks ---
+// Both fail closed in production: without an explicitly provisioned ops token
+// / webhook secret the corresponding endpoints do not exist (404), so neither
+// back-office money actions nor webhook-driven settlement can be reached
+// unauthenticated. Development gets a fixed ops token and a per-process
+// webhook secret so the flows are exercisable out of the box.
+const opsToken = (process.env.BP_OPS_TOKEN || "").trim() || (isProd ? null : "ops-dev-token");
+const webhookSecret = (process.env.BP_WEBHOOK_SECRET || "").trim() || (isProd ? null : "whsec-dev-" + signingSecret.slice(-16));
+
 export const config = {
   env: ENV,
   isProd,
@@ -144,19 +153,36 @@ export const config = {
     dailyTotalMaxMinor: intEnv("BP_DAILY_TOTAL_MAX_MINOR", 100000000),
     dailyCountMax: intEnv("BP_DAILY_COUNT_MAX", 100),
   },
+  // Pre-transaction risk policy (payee cooling, device caps, fraud scoring).
+  risk: {
+    coolingMs: intEnv("BP_RISK_COOLING_MS", 86400000), // 24h beneficiary cooling window
+    coolingCapMinor: intEnv("BP_RISK_COOLING_CAP_MINOR", 2500000), // ₹25,000 to a new beneficiary during cooling
+    newDeviceWindowMs: intEnv("BP_RISK_NEW_DEVICE_WINDOW_MS", 86400000),
+    newDeviceDailyCapMinor: intEnv("BP_RISK_NEW_DEVICE_DAILY_CAP_MINOR", 5000000), // ₹50,000/day from a first-day device
+    reviewScore: intEnv("BP_RISK_REVIEW_SCORE", 70), // fraud score ⇒ hold for ops review
+    blockScore: intEnv("BP_RISK_BLOCK_SCORE", 90), // fraud score ⇒ refuse outright
+  },
+  // AML / regulatory policy. Defaults sit above the sandbox per-transaction
+  // limits; deployments that raise BP_TXN_MAX_MINOR tune these to their
+  // compliance program.
+  aml: {
+    ctrThresholdMinor: intEnv("BP_AML_CTR_THRESHOLD_MINOR", 100000000), // ₹10,00,000 single txn → CTR
+    velocityAlertMinor: intEnv("BP_AML_VELOCITY_ALERT_MINOR", 50000000), // ₹5,00,000 outbound/day → alert
+    sofThresholdMinor: intEnv("BP_AML_SOF_THRESHOLD_MINOR", 50000000), // ₹5,00,000 top-up → source of funds
+    lrsDocThresholdMinor: intEnv("BP_LRS_DOC_THRESHOLD_MINOR", 70000000), // ₹7,00,000 → purpose code + PAN
+    lrsAnnualCapMinor: intEnv("BP_LRS_ANNUAL_CAP_MINOR", 2100000000), // ≈ USD 250,000 equivalent per FY
+  },
+  // PSP connector behavior (timeout recovery backoff).
+  psp: {
+    timeoutMs: intEnv("BP_PSP_TIMEOUT_MS", 5000),
+    maxAttempts: intEnv("BP_PSP_MAX_ATTEMPTS", 5),
+    retryBaseMs: intEnv("BP_PSP_RETRY_BASE_MS", 60000),
+  },
+  opsToken,
+  webhookSecret,
 };
 
 export function configSummary() {
   return {
     env: config.env,
-    port: config.port,
-    persistence: config.pgUrl ? "postgres" : (config.dbPath ? "file" : "in-memory"),
-    corsOrigins: config.corsOrigins,
-    trustProxy: config.trustProxy,
-    signingSecretSet: Boolean(process.env.BP_SIGNING_SECRET),
-    encKeySet: Boolean(process.env.BP_ENC_KEY),
-    emailProvider: config.emailProvider || "none",
-    kycProvider: config.kycProvider,
-    settlementMode: config.settlementMode,
-  };
-}
+    port

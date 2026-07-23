@@ -4,25 +4,35 @@
 import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, copyFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 export const DEFAULT = () => ({
   schemaVersion: SCHEMA_VERSION,
-  users: {},        // userId -> { id, name, country, kyc }
-  accounts: {},     // userId -> { bank, maskedNumber, currency, balanceMinor, accountRefEnc }
-  pins: {},         // userId -> versioned scrypt hash
-  sessions: {},     // token -> { userId, exp, createdAt, deviceHash? }
-  refresh: {},      // refreshToken -> { userId, deviceHash?, exp, createdAt, rotatedTo? }
-  credentials: {},  // email -> { userId, passHash, totpSecretEnc, totpEnabled, createdAt }
-  resets: {},       // resetToken -> { email, exp }
-  payments: {},     // paymentId -> receipt
-  quotes: {},       // quoteId -> quote (TTL-bound; survives restart, multi-instance safe via shared store)
-  idempotency: {},  // key -> paymentId
-  requests: {},     // requestId -> collect request
-  waitlist: [],     // marketing-site early-access signups: { email, ts }
+  users: {}, // userId -> { id, name, country, kyc }
+  accounts: {}, // userId -> { bank, maskedNumber, currency, balanceMinor, accountRefEnc }
+  pins: {}, // userId -> versioned scrypt hash
+  sessions: {}, // token -> { userId, exp, createdAt, deviceHash? }
+  refresh: {}, // refreshToken -> { userId, deviceHash?, exp, createdAt, rotatedTo? }
+  credentials: {}, // email -> { userId, passHash, totpSecretEnc, totpEnabled, createdAt }
+  resets: {}, // resetToken -> { email, exp }
+  payments: {}, // paymentId -> receipt
+  quotes: {}, // quoteId -> quote (TTL-bound; survives restart, multi-instance safe via shared store)
+  idempotency: {}, // key -> paymentId
+  requests: {}, // requestId -> collect request
+  waitlist: [], // marketing-site early-access signups: { email, ts }
   security: { fails: {}, locks: {} }, // failed-PIN counters + lockouts
-  ledger: null,     // serialized dual ledger
-  audit: null,      // serialized audit log
+  beneficiaries: {}, // userId -> { beneficiaryKey -> { name, addedAt, sentDuringCoolingMinor } }
+  devices: {}, // userId -> { deviceHash -> { firstSeen } } (device risk limits)
+  payeeDirectory: {}, // beneficiaryKey -> registered account name (payee-name verification)
+  riskHolds: {}, // paymentId -> escrow meta for payments pending fraud review
+  pspPending: {}, // paymentId -> in-doubt settlement recovery state (attempts, nextRetryAt)
+  webhookSeen: {}, // webhook eventId -> ts (replay rejection)
+  aml: { alerts: [], reports: [] }, // transaction-monitoring alerts + STR/CTR reports
+  disputes: {}, // disputeId -> customer dispute case
+  ops: { actions: {} }, // maker-checker action queue for the ops back office
+  recon: { breaks: [] }, // reconciliation settlement-break records
+  ledger: null, // serialized dual ledger
+  audit: null, // serialized audit log
 });
 
 export class Store {
