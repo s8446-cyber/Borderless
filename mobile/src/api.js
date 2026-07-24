@@ -12,10 +12,20 @@
 //  - a dead refresh token (expired / revoked / reuse-detected) triggers the
 //    registered onSessionExpired handler exactly once, so the UI can return
 //    the user to a clean sign-in instead of stranding them on failing screens
+//
+// UX hardening (this file's additions):
+//  - connectivity reporting: a network-layer fetch failure marks the app
+//    offline (src/net.js) and surfaces a human "you're offline" message;
+//    any response — success or error — marks it back online
+//  - error copy: machine codes and internal identifiers from the backend are
+//    mapped to customer-friendly copy (src/errors.js) before they can reach
+//    a screen
 import { CONFIG } from "./config";
 import { getDeviceId } from "./device";
 import { updateStoredTokens, clearPersistedSession } from "./session";
 import { singleFlight } from "./singleflight";
+import { setOnline } from "./net";
+import { humanError, ERROR_COPY } from "./errors";
 
 let _token = null;
 let _refresh = null;
@@ -39,11 +49,21 @@ async function request(path, { method = "GET", body, idempotencyKey } = {}) {
   const headers = { "content-type": "application/json", "x-device-id": await getDeviceId() };
   if (_token) headers.authorization = "Bearer " + _token;
   if (idempotencyKey) headers["idempotency-key"] = idempotencyKey;
-  const res = await fetch(CONFIG.API_BASE + path, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(CONFIG.API_BASE + path, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    // fetch only rejects on network-layer failure — the connectivity oracle
+    setOnline(false);
+    const e = new Error(ERROR_COPY.network_offline);
+    e.offline = true;
+    throw e;
+  }
+  setOnline(true);
   const data = await res.json().catch(() => ({}));
   return { res, data };
 }
@@ -99,6 +119,13 @@ export async function api(path, opts = {}) {
     await expireSession();
     throw new Error("Your session has expired — please sign in again.");
   }
-  if (!res.ok) throw new Error(data.message || data.error || "Request failed");
+  if (!res.ok) {
+    // Map machine codes / internal identifiers to customer-friendly copy;
+    // human sentences from the backend pass through unchanged.
+    const err = new Error(humanError(data.message || data.error));
+    err.code = data.error;
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
