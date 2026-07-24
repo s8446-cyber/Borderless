@@ -11,7 +11,6 @@ import { Icon } from "../icons.js";
 import { displayName } from "../activity.js";
 
 const ACTIONS = [
-  { key: "pay",     icon: "scan",     labelKey: "scan",           handler: "startScan" },
   { key: "send",    icon: "send",     labelKey: "send",           handler: "startSend" },
   { key: "scanDom", icon: "pay",      labelKey: "pay",            handler: "startScanDomestic" },
   { key: "recharge",icon: "recharge", labelKey: "mobile_recharge",handler: "startDomRecharge" },
@@ -35,7 +34,7 @@ export function HomeScreen() {
       {/* Greeting */}
       <Text style={{ fontSize: rs(20), fontWeight: "700", color: C.text, marginBottom: rs(4) }}
         accessibilityRole="header">
-        Hey, {name || "there"}
+        Hey, {name || "there"} 👋
       </Text>
 
       {/* Balance card */}

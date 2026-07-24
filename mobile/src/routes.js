@@ -5,7 +5,7 @@
 // the URL hash, so a browser reload or a shared link restores the right
 // top-level screen, and (3) which screens show the tab bar.
 
-export const TAB_SCREENS = ["home", "scan", "scanDom", "send", "compose", "review", "history", "txnDetail", "quote", "receipt", "contacts", "help"];
+export const TAB_SCREENS = ["home", "scanDom", "send", "compose", "review", "history", "txnDetail", "quote", "receipt", "contacts", "help"];
 
 // Only stable, side-effect-free destinations are deep-linkable. Mid-payment
 // screens (auth/settle/review…) must never be entered from a URL.
@@ -14,7 +14,6 @@ const HASH_FOR = {
   history: "#/activity",
   help: "#/help",
   scanDom: "#/scan",
-  scan: "#/pay-abroad",
   send: "#/send-abroad",
 };
 
@@ -36,7 +35,6 @@ export function backTargetFor(screen, { flow, domIntentKind, resetStage, helpFro
   switch (screen) {
     case "signin":
       return resetStage && resetStage !== "none" ? "signin" : "welcome";
-    case "scan":
     case "send":
     case "scanDom":
     case "compose":
@@ -50,7 +48,7 @@ export function backTargetFor(screen, { flow, domIntentKind, resetStage, helpFro
     case "review":
       return domIntentKind === "payrequest" ? "home" : "compose";
     case "quote":
-      return flow === "send" ? "send" : "scan";
+      return "send";
     case "auth":
       return flow === "domestic" ? "review" : "quote";
     case "receipt":

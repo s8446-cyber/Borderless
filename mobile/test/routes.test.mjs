@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { backTargetFor, routeToHash, parseHash } from "../src/routes.js";
 
 test("backTargetFor: home grid screens go back to home", () => {
-  for (const s of ["scan", "send", "scanDom", "compose", "contacts", "history"]) {
+  for (const s of ["send", "scanDom", "compose", "contacts", "history"]) {
     assert.equal(backTargetFor(s), "home", s);
   }
 });
@@ -23,14 +23,14 @@ test("backTargetFor: review back depends on domIntentKind", () => {
   assert.equal(backTargetFor("review"), "compose");
 });
 
-test("backTargetFor: quote back depends on flow", () => {
+test("backTargetFor: quote always goes back to send", () => {
   assert.equal(backTargetFor("quote", { flow: "send" }), "send");
-  assert.equal(backTargetFor("quote", { flow: "pay" }), "scan");
+  assert.equal(backTargetFor("quote"), "send");
 });
 
 test("backTargetFor: auth back depends on flow", () => {
   assert.equal(backTargetFor("auth", { flow: "domestic" }), "review");
-  assert.equal(backTargetFor("auth", { flow: "pay" }), "quote");
+  assert.equal(backTargetFor("auth", { flow: "send" }), "quote");
 });
 
 test("backTargetFor: receipt always goes home", () => {
@@ -49,7 +49,7 @@ test("backTargetFor: welcome/home return undefined (OS default)", () => {
 });
 
 test("routeToHash / parseHash round-trip for known screens", () => {
-  for (const screen of ["home", "history", "help", "scanDom", "scan", "send"]) {
+  for (const screen of ["home", "history", "help", "scanDom", "send"]) {
     const hash = routeToHash(screen);
     assert.ok(hash, screen + " has a hash");
     assert.equal(parseHash(hash), screen, screen + " round-trips");
@@ -65,5 +65,6 @@ test("routeToHash: mid-payment screens return null (not deep-linkable)", () => {
 test("parseHash: unknown hashes return null", () => {
   assert.equal(parseHash(""), null);
   assert.equal(parseHash("#/unknown-route"), null);
+  assert.equal(parseHash("#/pay-abroad"), null);
   assert.equal(parseHash(null), null);
 });
