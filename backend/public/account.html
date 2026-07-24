@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<title>Borderless Pay — Privacy center</title>
+<link rel="stylesheet" href="/styles.css" />
+<style>
+  .doc { max-width: 560px; margin: 0 auto; padding: 24px 18px 60px; line-height: 1.6; }
+  .doc h1 { font-size: 24px; margin: 18px 0 4px; }
+  .doc h2 { font-size: 17px; margin: 22px 0 6px; color: #cdd6f4; }
+  .doc p { color: var(--muted, #8b93b8); font-size: 14px; }
+  .doc strong { color: #cdd6f4; }
+  .card { border: 1px solid #26315c; border-radius: 12px; padding: 16px; margin: 14px 0; background: rgba(255,255,255,.02); }
+  label { display: block; font-size: 12px; color: #8b93b8; margin: 12px 0 4px; }
+  input { width: 100%; box-sizing: border-box; background: #0e1430; color: #e6ebff; border: 1px solid #26315c; border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+  button { margin-top: 12px; background: #5b8cff; color: #0b1020; border: 0; border-radius: 10px; padding: 10px 16px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  button.secondary { background: transparent; color: #5b8cff; border: 1px solid #26315c; }
+  .msg { font-size: 13px; margin-top: 10px; min-height: 18px; }
+  .msg.ok { color: #6ee7a0; }
+  .msg.err { color: #ff7a90; }
+  .backlink { display: inline-block; margin-top: 22px; color: var(--muted, #8b93b8); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="doc">
+  <div class="brand"><div class="logo">🌍</div> Borderless Pay</div>
+  <h1>Privacy center</h1>
+  <p>Self-serve access to the rights the DPDP Act, 2023 gives you. Every action here requires your <strong>current password</strong> on top of your signed-in session — a device alone is never enough.</p>
+
+  <div id="gate" class="card" hidden>
+    <p id="gateMsg"></p>
+  </div>
+
+  <div id="panel" class="card" hidden>
+    <label for="pw">Current password</label>
+    <input id="pw" type="password" autocomplete="current-password" />
+
+    <h2>Download my data</h2>
+    <p>A machine-readable file with everything we hold about you. AML monitoring records are excluded as the law requires — the file itself explains what and why.</p>
+    <button id="btnExport">Download my data (JSON)</button>
+    <p id="exportMsg" class="msg"></p>
+
+    <h2>Correct my details</h2>
+    <p>Leave a field blank to keep it. Corrections re-run the sanctions/KYC check against your corrected identity.</p>
+    <label for="fullName">Full name</label>
+    <input id="fullName" type="text" autocomplete="name" />
+    <label for="country">Country</label>
+    <input id="country" type="text" />
+    <button id="btnCorrect" class="secondary">Update my details</button>
+    <p id="correctMsg" class="msg"></p>
+
+    <p>To erase your data entirely, close your account from the app (Profile → Close account) — that also revokes every session.</p>
+  </div>
+
+  <a class="backlink" href="/">← Back to the app</a> · <a class="backlink" href="/privacy.html">Privacy Policy</a>
+</div>
+<script src="/account.js"></script>
+</body>
+</html>
