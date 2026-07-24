@@ -46,40 +46,49 @@ function ErrorText({ children }) {
   const palette = useTheme();
   if (!children) return null;
   return (
-    <Text accessibilityRole="alert" style={{ color: palette.danger, fontSize: rs(13), marginTop: rs(10), textAlign: "center" }}>
+    <Text
+      accessibilityRole="alert"
+      style={{ color: palette.danger, fontSize: rs(13), marginTop: rs(10), textAlign: "center" }}
+    >
       {children}
     </Text>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------------
 export function BootScreen() {
   const palette = useTheme();
   return (
     <View style={{ flex: 1, backgroundColor: palette.bg, alignItems: "center", justifyContent: "center" }}>
-      <Brand subtitle={t("sandbox_mode")} />
+      <Brand subtitle={t("tagline")} />
       <ActivityIndicator color={palette.accent} style={{ marginTop: rs(24) }} />
     </View>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Welcome
+// ---------------------------------------------------------------------------
 export function WelcomeScreen() {
   const { setScreen } = useApp();
   const palette = useTheme();
   return (
     <Screen>
       <View style={{ alignItems: "center", marginTop: rs(48), marginBottom: rs(32) }}>
-        <Brand subtitle="Borderless payments, at home and abroad" />
+        <Brand subtitle={t("tagline")} />
       </View>
       <PrimaryButton title={t("sign_in")} onPress={() => setScreen("signin")} />
       <View style={{ height: rs(12) }} />
       <PrimaryButton title={t("create_account")} secondary onPress={() => setScreen("signup")} />
-      <Text style={{ color: palette.muted, fontSize: rs(12), textAlign: "center", marginTop: rs(24) }}>
-        {t("sandbox_mode")}
-      </Text>
     </Screen>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Sign in (email + password, optional TOTP second step)
+// ---------------------------------------------------------------------------
 export function SigninScreen() {
   const { setScreen, handleLogin } = useApp();
   const [email, setEmail] = useState("");
@@ -96,18 +105,47 @@ export function SigninScreen() {
     try {
       const result = await handleLogin(email.trim(), password, totpNeeded ? totp.trim() : undefined);
       if (result === "totp") setTotpNeeded(true);
-    } catch (e) { setErr(humanError(e)); }
-    finally { setBusy(false); }
+    } catch (e) {
+      setErr(humanError(e));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
     <Screen>
       <ScreenHeader title={t("sign_in")} onBack={() => setScreen("welcome")} />
       <Card>
-        <Field label={t("email")} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} editable={!totpNeeded} returnKeyType="next" />
-        <Field label={t("password")} value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" editable={!totpNeeded} returnKeyType={totpNeeded ? "next" : "done"} onSubmitEditing={totpNeeded ? undefined : onSubmit} />
+        <Field
+          label={t("email")}
+          value={email}
+          onChangeText={setEmail}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={!totpNeeded}
+          returnKeyType="next"
+        />
+        <Field
+          label={t("password")}
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+          autoCapitalize="none"
+          editable={!totpNeeded}
+          returnKeyType={totpNeeded ? "next" : "done"}
+          onSubmitEditing={totpNeeded ? undefined : onSubmit}
+        />
         {totpNeeded && (
-          <Field label={t("totp")} value={totp} onChangeText={setTotp} keyboardType="number-pad" maxLength={6} returnKeyType="done" onSubmitEditing={onSubmit} />
+          <Field
+            label={t("totp")}
+            value={totp}
+            onChangeText={setTotp}
+            keyboardType="number-pad"
+            maxLength={6}
+            returnKeyType="done"
+            onSubmitEditing={onSubmit}
+          />
         )}
       </Card>
       <PrimaryButton title={t("sign_in")} onPress={onSubmit} loading={busy} disabled={busy} />
@@ -118,6 +156,9 @@ export function SigninScreen() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Sign up
+// ---------------------------------------------------------------------------
 export function SignupScreen() {
   const { setScreen, handleSignup } = useApp();
   const [name, setName] = useState("");
@@ -132,9 +173,13 @@ export function SignupScreen() {
     if (!email.trim()) { setErr("Enter your email address."); return; }
     if (password.length < 8) { setErr("Choose a password of at least 8 characters."); return; }
     setErr(""); setBusy(true);
-    try { await handleSignup(name.trim(), email.trim(), password); }
-    catch (e) { setErr(humanError(e)); }
-    finally { setBusy(false); }
+    try {
+      await handleSignup(name.trim(), email.trim(), password);
+    } catch (e) {
+      setErr(humanError(e));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -154,9 +199,12 @@ export function SignupScreen() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Password reset (request + confirm stages, local state)
+// ---------------------------------------------------------------------------
 export function ResetScreen() {
   const { setScreen, handleForgotRequest, handleResetConfirm } = useApp();
-  const [stage, setStage] = useState("request");
+  const [stage, setStage] = useState("request"); // "request" | "confirm"
   const [email, setEmail] = useState("");
   const [token, setToken] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -172,8 +220,11 @@ export function ResetScreen() {
       await handleForgotRequest(email.trim());
       setStage("confirm");
       setInfo("If that email is registered, a reset code has been sent. Enter it below.");
-    } catch (e) { setErr(humanError(e)); }
-    finally { setBusy(false); }
+    } catch (e) {
+      setErr(humanError(e));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const onConfirm = async () => {
@@ -184,14 +235,19 @@ export function ResetScreen() {
       await handleResetConfirm(token.trim(), newPassword);
       setInfo("Password updated. Please sign in.");
       setScreen("signin");
-    } catch (e) { setErr(humanError(e)); }
-    finally { setBusy(false); }
+    } catch (e) {
+      setErr(humanError(e));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
     <Screen>
       <ScreenHeader title={t("reset_password")} onBack={() => setScreen("signin")} />
-      {info ? <Text style={{ color: palette.muted, fontSize: rs(13), marginBottom: rs(12), textAlign: "center" }}>{info}</Text> : null}
+      {info ? (
+        <Text style={{ color: palette.muted, fontSize: rs(13), marginBottom: rs(12), textAlign: "center" }}>{info}</Text>
+      ) : null}
       {stage === "request" ? (
         <>
           <Card>
@@ -213,10 +269,13 @@ export function ResetScreen() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Bank link: details (with account confirmation field) -> PIN set -> PIN confirm
+// ---------------------------------------------------------------------------
 export function LinkScreen() {
   const { handleLink, confirmLogout } = useApp();
   const palette = useTheme();
-  const [stage, setStage] = useState("form");
+  const [stage, setStage] = useState("form"); // "form" | "pin-set" | "pin-confirm"
   const [account, setAccount] = useState("");
   const [confirmAccount, setConfirmAccount] = useState("");
   const [ifsc, setIfsc] = useState("");
@@ -241,11 +300,18 @@ export function LinkScreen() {
   const submitLink = async (pin) => {
     setBusy(true);
     try {
-      await handleLink({ account: account.trim(), ifsc: ifsc.trim().toUpperCase(), name: holder.trim() }, pin);
+      await handleLink(
+        { account: account.trim(), ifsc: ifsc.trim().toUpperCase(), name: holder.trim() },
+        pin
+      );
     } catch (e) {
       setErr(humanError(e));
-      setStage("pin-set"); setFirstPin(""); setPinBuf("");
-    } finally { setBusy(false); }
+      setStage("pin-set");
+      setFirstPin("");
+      setPinBuf("");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const onPinKey = (key) => {
@@ -257,22 +323,33 @@ export function LinkScreen() {
     setPinBuf(next);
     if (next.length < PIN_LENGTH) return;
     if (stage === "pin-set") {
-      setFirstPin(next); setPinBuf(""); setStage("pin-confirm");
+      setFirstPin(next);
+      setPinBuf("");
+      setStage("pin-confirm");
     } else {
       if (next !== firstPin) {
         setErr("PINs do not match. Try again.");
-        setFirstPin(""); setPinBuf(""); setStage("pin-set"); return;
+        setFirstPin("");
+        setPinBuf("");
+        setStage("pin-set");
+        return;
       }
-      setPinBuf(""); submitLink(next);
+      setPinBuf("");
+      submitLink(next);
     }
   };
 
   if (stage !== "form") {
     return (
       <Screen>
-        <ScreenHeader title={stage === "pin-set" ? t("set_pin") : t("confirm_pin")} onBack={() => { setStage("form"); setFirstPin(""); setPinBuf(""); setErr(""); }} />
+        <ScreenHeader
+          title={stage === "pin-set" ? t("set_pin") : t("confirm_pin")}
+          onBack={() => { setStage("form"); setFirstPin(""); setPinBuf(""); setErr(""); }}
+        />
         <Text style={{ color: palette.muted, fontSize: rs(14), textAlign: "center", marginBottom: rs(20) }}>
-          {stage === "pin-set" ? "Choose a 4-digit PIN. You will confirm every payment with it." : "Enter the same PIN once more to confirm."}
+          {stage === "pin-set"
+            ? "Choose a 4-digit PIN. You will confirm every payment with it."
+            : "Enter the same PIN once more to confirm."}
         </Text>
         <PinDots filled={pinBuf.length} total={PIN_LENGTH} />
         <View style={{ height: rs(20) }} />
@@ -290,10 +367,40 @@ export function LinkScreen() {
         Link the bank account that will fund your payments. Typing the account number twice protects you from a mistyped digit.
       </Text>
       <Card>
-        <Field label={t("account_number")} value={account} onChangeText={setAccount} keyboardType="number-pad" maxLength={18} returnKeyType="next" />
-        <Field label={t("confirm_account")} value={confirmAccount} onChangeText={setConfirmAccount} keyboardType="number-pad" maxLength={18} error={confirmAccount.length > 0 && !accountsMatch(account, confirmAccount) ? t("account_mismatch") : ""} returnKeyType="next" />
-        <Field label={t("ifsc")} value={ifsc} onChangeText={(v) => setIfsc(v.toUpperCase())} autoCapitalize="characters" autoCorrect={false} maxLength={11} returnKeyType="next" />
-        <Field label={t("account_holder")} value={holder} onChangeText={setHolder} autoCapitalize="words" returnKeyType="done" onSubmitEditing={onContinue} />
+        <Field
+          label={t("account_number")}
+          value={account}
+          onChangeText={setAccount}
+          keyboardType="number-pad"
+          maxLength={18}
+          returnKeyType="next"
+        />
+        <Field
+          label={t("confirm_account")}
+          value={confirmAccount}
+          onChangeText={setConfirmAccount}
+          keyboardType="number-pad"
+          maxLength={18}
+          error={confirmAccount.length > 0 && !accountsMatch(account, confirmAccount) ? t("account_mismatch") : ""}
+          returnKeyType="next"
+        />
+        <Field
+          label={t("ifsc")}
+          value={ifsc}
+          onChangeText={(v) => setIfsc(v.toUpperCase())}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          maxLength={11}
+          returnKeyType="next"
+        />
+        <Field
+          label={t("account_holder")}
+          value={holder}
+          onChangeText={setHolder}
+          autoCapitalize="words"
+          returnKeyType="done"
+          onSubmitEditing={onContinue}
+        />
       </Card>
       <PrimaryButton title={t("continue")} onPress={onContinue} />
       <View style={{ height: rs(12) }} />
@@ -303,6 +410,9 @@ export function LinkScreen() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Lock screen: unlock via the OS authenticator (biometric / device PIN)
+// ---------------------------------------------------------------------------
 export function LockScreen() {
   const { unlockWithDevice, confirmLogout, lockState, name } = useApp();
   const palette = useTheme();
@@ -311,16 +421,26 @@ export function LockScreen() {
 
   const onUnlock = async () => {
     setErr(""); setBusy(true);
-    try { await unlockWithDevice(); }
-    catch (e) { setErr(humanError(e)); }
-    finally { setBusy(false); }
+    try {
+      await unlockWithDevice();
+    } catch (e) {
+      setErr(humanError(e));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
     <View style={{ flex: 1, backgroundColor: palette.bg, alignItems: "center", justifyContent: "center", padding: rs(24) }}>
       <Brand subtitle={name ? `Welcome back, ${name}` : "Welcome back"} />
       <View style={{ height: rs(28) }} />
-      <PrimaryButton title={busy ? t("unlocking") : t("unlock")} onPress={onUnlock} loading={busy} disabled={busy || lockState === "busy"} style={{ alignSelf: "stretch" }} />
+      <PrimaryButton
+        title={busy ? t("unlocking") : t("unlock")}
+        onPress={onUnlock}
+        loading={busy}
+        disabled={busy || lockState === "busy"}
+        style={{ alignSelf: "stretch" }}
+      />
       <View style={{ height: rs(12) }} />
       <PrimaryButton title={t("sign_out")} secondary onPress={confirmLogout} style={{ alignSelf: "stretch" }} />
       <ErrorText>{err}</ErrorText>
