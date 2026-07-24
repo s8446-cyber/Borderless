@@ -38,6 +38,7 @@ import { screenParty } from "./screening.js";
 import { AmlMonitor, LRS_PURPOSES } from "./aml.js";
 import { PspConnector, verifyWebhook } from "./psp.js";
 import { OpsService } from "./ops.js";
+import { registerDsrRoutes } from "./dsr.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -152,7 +153,7 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
   const metrics = new Metrics();
   const limiterFor = (path) => {
     if (/^\/api\/(payments|transfers|upi|bills|recharge|topup)/.test(path) || /^\/api\/requests\/pay$/.test(path)) return paymentLimiter;
-    if (/^\/api\/(accounts\/link|waitlist|sessions|auth|account\/close)/.test(path)) return authLimiter;
+    if (/^\/api\/(accounts\/link|waitlist|sessions|auth|account\/(close|export|profile))/.test(path)) return authLimiter;
     return null;
   };
 
@@ -591,7 +592,7 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
     const existing = store.data.accounts[userId];
     store.data.accounts[userId] = {
       bank,
-      maskedNumber: asString(body.maskedNumber, "maskedNumber", { required: false, max: 40 }) || ("\u2022\u2022\u2022\u2022" + Math.floor(1000 + Math.random() * 9000)),
+      maskedNumber: asString(body.maskedNumber, "maskedNumber", { required: false, max: 40 }) || ("\\u2022\\u2022\\u2022\\u2022" + Math.floor(1000 + Math.random() * 9000)),
       currency: "INR",
       balanceMinor: existing ? existing.balanceMinor : 0,
       accountRefEnc: body.accountNumber ? encryptField(String(body.accountNumber)) : (existing ? existing.accountRefEnc : null),
@@ -814,6 +815,13 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
     const userId = requireAuth(req, store);
     return { disputes: ops.listDisputes(userId) };
   });
+
+  // ---- DSR (DPDP data-principal rights): data-access export + correction ----
+  // POST /api/account/export and POST /api/account/profile (src/dsr.js).
+  // Both require recent password reauthentication, sit on the stricter auth
+  // rate-limit tier (limiterFor above), and complete the rights triad next to
+  // consent withdrawal + erasure (POST /api/account/close).
+  registerDsrRoutes({ add, store, guard, audit, persist, payments, ops, requireAuth, credentialsByUser });
 
   // ---- Operations back office (ops-token gated, maker-checker) ----
   add("GET", /^\/api\/ops\/overview$/, async (req) => { requireOps(req); return ops.overview(); });
