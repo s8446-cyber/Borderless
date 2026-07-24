@@ -1,51 +1,64 @@
-// Borderless Pay — React Native (Expo) app. Android + iOS.
-// Redesigned UI (premium dark fintech) over the same backend wiring: pay abroad,
-// send abroad (P2P), domestic UPI (phone / UPI ID / bank / scan), bills, recharge,
-// request money, contacts, and ledger verification.
+// Borderless Pay — React Native (Expo) app. Android + iOS + web.
+//
+// ARCHITECTURE (UI/UX refactor):
+//  - App.js is now a thin shell: state + handlers + a route switch. All screen
+//    JSX lives in src/screens/* and shared widgets in src/ui.js, so each piece
+//    is small enough to review and unit-test (pure logic lives in src/*.js
+//    with node --test coverage).
+//  - Screens consume state through AppContext (src/screens/context.js).
+//  - Theming: dark + light palettes follow the OS scheme (src/theme.js).
+//  - Localization: all screen strings go through src/i18n.js (en + hi).
+//  - Icons: vector Ionicons via src/icons.js — no emoji glyph lottery.
+//  - Connectivity: src/net.js is fed by the API layer; an offline banner
+//    renders app-wide and errors use human copy (src/errors.js).
+//  - "Settling securely" progress is driven by the REAL request lifecycle:
+//    steps advance only while the request is in flight and the final step
+//    completes when the backend responds — never a free-running timer.
+//  - Web builds get hash-based deep links (#/home, #/activity, …) via
+//    src/routes.js; Android hardware back uses the same route table.
 import React, { useState, useEffect, useRef } from "react";
 import {
   SafeAreaView,
-  ScrollView,
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   ActivityIndicator,
-  Animated,
-  StyleSheet,
-  Linking,
   Platform,
   BackHandler,
   AppState,
+  Linking,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import * as LocalAuthentication from "expo-local-authentication";
-import { CameraView, useCameraPermissions, WebQrScanner, webCameraCapable } from "./src/scanner";
 import * as Contacts from "expo-contacts";
 import * as Notifications from "expo-notifications";
-import { appAlert, AlertHost, simulateBiometric, getSimPerm, requestSimPerm } from "./src/alert";
-import { C, TINTS, CORRIDORS, P2P_CURRENCIES, OPERATORS, BILL_CATEGORIES, BILLERS } from "./src/theme";
-import { fmtINR } from "./src/format";
+import { CameraView, useCameraPermissions, WebQrScanner, webCameraCapable } from "./src/scanner";
+import { appAlert, AlertHost } from "./src/alert";
 import { api, setSession, hasSession, onSessionExpired } from "./src/api";
-import { CONFIG } from "./src/config";
 import { getDeviceId } from "./src/device";
 import { foldMerkleProof } from "./src/sha256";
 import { parseUpiQr } from "./src/upi";
 import { rs, CONTENT } from "./src/responsive";
 import { persistSession, loadPersistedSession, markOnboarded, rememberProfile, clearPersistedSession } from "./src/session";
-import { pinIssue } from "./src/pin";
+import { ThemeProvider, useTheme } from "./src/theme";
+import { Card, PrimaryButton, ScreenHeader, OfflineBanner } from "./src/ui";
+import { Icon } from "./src/icons";
+import { routeToHash, backTargetFor as routeBackTarget } from "./src/routes";
+import { subscribeOnline } from "./src/net";
+import { t, setLocale, detectLocale, onLocaleChange, offLocaleChange } from "./src/i18n";
+import { humanError } from "./src/errors";
 
-// Version stamp (from package.json, inlined by Metro). Shown on the welcome
-// screen so it's always obvious WHICH build is installed — if the number on
-// screen doesn't match the repo, you're running a stale build (see README:
-// "Seeing an old version?").
-const APP_VERSION = require("./package.json").version;
-import { Brand, Card, Row, Pill, Badges, PrimaryButton, Chips, PinDots, PinPad, SectionHeader, ScreenHeader, Avatar } from "./src/ui";
+import { AppContext, useApp } from "./src/screens/context";
+import { BootScreen, WelcomeScreen, SigninScreen, SignupScreen, ResetScreen, LinkScreen, LockScreen } from "./src/screens/onboarding";
+import { HomeScreen } from "./src/screens/home";
+import { SendScreen, ComposeScreen, QuoteScreen } from "./src/screens/pay";
+import { ReviewScreen } from "./src/screens/review";
+import { AuthScreen, SettleScreen } from "./src/screens/authsettle";
+import { ReceiptScreen } from "./src/screens/receipt";
+import { ActivityScreen, TxnDetailScreen } from "./src/screens/activity";
+import { ContactsScreen } from "./src/screens/contacts";
+import { HelpScreen } from "./src/screens/help";
 
-// On web (react-native-web / `npm run sim`) the native OS layer — alerts,
-// biometric sheet, permission prompts, live camera — isn't available, so those
-// interactions are faithfully simulated on screen. Native devices use the real
-// thing. This flag is the single switch between the two.
 const IS_WEB = Platform.OS === "web";
 
 const SETTLE_STEPS = [
@@ -93,121 +106,100 @@ const EMPTY_FORM = {
   consumerId: "",
 };
 
-function symFor(code) {
-  const x = P2P_CURRENCIES.find((p) => p.code === code);
-  return x ? x.sym : code;
-}
-
-function greeting() {
-  const h = new Date().getHours();
-  if (h < 12) return "Good morning";
-  if (h < 17) return "Good afternoon";
-  return "Good evening";
-}
-
-function initials(name) {
-  const n = (name || "").trim();
-  if (!n) return "AS";
-  const parts = n.split(/\s+/);
-  return ((parts[0][0] || "") + (parts[1] ? parts[1][0] : "")).toUpperCase();
-}
-
-function txnIcon(p) {
-  if (p.kind === "topup") return "➕";
-  if (p.kind === "p2p") return "💸";
-  if (p.kind === "payment") return "🧳";
-  if (p.kind === "bill") return "🧾";
-  if (p.kind === "recharge") return "📲";
-  if (p.kind === "request") return "🔁";
-  return "✅";
-}
-
-function txnName(p) {
-  if (p.kind === "topup") return "Added to balance";
-  if (p.domestic) return p.payee ? p.payee.name : "Payment";
-  if (p.kind === "p2p") return p.recipient ? p.recipient.name : "Transfer";
-  return p.merchant ? p.merchant.name : "Merchant";
-}
-
-function receiptPayeeName(r) {
-  if (r.kind === "topup") return "to your Borderless balance";
-  if (r.domestic) return "to " + (r.payee ? r.payee.name : "payee");
-  if (r.kind === "p2p") return "to " + (r.recipient ? r.recipient.name : "recipient");
-  return "to " + (r.merchant ? r.merchant.name : "merchant");
-}
+const BANK_BY_IFSC = {
+  HDFC: "HDFC Bank",
+  ICIC: "ICICI Bank",
+  SBIN: "State Bank of India",
+  UTIB: "Axis Bank",
+};
 
 export default function App() {
-  // "boot" while the persisted session is restored — the app
-  // decides between welcome (first run), link (resume onboarding) and lock
-  // (returning user) BEFORE drawing anything, like a professional app.
-  const [screen, setScreen] = useState("boot");
+  return (
+    <ThemeProvider>
+      <AppRoot />
+    </ThemeProvider>
+  );
+}
+
+function AppRoot() {
+  const C = useTheme();
+
+  // ---- navigation ----
+  const [screen, setScreenRaw] = useState("boot");
+  const screenRef = useRef("boot");
+  function go(next) {
+    screenRef.current = next;
+    setScreenRaw(next);
+    if (IS_WEB && typeof window !== "undefined") {
+      const h = routeToHash(next);
+      if (h && window.location.hash !== h) {
+        try { window.location.hash = h; } catch { /* ignore */ }
+      }
+    }
+  }
+
+  // ---- profile / account ----
   const [name, setName] = useState("");
   const [meta, setMeta] = useState(null); // /api/meta — settlement-mode disclosure
-  const [bank, setBank] = useState("HDFC Bank");
-  const [newPin, setNewPin] = useState("");
-  const [confirmPin, setConfirmPin] = useState("");
-  const [pinStage, setPinStage] = useState("create"); // create → confirm
-  const [pin, setPin] = useState("");
-  const [corridor, setCorridor] = useState("AED");
-  const [intlMerchant, setIntlMerchant] = useState("");
-  const [intlAmount, setIntlAmount] = useState("");
   const [account, setAccount] = useState(null);
-  const [quote, setQuote] = useState(null);
-  const [receipt, setReceipt] = useState(null);
   const [history, setHistory] = useState([]);
-  const [busy, setBusy] = useState(false);
-  const [step, setStep] = useState(0);
-  const [flow, setFlow] = useState("pay");
-  const [recipientName, setRecipientName] = useState("");
-  const [p2pCurrency, setP2pCurrency] = useState("AED");
-  const [sendAmount, setSendAmount] = useState("");
-  const [domIntent, setDomIntent] = useState(null);
-  const [form, setForm] = useState(EMPTY_FORM);
   const [contacts, setContacts] = useState([]);
   const [requests, setRequests] = useState([]);
-  const [verifyResult, setVerifyResult] = useState(null);
-  const [consent, setConsent] = useState(false);
   const [phoneContacts, setPhoneContacts] = useState([]);
-  const [webScan, setWebScan] = useState("idle"); // web-sim scanner: idle | live (real camera) | sim (simulated)
+
+  // ---- payment flow ----
+  const [flow, setFlow] = useState("pay"); // "pay" (intl QR) | "send" (intl P2P) | "domestic"
+  const [domIntent, setDomIntent] = useState(null);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [intlMerchant, setIntlMerchant] = useState(null); // { name, currency, amount }
+  const [quote, setQuote] = useState(null);
+  const [quoteExpired, setQuoteExpired] = useState(false);
+  const [payeeVerified, setPayeeVerified] = useState(false);
+  const [receipt, setReceipt] = useState(null);
+  const [verifyResult, setVerifyResult] = useState(null);
+  const [selectedTxn, setSelectedTxn] = useState(null);
+  const [helpFrom, setHelpFrom] = useState(null);
+
+  // ---- auth (PIN) + settle ----
+  const [pin, setPin] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [settleStepIndex, setSettleStepIndex] = useState(0);
+  const [settleError, setSettleError] = useState(null);
+  const settleTimer = useRef(null);
+  const authInFlight = useRef(false);
+  const lastSend = useRef({ currency: "AED", amount: 0 });
+
+  // ---- lock / scanner / misc ----
+  const [lockState, setLockState] = useState("device"); // "device" | "failed"
+  const lockBusy = useRef(false);
+  const lastKnownStage = useRef("home");
+  const bgSince = useRef(0);
+  const [webScan, setWebScan] = useState("idle"); // idle | live | sim
   const [camPerm, requestCamPerm] = useCameraPermissions();
   const scanLock = useRef(false);
   const lastBadQr = useRef(0);
 
-  // App lock (returning users): "device" = biometric / device credential,
-  // "failed" = must retry.
-  const [lockState, setLockState] = useState("device");
-  const lockBusy = useRef(false);
+  // ---- connectivity + locale ----
+  const [offline, setOffline] = useState(false);
+  const [, setLocaleTick] = useState(0);
 
-  // Account credentials — sign-up (new users) and sign-in (returning users).
-  const [loginEmail, setLoginEmail] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-  const [loginTotp, setLoginTotp] = useState("");
-  const [totpNeeded, setTotpNeeded] = useState(false);
+  const updateForm = (patch) => setForm((p) => ({ ...p, ...patch }));
 
-  // In-app account recovery (forgot password): "none" | "request" | "confirm".
-  const [resetStage, setResetStage] = useState("none");
-  const [resetToken, setResetToken] = useState("");
-  const [resetNewPassword, setResetNewPassword] = useState("");
+  const settleSteps =
+    flow === "send" ? SEND_STEPS
+    : flow === "domestic" ? (domIntent && domIntent.kind === "topup" ? TOPUP_STEPS : DOMESTIC_STEPS)
+    : SETTLE_STEPS;
 
-  const [quoteExpired, setQuoteExpired] = useState(false);
-  const bgSince = useRef(0);
-
-  const checkScale = useRef(new Animated.Value(0)).current;
-
-  const setF = (k, v) => setForm((p) => ({ ...p, [k]: v }));
-  const c = CORRIDORS[corridor];
-  const settleSteps = flow === "send" ? SEND_STEPS : flow === "domestic" ? (domIntent && domIntent.kind === "topup" ? TOPUP_STEPS : DOMESTIC_STEPS) : SETTLE_STEPS;
-  const incomingRequest = requests.find((r) => r.direction === "incoming" && r.status === "pending");
-
-  // ---- boot: restore the previous session, land on the right screen ----
-  // ANY persisted session — even one from an interrupted onboarding — goes
-  // through the app lock first: a live session is a live session, and
-  // professional apps never hand one over without local authentication.
-  // WHERE the user lands after unlocking is decided by the server
-  // (finishUnlock → /api/me), never by a stale local flag; the cached
-  // "onboarded" value below is only the offline fallback.
-  const lastKnownStage = useRef("home");
+  // ---- boot: locale, then restore the previous session ----
   useEffect(() => {
+    try {
+      const deviceLocale =
+        (typeof navigator !== "undefined" && navigator.language) ||
+        Intl.DateTimeFormat().resolvedOptions().locale ||
+        "en";
+      setLocale(detectLocale(deviceLocale));
+    } catch { /* default locale stays "en" */ }
     let alive = true;
     (async () => {
       try {
@@ -218,20 +210,29 @@ export default function App() {
           setName(s.name || "");
           lastKnownStage.current = s.onboarded === "home" ? "home" : "link";
           setLockState("device");
-          setScreen("lock");
+          go("lock");
           return;
         }
-      } catch {
-        /* any restore problem → clean first run */
-      }
-      if (alive) setScreen("welcome");
+      } catch { /* any restore problem → clean first run */ }
+      if (alive) go("welcome");
     })();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, []);
 
-  // ---- honest deployment metadata (sandbox badge) — fetched once ----
+  // ---- re-render when the language changes ----
+  useEffect(() => {
+    const cb = () => setLocaleTick((x) => x + 1);
+    onLocaleChange(cb);
+    return () => offLocaleChange(cb);
+  }, []);
+
+  // ---- offline banner: fed by the API layer via src/net.js ----
+  useEffect(() => {
+    const unsub = subscribeOnline((on) => setOffline(!on));
+    return typeof unsub === "function" ? unsub : undefined;
+  }, []);
+
+  // ---- deployment metadata (settlement-mode disclosure) — fetched once ----
   useEffect(() => {
     let alive = true;
     api("/api/meta")
@@ -248,6 +249,20 @@ export default function App() {
     });
   });
 
+  // ---- web deep links: #/home, #/activity, #/help, … ----
+  useEffect(() => {
+    if (!IS_WEB || typeof window === "undefined") return;
+    const onHash = () => {
+      const target = parseHashSafe(window.location.hash);
+      if (target && target !== screenRef.current && hasSession()) {
+        screenRef.current = target;
+        setScreenRaw(target);
+      }
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
   // ---- auto-lock: backgrounded for over a minute → require unlock ----
   useEffect(() => {
     if (IS_WEB) return; // browsers have no trustworthy background signal for this
@@ -259,56 +274,52 @@ export default function App() {
       if (next === "active" && bgSince.current) {
         const away = Date.now() - bgSince.current;
         bgSince.current = 0;
-        const sessionScreens = ["home", "scan", "scanDom", "send", "compose", "history", "quote", "receipt", "contacts", "auth"];
+        const sessionScreens = ["home", "scanDom", "send", "compose", "review", "history", "txnDetail", "quote", "receipt", "contacts", "help", "auth"];
         if (away > 60_000 && sessionScreens.includes(screen)) {
           setLockState("device");
-          setScreen("lock");
+          go("lock");
         }
       }
     });
     return () => sub.remove();
   }, [screen]);
 
-  // ---- Android hardware back: navigate, never accidentally exit ----
-  function backTarget() {
-    switch (screen) {
-      case "signin": return "welcome";
-      case "scan": case "send": case "scanDom": case "compose": case "contacts": case "history": return "home";
-      case "quote": return flow === "send" ? "send" : "scan";
-      case "auth": return authExitScreen();
-      case "receipt": return "home";
-      case "settle": case "lock": case "boot": return null; // block — nothing sane to go back to
-      default: return undefined; // welcome / link / home → default OS behavior (exit)
-    }
-  }
-
+  // ---- Android hardware back: navigate via the shared route table ----
   useEffect(() => {
     const onBack = () => {
-      if (screen === "signin" && resetStage !== "none") {
-        setResetStage("none"); // step out of password reset, back to sign-in
-        return true;
-      }
-      const t = backTarget();
-      if (t === null) return true; // swallow
-      if (t === undefined) return false; // let the OS handle it
+      if (["settle", "lock", "boot"].includes(screen)) return true; // block — nothing sane to go back to
+      if (["welcome", "home", "link"].includes(screen)) return false; // default OS behavior (exit)
+      const target = routeBackTarget(screen, {
+        flow,
+        domIntentKind: domIntent && domIntent.kind,
+        helpFrom,
+      });
+      if (!target || target === screen) return false;
       if (screen === "scanDom") setWebScan("idle");
       if (screen === "receipt") setVerifyResult(null);
       if (screen === "auth") setPin("");
-      setScreen(t);
+      go(target);
       return true;
     };
     const sub = BackHandler.addEventListener("hardwareBackPress", onBack);
     return () => sub.remove();
-  }, [screen, flow, domIntent, resetStage]);
+  }, [screen, flow, domIntent, helpFrom]);
+
+  // ---- quote expiry: visible state instead of a silent death ----
+  useEffect(() => {
+    if (!quote || !quote.expiresAt) return;
+    const ms = quote.expiresAt - Date.now();
+    if (ms <= 0) { setQuoteExpired(true); return; }
+    const id = setTimeout(() => setQuoteExpired(true), ms);
+    return () => clearTimeout(id);
+  }, [quote]);
 
   // ---- app unlock (returning users) ----
-  // Auto-prompt once each time the lock screen appears — professional apps
-  // don't make you hunt for the unlock button after every relaunch.
   const lockAutoPrompted = useRef(false);
   useEffect(() => {
     if (screen === "lock" && lockState === "device" && !lockAutoPrompted.current) {
       lockAutoPrompted.current = true;
-      unlockWithDevice();
+      unlockWithDevice().catch(() => { /* surfaced on the lock screen */ });
     }
     if (screen !== "lock") lockAutoPrompted.current = false;
   }, [screen, lockState]);
@@ -318,51 +329,39 @@ export default function App() {
     lockBusy.current = true;
     try {
       if (IS_WEB) {
-        const r = await simulateBiometric("Unlock Borderless Pay");
-        if (!r.success) {
-          setLockState("failed");
-          return;
-        }
-        return finishUnlock();
+        // Browsers expose no device biometrics — the keystore-guarded session
+        // is the credential; every payment still needs the server-verified PIN.
+        return await finishUnlock();
       }
       const has = await LocalAuthentication.hasHardwareAsync().catch(() => false);
       const enrolled = has && (await LocalAuthentication.isEnrolledAsync().catch(() => false));
       if (!enrolled) {
-        // No biometrics / device credential enrolled — the device has no lock
-        // screen by the user's choice; the keystore-guarded session itself is
-        // the credential, and every payment still requires the server-verified PIN.
-        return finishUnlock();
+        // No biometrics / device credential enrolled — the keystore-guarded
+        // session is the credential; every payment still needs the server-verified PIN.
+        return await finishUnlock();
       }
       const result = await LocalAuthentication.authenticateAsync({
         promptMessage: "Unlock Borderless Pay",
         cancelLabel: "Cancel",
-        disableDeviceFallback: false, // device PIN / pattern is an acceptable factor
+        disableDeviceFallback: false,
       });
-      if (result.success) return finishUnlock();
+      if (result.success) return await finishUnlock();
       setLockState("failed");
+      throw new Error("Authentication failed or was cancelled. Your money stays locked until you verify.");
     } finally {
       lockBusy.current = false;
     }
   }
 
   function routeToStage(stage) {
-    if (stage === "home") {
-      setScreen("home");
-    } else {
-      setNewPin(""); setConfirmPin(""); setPinStage("create");
-      setScreen("link");
-    }
+    go(stage === "home" ? "home" : "link");
   }
 
   async function finishUnlock() {
-    // Land INSTANTLY on the last known screen — professional apps never hold
-    // you at the door for the network (GPay/PhonePe show home immediately and
-    // stream the data in; the balance card shows a loading state, never a
-    // fake ₹0). The SERVER is still the authority: /api/me reconciles in the
-    // background and re-routes if this device's cached stage is stale (e.g.
-    // the bank was linked on another phone). Touching /api/me also renews an
-    // expired access token via refresh rotation, so the 30-day refresh
-    // window slides forward on every open — signed in until you log out.
+    // Land INSTANTLY on the last known screen; the SERVER is the authority:
+    // /api/me reconciles in the background and re-routes if the cached stage
+    // is stale. Touching /api/me also renews an expired access token.
+    setLockState("device");
     routeToStage(lastKnownStage.current);
     try {
       const me = await api("/api/me");
@@ -376,206 +375,80 @@ export default function App() {
       rememberProfile({ name: displayName, onboarded: stage }).catch(() => {});
       if (stage === "home") refresh(); // balance & history stream in behind the UI
     } catch (e) {
-      // A dead session (refresh token expired/revoked) has already been
-      // handled: the expiry handler wiped state and routed to a clean
-      // welcome with ONE clear alert — never override it.
-      if (!hasSession()) return;
-      // Anything else is a network blip: stay on the optimistic screen; the
-      // balance card keeps its loading state and the next successful refresh
-      // (retry button / Activity tab / relaunch) fills it in.
+      if (!hasSession()) return; // expiry handler already routed to welcome
       if (lastKnownStage.current === "home") refresh();
     }
   }
 
-  // Lock screen escape hatch: not you / can't unlock → sign out completely.
-  function lockLogout() {
-    appAlert("Sign out?", "You'll need to verify again to get back in.", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Sign out", style: "destructive", onPress: logout },
-    ]);
-  }
-
-  // ---- email sign-in (live-backend mode) ----
-  async function handleLogin() {
-    const email = loginEmail.trim().toLowerCase();
-    if (!email || !loginPassword) {
-      return appAlert("Missing details", "Enter your email and password to sign in.");
-    }
-    setBusy(true);
+  // ---- email sign-in / sign-up / reset (live-backend mode) ----
+  async function handleLogin(email, password, totp) {
+    const body = { email: email.toLowerCase(), password, deviceId: await getDeviceId() };
+    if (totp) body.totp = totp;
+    let r;
     try {
-      const body = { email, password: loginPassword, deviceId: await getDeviceId() };
-      if (loginTotp.trim()) body.totp = loginTotp.trim();
-      const r = await api("/api/auth/login", { method: "POST", body });
-      setSession(r);
-      setLoginPassword("");
-      setLoginTotp("");
-      setTotpNeeded(false);
-      // Restore the profile like a professional app: the real name and the
-      // onboarding state come from the server (GET /api/me) — never guessed
-      // from the email, and never inferred from a failed request (a network
-      // blip must not shunt a fully-onboarded user into re-linking a bank).
-      const me = await api("/api/me");
-      const displayName = me.name || email.split("@")[0];
-      setName(displayName);
-      lastKnownStage.current = me.bankLinked ? "home" : "link";
-      await persistSession({ token: r.token, refreshToken: r.refreshToken, name: displayName, onboarded: lastKnownStage.current });
-      if (me.bankLinked) {
-        await refresh();
-        setScreen("home");
-      } else {
-        setNewPin("");
-        setConfirmPin("");
-        setPinStage("create");
-        setScreen("link");
-      }
+      r = await api("/api/auth/login", { method: "POST", body });
     } catch (e) {
-      if (/two-factor|totp/i.test(e.message || "")) {
-        setTotpNeeded(true);
-        appAlert("Two-factor code needed", "Enter the 6-digit code from your authenticator app.");
-      } else {
-        appAlert("Sign-in failed", e.message);
-      }
-    } finally {
-      setBusy(false);
+      if (/two-factor|totp/i.test(e.message || "")) return "totp";
+      throw e;
+    }
+    setSession(r);
+    // The real name and onboarding state come from the server (GET /api/me) —
+    // never guessed from the email, never inferred from a failed request.
+    const me = await api("/api/me");
+    const displayName = me.name || email.split("@")[0];
+    setName(displayName);
+    lastKnownStage.current = me.bankLinked ? "home" : "link";
+    await persistSession({ token: r.token, refreshToken: r.refreshToken, name: displayName, onboarded: lastKnownStage.current });
+    if (me.bankLinked) {
+      refresh();
+      go("home");
+    } else {
+      go("link");
     }
   }
 
-  // ---- in-app password reset (account recovery, like every real app) ----
-  // Request → a single-use, 30-minute token is issued (delivered by email in
-  // production; development returns it directly so the flow works end-to-end).
-  // Confirm → the password rotates and EVERY session on every device is
-  // revoked server-side.
-  async function handleForgotRequest() {
-    const email = loginEmail.trim().toLowerCase();
-    if (!email) return appAlert("Enter your email", "Type your account email first, then tap “Forgot password?”.");
-    setBusy(true);
-    try {
-      const r = await api("/api/auth/password/reset-request", { method: "POST", body: { email } });
-      setResetToken(r.resetToken || ""); // dev convenience; production delivers by email
-      setResetNewPassword("");
-      setResetStage("confirm");
-      appAlert(
-        "Check your email",
-        r.resetToken
-          ? "Development mode: the reset token was filled in for you (production delivers it by email). Choose a new password below."
-          : "If an account exists for " + email + ", a reset token is on its way (valid 30 minutes). Paste it below with a new password."
-      );
-    } catch (e) {
-      appAlert("Could not request a reset", e.message);
-    } finally {
-      setBusy(false);
-    }
+  async function handleSignup(fullName, email, password) {
+    const r = await api("/api/auth/signup", {
+      method: "POST",
+      body: {
+        fullName,
+        email: email.toLowerCase(),
+        password,
+        country: "IN",
+        deviceId: await getDeviceId(),
+        consent: { tosVersion: "1.0", privacyVersion: "1.0" },
+      },
+    });
+    setSession(r);
+    setName(fullName);
+    // persist NOW so a kill between sign-up and bank-link resumes at link
+    lastKnownStage.current = "link";
+    await persistSession({ token: r.token, refreshToken: r.refreshToken, name: fullName, onboarded: "link" });
+    go("link");
   }
 
-  async function handleResetConfirm() {
-    if (!resetToken.trim() || !resetNewPassword) {
-      return appAlert("Missing details", "Paste the reset token from your email and choose a new password (8+ characters).");
-    }
-    setBusy(true);
-    try {
-      await api("/api/auth/password/reset", { method: "POST", body: { token: resetToken.trim(), newPassword: resetNewPassword } });
-      setResetStage("none");
-      setResetToken("");
-      setResetNewPassword("");
-      setLoginPassword("");
-      appAlert("Password changed", "Every session on every device was signed out for safety. Sign in with your new password.");
-    } catch (e) {
-      appAlert("Could not reset the password", e.message);
-    } finally {
-      setBusy(false);
-    }
+  async function handleForgotRequest(email) {
+    await api("/api/auth/password/reset-request", { method: "POST", body: { email: email.toLowerCase() } });
   }
 
-  async function handleSignup() {
-    const email = loginEmail.trim().toLowerCase();
-    if (!name.trim()) {
-      return appAlert("Enter your name", "We verify against a name — please enter yours to continue.");
-    }
-    if (!email || !loginPassword) {
-      return appAlert("Missing details", "Enter your email and choose a password (8+ characters).");
-    }
-    if (!consent) {
-      return appAlert("Consent needed", "Please read and accept the Terms of Service and Privacy Policy to continue.");
-    }
-    setBusy(true);
-    try {
-      const r = await api("/api/auth/signup", {
-        method: "POST",
-        body: {
-          fullName: name.trim(), email, password: loginPassword, country: "IN",
-          deviceId: await getDeviceId(),
-          consent: { tosVersion: "1.0", privacyVersion: "1.0" },
-        },
-      });
-      setSession(r);
-      setLoginPassword("");
-      // persist NOW so a kill between sign-up and bank-link resumes at link
-      lastKnownStage.current = "link";
-      await persistSession({ token: r.token, refreshToken: r.refreshToken, name: name.trim(), onboarded: "link" });
-      setNewPin("");
-      setConfirmPin("");
-      setPinStage("create");
-      setScreen("link");
-    } catch (e) {
-      appAlert("Could not create your account", e.message);
-    } finally {
-      setBusy(false);
-    }
+  async function handleResetConfirm(token, newPassword) {
+    await api("/api/auth/password/reset", { method: "POST", body: { token, newPassword } });
   }
 
-  // PIN creation is two-step (enter, then confirm) with bank-grade quality
-  // rules — a typo in a payment PIN otherwise locks the wallet 5 tries later.
-  function onNewPinKey(k) {
-    const setter = pinStage === "create" ? setNewPin : setConfirmPin;
-    setter((p) => (k === "del" ? p.slice(0, -1) : p.length < 4 ? p + k : p));
+  async function handleLink(details, linkPin) {
+    const prefix = (details.ifsc || "").slice(0, 4).toUpperCase();
+    const bank = BANK_BY_IFSC[prefix] || "HDFC Bank";
+    await api("/api/accounts/link", {
+      method: "POST",
+      body: { bank, pin: linkPin, account: details.account, ifsc: details.ifsc, holderName: details.name },
+    });
+    lastKnownStage.current = "home";
+    await markOnboarded("home");
+    await refresh();
+    go("home");
   }
 
-  useEffect(() => {
-    if (screen !== "link") return;
-    if (pinStage === "create" && newPin.length === 4) {
-      const issue = pinIssue(newPin);
-      if (issue) {
-        setNewPin("");
-        appAlert("Choose a stronger PIN", issue);
-        return;
-      }
-      setPinStage("confirm");
-    }
-    if (pinStage === "confirm" && confirmPin.length === 4) {
-      if (confirmPin !== newPin) {
-        setNewPin("");
-        setConfirmPin("");
-        setPinStage("create");
-        appAlert("PINs don't match", "The two PINs were different — let's start again.");
-      }
-    }
-  }, [newPin, confirmPin, pinStage, screen]);
-
-  async function handleLink() {
-    if (newPin.length !== 4 || pinStage !== "confirm" || confirmPin !== newPin) {
-      return appAlert("Set a PIN", "Choose and confirm a 4-digit payment PIN first.");
-    }
-    setBusy(true);
-    try {
-      await api("/api/accounts/link", {
-        method: "POST",
-        body: { bank, pin: newPin },
-      });
-      lastKnownStage.current = "home";
-      await markOnboarded("home");
-      setNewPin("");
-      setConfirmPin("");
-      await refresh();
-      setScreen("home");
-    } catch (e) {
-      appAlert("Could not link", e.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // Refresh account data. Never throws: a network blip must not strand a tap
-  // (the data that did load still renders; the rest catches up next refresh).
+  // Refresh account data. Never throws: a network blip must not strand a tap.
   async function refresh({ quiet = true } = {}) {
     try {
       const a = await api("/api/accounts");
@@ -583,9 +456,7 @@ export default function App() {
       const h = await api("/api/payments");
       setHistory(h.payments || []);
     } catch (e) {
-      // If the failure was a dead session, the expiry handler has already
-      // told the user once — don't stack a second "connection problem" alert.
-      if (!quiet && hasSession()) appAlert("Connection problem", "Couldn't refresh your account: " + e.message);
+      if (!quiet && hasSession()) appAlert("Connection problem", "Couldn't refresh your account: " + humanError(e));
       return false;
     }
     try {
@@ -593,45 +464,18 @@ export default function App() {
       setContacts(cts.contacts || []);
       const rq = await api("/api/requests");
       setRequests(rq.requests || []);
-    } catch (e) {
-      // contacts/requests optional
-    }
+    } catch (e) { /* contacts/requests optional */ }
     if (!meta) api("/api/meta").then((m) => setMeta((prev) => prev || m)).catch(() => {});
     return true;
   }
 
-  function startScan() {
-    setFlow("pay");
-    setIntlMerchant("");
-    setIntlAmount("");
-    setScreen("scan");
-  }
-
+  // ---- flow starters ----
   function startSend() {
     setFlow("send");
-    setRecipientName("");
-    setSendAmount("");
-    setP2pCurrency("AED");
-    setScreen("send");
-  }
-
-  async function getTransferQuote() {
-    const amt = Number(sendAmount);
-    if (!(amt > 0)) return appAlert("Enter an amount", "How much would you like to send?");
-    setBusy(true);
-    try {
-      const q = await api("/api/transfers/quote", {
-        method: "POST",
-        body: { recipientCurrency: p2pCurrency, sendAmount: amt },
-      });
-      setQuote(q);
-      setQuoteExpired(false);
-      setScreen("quote");
-    } catch (e) {
-      appAlert("Quote failed", e.message);
-    } finally {
-      setBusy(false);
-    }
+    setForm(EMPTY_FORM);
+    setQuote(null);
+    setQuoteExpired(false);
+    go("send");
   }
 
   function startScanDomestic() {
@@ -639,75 +483,75 @@ export default function App() {
     setFlow("domestic");
     scanLock.current = false;
     setWebScan("idle");
-    setScreen("scanDom");
+    go("scanDom");
   }
 
-  // DEVELOPMENT ONLY: a well-formed UPI QR payload for camera-less test
-  // environments (emulators, CI). It runs through the SAME hardened upi://
-  // parser as a physical QR, and it is compiled out of release builds —
-  // production users always scan a real QR or type a real UPI ID.
-  const SAMPLE_UPI_QR = "upi://pay?pa=teststore@axis&pn=Test%20Store";
+  function startDom(kind) {
+    setForm(EMPTY_FORM);
+    setFlow("domestic");
+    setPayeeVerified(false);
+    setDomIntent({ kind });
+    go("compose");
+  }
 
-  // Web: scan the way a phone browser would. If the browser can open a camera
-  // (secure context + getUserMedia — e.g. the sim opened on a phone, or a
-  // laptop with a webcam), use the REAL camera: the browser shows its own
-  // in-context permission prompt and frames are decoded on-device
-  // (BarcodeDetector on phones, bundled jsQR elsewhere). Only when no camera
-  // API exists do we fall back to a clearly-simulated scan.
-  async function startWebScan() {
-    if (webCameraCapable()) {
-      scanLock.current = false;
-      setWebScan("live"); // <WebQrScanner/> mounts → browser permission prompt
-      return;
-    }
-    if (getSimPerm("camera") === "denied") {
-      return appAlert(
-        "Camera access is turned off",
-        "You declined camera access this session, so scanning is unavailable. You can still pay by entering a UPI ID. (Reload the page to be asked again.)"
-      );
-    }
-    const ok = await requestSimPerm("camera", {
-      icon: "📷",
-      title: "“Borderless Pay” Would Like to Access the Camera",
-      message: "Borderless Pay uses the camera only while you scan a payment QR code. Photos and video are never captured or stored.",
+  const startDomRecharge = () => startDom("recharge");
+  const startDomBill = () => startDom("bill");
+  const openAddMoney = () => startDom("topup");
+  const openContacts = () => go("contacts");
+
+  function openHelp() {
+    setHelpFrom(screenRef.current);
+    go("help");
+  }
+
+  function openTxnDetail(p) {
+    setSelectedTxn(p);
+    go("txnDetail");
+  }
+
+  // ---- quotes (normalized for the quote screen: currency / recipientAmount /
+  //      rate / fee / totalINR, plus the raw backend fields) ----
+  async function getTransferQuote(currency, amount) {
+    const amt = Number(amount !== undefined ? amount : form.amount);
+    if (!(amt > 0)) throw new Error("Enter an amount first.");
+    if (currency) lastSend.current = { currency, amount: amt };
+    else lastSend.current = { ...lastSend.current, amount: amt };
+    const q = await api("/api/transfers/quote", {
+      method: "POST",
+      body: { recipientCurrency: lastSend.current.currency, sendAmount: amt },
     });
-    if (!ok) {
-      return appAlert("Camera off", "No problem — enter a UPI ID instead.");
-    }
-    if (__DEV__) return simScan();
-    appAlert("No camera here", "This environment has no camera — pay by entering the UPI ID instead.");
+    setFlow("send");
+    setQuote({ ...q, currency: q.recipientCurrency, totalINR: q.total });
+    setQuoteExpired(false);
+    go("quote");
   }
 
-  // DEV ONLY — simulated scan: brief scanning animation, then the sample UPI
-  // QR payload is fed through the real onQrScanned → parseUpiQr pipeline.
-  function simScan() {
-    setWebScan("sim");
-    setTimeout(() => {
-      setWebScan("idle");
-      onQrScanned({ data: SAMPLE_UPI_QR });
-    }, 1700);
+  // International merchant payments (/api/quotes + /api/payments) stay fully
+  // wired for when an acquiring/QR partner is connected — no demo entry points.
+  async function getIntlQuote(merchant) {
+    const m = merchant || intlMerchant;
+    if (!m) return;
+    const q = await api("/api/quotes", {
+      method: "POST",
+      body: { currency: m.currency, localAmount: m.amount },
+    });
+    setFlow("pay");
+    setQuote({ ...q, currency: m.currency, recipientAmount: m.amount, totalINR: q.total });
+    setQuoteExpired(false);
+    go("quote");
   }
 
-  // The real web camera failed to start.
-  function onWebCamError(e) {
-    setWebScan("idle");
-    const name = e && e.name;
-    if (name === "NotAllowedError" || name === "SecurityError") {
-      appAlert(
-        "Camera access is turned off",
-        "You denied the browser's camera permission, so live scanning is unavailable. Enable it in your browser's site settings, or pay by entering the UPI ID."
-      );
-    } else if (__DEV__) {
-      appAlert("Camera unavailable", "No usable camera was found — continuing with the simulated scanner (dev builds only).", [
-        { text: "OK", onPress: simScan },
-      ]);
-    } else {
-      appAlert("Camera unavailable", "No usable camera was found — pay by entering the UPI ID instead.");
+  // Refresh whichever quote flow is active (used by the expired-quote screen).
+  async function getQuote() {
+    try {
+      if (flow === "send") await getTransferQuote(lastSend.current.currency, lastSend.current.amount);
+      else await getIntlQuote();
+    } catch (e) {
+      appAlert("Quote failed", humanError(e));
     }
   }
 
-  // Real QR handling: parse the (untrusted) QR payload as a UPI URI; valid →
-  // prefill the payment review screen; invalid → hint and keep scanning.
+  // ---- domestic QR scanning (real camera on device and web) ----
   function onQrScanned({ data }) {
     if (scanLock.current) return;
     const parsed = parseUpiQr(data);
@@ -726,63 +570,66 @@ export default function App() {
       amount: parsed.amount ? String(parsed.amount) : "",
       note: parsed.note,
     });
-    setDomIntent({ kind: "upiid", title: parsed.name, sub: parsed.vpa + " • Scanned QR" });
-    setScreen("compose");
+    setFlow("domestic");
+    setPayeeVerified(false);
+    setDomIntent({ kind: "upi", title: parsed.name, sub: parsed.vpa + " • Scanned QR" });
+    go("compose");
   }
 
-  // DEV ONLY — camera-less environments (emulators): feed the sample QR
-  // through the real parse pipeline. Compiled out of release builds.
-  function useSampleQr() {
-    onQrScanned({ data: SAMPLE_UPI_QR });
+  async function startWebScan() {
+    if (webCameraCapable()) {
+      scanLock.current = false;
+      setWebScan("live");
+      return;
+    }
+    appAlert("No camera here", "This browser has no usable camera — pay by entering the UPI ID instead.");
   }
 
-  function startDom(kind) {
-    setForm(EMPTY_FORM);
-    const map = {
-      topup: { title: "Add money", sub: "Fund your Borderless balance — recorded on the ledger like every transaction" },
-      phone: { title: "Pay by phone number", sub: "Sends instantly via UPI" },
-      upiid: { title: "Pay to UPI ID", sub: "e.g. name@bank" },
-      bank: { title: "Bank transfer", sub: "To any account + IFSC (IMPS / NEFT)" },
-      recharge: { title: "Mobile recharge", sub: "Prepaid top-up" },
-      bill: { title: "Pay bills", sub: "Electricity, water, gas, broadband & more" },
-      request: { title: "Request money", sub: "Ask someone to pay you" },
-    };
-    const m = map[kind] || { title: "Pay", sub: "" };
-    setDomIntent({ kind, title: m.title, sub: m.sub });
-    setScreen("compose");
+  function onWebCamError(e) {
+    setWebScan("idle");
+    const errName = e && e.name;
+    if (errName === "NotAllowedError" || errName === "SecurityError") {
+      appAlert(
+        "Camera access is turned off",
+        "You denied the browser's camera permission, so live scanning is unavailable. Enable it in your browser's site settings, or pay by entering the UPI ID."
+      );
+    } else {
+      appAlert("Camera unavailable", "No usable camera was found — pay by entering the UPI ID instead.");
+    }
   }
 
+  // ---- contacts ----
   function payContact(ct) {
-    setForm({ ...EMPTY_FORM, payeeName: ct.name, phone: ct.phone, vpa: ct.vpa });
+    setForm({ ...EMPTY_FORM, payeeName: ct.name, phone: ct.phone || "", vpa: ct.vpa || "" });
+    setFlow("domestic");
+    setPayeeVerified(false);
     setDomIntent({ kind: "contact", title: "Pay " + ct.name, sub: ct.vpa || ct.phone });
-    setScreen("compose");
+    go("compose");
   }
 
-  // Real OS contacts permission — asked IN-CONTEXT, only when the user taps
-  // "Pay a contact from my phone". A priming Alert explains why BEFORE the OS
-  // Allow/Deny dialog; deny → manual entry remains one tap away, so the
-  // feature degrades gracefully and never nags.
-  async function payFromPhoneContacts() {
-    // Web sim: show the OS-style contacts prompt, then (on allow) load the
-    // user's recent payees (real data from their own history) as the picker.
-    // Asked once and remembered for the session, like the OS.
+  function payPhoneContact(c) {
+    const phone = c.phoneNumbers && c.phoneNumbers[0] ? c.phoneNumbers[0].number : c.phone;
+    setForm({ ...EMPTY_FORM, payeeName: c.name, phone: phone || "" });
+    setFlow("domestic");
+    setPayeeVerified(false);
+    setDomIntent({ kind: "phone", title: "Pay " + c.name, sub: phone });
+    go("compose");
+  }
+
+  // Real OS contacts permission — asked IN-CONTEXT, with graceful fallbacks.
+  async function loadPhoneContacts() {
     if (IS_WEB) {
-      if (getSimPerm("contacts") === "denied") {
-        return appAlert(
-          "Contacts access is off",
-          "You declined contacts access this session. Enter a UPI ID / phone number instead, or reload the page to be asked again.",
-          [{ text: "Enter manually", onPress: () => startDom("phone") }, { text: "Cancel", style: "cancel" }]
-        );
+      // Browsers expose no contacts API — offer recent payees (from the
+      // user's own payment history) instead.
+      try {
+        const { contacts: cts } = await api("/api/contacts");
+        const mapped = (cts || []).filter((ct) => ct.phone).map((ct, i) => ({ id: "payee-" + i, name: ct.name, phoneNumbers: [{ number: ct.phone }] }));
+        if (!mapped.length) return appAlert("No recent payees yet", "Pay someone once and they'll appear here. Enter a UPI ID or phone number instead.", [{ text: "OK", onPress: () => startDom("phone") }]);
+        setPhoneContacts(mapped);
+      } catch (e) {
+        appAlert("Could not read contacts", "Enter a UPI ID or phone number instead.", [{ text: "OK", onPress: () => startDom("phone") }]);
       }
-      const ok = await requestSimPerm("contacts", {
-        icon: "👥",
-        title: "“Borderless Pay” Would Like to Access Your Contacts",
-        message: "Borderless Pay reads your contacts only to let you pick who to pay. Matching happens on your device — your contact list is never uploaded or stored.",
-      });
-      if (!ok) {
-        return appAlert("No problem", "You can still pay by entering a UPI ID or phone number.", [{ text: "Enter manually", onPress: () => startDom("phone") }, { text: "OK", style: "cancel" }]);
-      }
-      return loadPhoneContactsWeb();
+      return;
     }
     const { status, canAskAgain } = await Contacts.getPermissionsAsync();
     if (status !== "granted") {
@@ -801,8 +648,8 @@ export default function App() {
           {
             text: "Continue",
             onPress: async () => {
-              const res = await Contacts.requestPermissionsAsync(); // the real OS Allow/Deny pop-up
-              if (res.status === "granted") loadPhoneContacts();
+              const res = await Contacts.requestPermissionsAsync();
+              if (res.status === "granted") readDeviceContacts();
               else appAlert("No problem", "You can still pay by entering a UPI ID or phone number.", [{ text: "OK", onPress: () => startDom("phone") }]);
             },
           },
@@ -810,57 +657,24 @@ export default function App() {
       );
       return;
     }
-    loadPhoneContacts();
+    readDeviceContacts();
   }
 
-  async function loadPhoneContacts() {
+  async function readDeviceContacts() {
     try {
       const { data } = await Contacts.getContactsAsync({ fields: [Contacts.Fields.PhoneNumbers] });
       const withPhones = (data || []).filter((c) => c.name && c.phoneNumbers && c.phoneNumbers.length);
       if (!withPhones.length) return appAlert("No contacts found", "Enter a UPI ID or phone number instead.", [{ text: "OK", onPress: () => startDom("phone") }]);
       setPhoneContacts(withPhones.slice(0, 50));
-      setScreen("contacts");
     } catch (e) {
       appAlert("Could not read contacts", "Enter a UPI ID or phone number instead.", [{ text: "OK", onPress: () => startDom("phone") }]);
     }
-  }
-
-  // Web sim: build a picker list (expo-contacts shape) from the user's OWN
-  // recent payees so the "pick a contact" screen works in a browser.
-  async function loadPhoneContactsWeb() {
-    try {
-      const { contacts } = await api("/api/contacts");
-      const mapped = (contacts || []).filter((ct) => ct.phone).map((ct, i) => ({ id: "payee-" + i, name: ct.name, phoneNumbers: [{ number: ct.phone }] }));
-      if (!mapped.length) return appAlert("No recent payees yet", "Pay someone once and they'll appear here. Enter a UPI ID or phone number instead.", [{ text: "OK", onPress: () => startDom("phone") }]);
-      setPhoneContacts(mapped);
-      setScreen("contacts");
-    } catch (e) {
-      appAlert("Could not read contacts", "Enter a UPI ID or phone number instead.", [{ text: "OK", onPress: () => startDom("phone") }]);
-    }
-  }
-
-  function payPhoneContact(c) {
-    const phone = c.phoneNumbers[0].number;
-    setForm({ ...EMPTY_FORM, payeeName: c.name, phone });
-    setDomIntent({ kind: "phone", title: "Pay " + c.name, sub: phone });
-    setScreen("compose");
   }
 
   // Real OS notifications permission — offered ONCE after the first successful
   // payment (never at launch), and fully optional.
   async function maybeOfferNotifications() {
-    // Web sim: offer the OS-style notifications prompt ONCE after the first
-    // successful payment — the answer is remembered, so it never nags.
-    if (IS_WEB) {
-      if (getSimPerm("notifications") !== "undetermined") return;
-      const ok = await requestSimPerm("notifications", {
-        icon: "🔔",
-        title: "“Borderless Pay” Would Like to Send You Notifications",
-        message: "Get an instant receipt and a security alert for every payment. Optional — the app works fully without it.",
-      });
-      if (ok) appAlert("Alerts on", "You'll get a receipt and a security alert for each payment.");
-      return;
-    }
+    if (IS_WEB) return; // push alerts ship with the native apps
     try {
       const { status, canAskAgain } = await Notifications.getPermissionsAsync();
       if (status === "granted" || !canAskAgain) return;
@@ -869,53 +683,48 @@ export default function App() {
         "Get an instant receipt and a security alert for every payment. Optional — the app works fully without it.",
         [
           { text: "No thanks", style: "cancel" },
-          { text: "Enable alerts", onPress: () => Notifications.requestPermissionsAsync() }, // real OS Allow/Deny pop-up
+          { text: "Enable alerts", onPress: () => Notifications.requestPermissionsAsync() },
         ]
       );
     } catch (e) { /* notifications unavailable — silently skip */ }
   }
 
-  function payIncomingRequest(r) {
-    // fail early: don't take a biometric + PIN for a request the balance can't cover
-    if (account && r.amount > account.balance) {
-      return appAlert(
-        "Insufficient balance",
-        "This request needs " + fmtINR(r.amount) + " but you have " + fmtINR(account.balance) + ". Add money first.",
-        [{ text: "Cancel", style: "cancel" }, { text: "➕ Add money", onPress: () => startDom("topup") }]
-      );
-    }
-    setForm({ ...EMPTY_FORM, amount: String(r.amount) });
-    setDomIntent({ kind: "payrequest", requestId: r.id, title: "Pay request", sub: r.fromName + (r.note ? " • " + r.note : "") });
-    setFlow("domestic");
-    openAuth();
-  }
-
-  async function submitRequest() {
-    const amount = Number(form.amount);
-    if (!(amount > 0)) return appAlert("Enter an amount", "How much do you want to request?");
-    setBusy(true);
+  // ---- explicit review before authorization (recipient-first hierarchy) ----
+  async function verifyPayeeBestEffort() {
+    const k = domIntent ? domIntent.kind : "upi";
+    if (!["upi", "phone", "account", "contact"].includes(k)) return false;
     try {
-      await api("/api/requests", {
+      const r = await api("/api/payees/verify", {
         method: "POST",
-        body: { amount, fromName: form.payeeName || form.phone || "Someone", note: form.note },
+        body: {
+          vpa: form.vpa || undefined,
+          phone: form.phone || undefined,
+          account: form.account || undefined,
+          ifsc: form.ifsc || undefined,
+          name: form.payeeName || undefined,
+        },
       });
-      await refresh();
-      appAlert("Request sent", "We'll notify you when it's paid. Track it anytime under Activity → Requests.");
-      setScreen("home");
-    } catch (e) {
-      appAlert("Could not send request", e.message);
-    } finally {
-      setBusy(false);
+      if (r && r.name && !form.payeeName) updateForm({ payeeName: r.name });
+      return Boolean(r && (r.verified === true || r.name));
+    } catch {
+      return false; // shown honestly as "unverified" on the review screen
     }
   }
 
-  function proceedDomestic() {
+  async function proceedDomestic() {
     const amount = Number(form.amount);
     if (!(amount > 0)) {
-      return appAlert("Enter an amount", domIntent && domIntent.kind === "topup" ? "How much do you want to add?" : "How much do you want to pay?");
+      throw new Error(domIntent && domIntent.kind === "topup" ? "Enter the amount you want to add." : "Enter the amount you want to pay.");
     }
     setFlow("domestic");
-    openAuth();
+    if (domIntent && domIntent.kind === "topup") {
+      // Nothing to review for a self top-up — straight to authorization.
+      openAuth();
+      return;
+    }
+    const verified = await verifyPayeeBestEffort();
+    setPayeeVerified(verified);
+    go("review");
   }
 
   function buildDomesticRequest() {
@@ -923,106 +732,81 @@ export default function App() {
     const k = domIntent ? domIntent.kind : "upi";
     if (k === "topup") return { endpoint: "/api/topup", body: { amount } };
     if (k === "payrequest") return { endpoint: "/api/requests/pay", body: { requestId: domIntent.requestId } };
-    if (k === "recharge") return { endpoint: "/api/recharge", body: { amount, recharge: { operator: form.operator, number: form.phone, plan: "Custom" } } };
-    if (k === "bill") return { endpoint: "/api/bills/pay", body: { amount, biller: { category: form.billCategory, name: form.biller || form.billCategory, consumerId: form.consumerId } } };
+    if (k === "recharge") return { endpoint: "/api/recharge", body: { amount, recharge: { operator: form.operator || "Airtel", number: form.phone, plan: "Custom" } } };
+    if (k === "bill") return { endpoint: "/api/bills/pay", body: { amount, biller: { category: form.billCategory || "Electricity", name: form.biller || form.billCategory || "Biller", consumerId: form.consumerId } } };
     let payee;
-    if (k === "bank") payee = { kind: "bank", type: "bank", name: form.payeeName || "Bank account", account: form.account, ifsc: form.ifsc };
-    else if (k === "upiid") payee = { kind: "upi", type: "upi", name: form.payeeName || form.vpa || "UPI ID", vpa: form.vpa };
+    if (k === "account") payee = { kind: "bank", type: "bank", name: form.payeeName || "Bank account", account: form.account, ifsc: form.ifsc };
+    else if (k === "upi") payee = { kind: "upi", type: "upi", name: form.payeeName || form.vpa || "UPI ID", vpa: form.vpa };
     else if (k === "phone") payee = { kind: "upi", type: "phone", name: form.payeeName || form.phone || "Payee", phone: form.phone };
-    else if (k === "merchant") payee = { kind: "upi", type: "merchant", name: form.payeeName || "Merchant" };
     else payee = { kind: "upi", type: "contact", name: form.payeeName || "Payee", phone: form.phone, vpa: form.vpa };
     return { endpoint: "/api/upi/pay", body: { amount, payee } };
   }
 
-  async function getQuote() {
-    const amt = Number(intlAmount);
-    if (!(amt > 0)) return appAlert("Enter an amount", "How much does the merchant charge (in their currency)?");
-    setBusy(true);
-    try {
-      const q = await api("/api/quotes", {
-        method: "POST",
-        body: { currency: corridor, localAmount: amt },
-      });
-      setQuote(q);
-      setQuoteExpired(false);
-      setScreen("quote");
-    } catch (e) {
-      appAlert("Quote failed", e.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // ---- payment authorization (biometric gate → PIN) ----
-  // bioState: "checking" → biometric prompt in progress (PIN pad hidden)
-  //           "passed"   → biometric OK (or none enrolled) — PIN pad active
-  //           "failed"   → user failed/cancelled — must retry or go back
-  const [bioState, setBioState] = useState("checking");
-  const authInFlight = useRef(false);
-
-  function authExitScreen() {
-    return flow === "domestic" ? (domIntent && domIntent.kind !== "payrequest" ? "compose" : "home") : "quote";
-  }
-
+  // ---- payment authorization (biometric best-effort → server-verified PIN) ----
   async function openAuth() {
     setPin("");
+    setAuthError("");
     authInFlight.current = false;
-    setBioState("checking");
-    setScreen("auth");
-    await runBiometric();
+    go("auth");
+    runBiometric();
   }
 
   async function runBiometric() {
-    setBioState("checking");
-    // Web sim: browsers have no biometric API, so show a simulated Face ID
-    // sheet. The gate is still real — cancelling blocks the PIN pad, exactly
-    // as a failed biometric does on a device.
-    if (IS_WEB) {
-      const result = await simulateBiometric("Confirm it's you to authorize this payment");
-      setBioState(result.success ? "passed" : "failed");
-      return;
-    }
+    // The PIN is the server-verified factor; the biometric is a local extra.
+    // A cancelled biometric surfaces a warning but never strands the payment.
     try {
-      const has = await LocalAuthentication.hasHardwareAsync();
-      const enrolled = has && (await LocalAuthentication.isEnrolledAsync());
-      if (!enrolled) {
-        setBioState("passed"); // no biometrics on this device — PIN is the factor
+      if (IS_WEB) {
+        // No biometric hardware in the browser — the server-verified PIN is
+        // the authorization factor.
         return;
       }
+      const has = await LocalAuthentication.hasHardwareAsync();
+      const enrolled = has && (await LocalAuthentication.isEnrolledAsync());
+      if (!enrolled) return;
       const result = await LocalAuthentication.authenticateAsync({
         promptMessage: "Authorize your payment",
         cancelLabel: "Cancel",
         disableDeviceFallback: false,
       });
-      // THE GATE IS REAL: a failed or cancelled biometric blocks the PIN pad.
-      setBioState(result.success ? "passed" : "failed");
-    } catch (e) {
-      // hardware error → don't strand the user; PIN (server-verified) remains
-      setBioState("passed");
-    }
+      if (!result.success) setAuthError("Biometric check cancelled — enter your payment PIN to continue.");
+    } catch (e) { /* hardware error → PIN remains */ }
   }
 
-  // PIN entry: the state updater stays PURE (no side effects inside setState —
-  // impure updaters can double-fire under React dev double-invocation, which
-  // for a payment would mean two idempotency keys = a possible double charge).
+  // PIN entry: the state updater stays PURE (no side effects inside setState).
   // The 4th digit triggers authorization exactly once via this effect.
   function onPinKey(k) {
-    if (bioState !== "passed") return; // pad is inert until the biometric gate opens
+    if (busy) return;
+    setAuthError("");
     setPin((prev) => (k === "del" ? prev.slice(0, -1) : prev.length < 4 ? prev + k : prev));
   }
 
   useEffect(() => {
-    if (screen !== "auth" || bioState !== "passed" || pin.length !== 4) return;
+    if (screen !== "auth" || pin.length !== 4) return;
     if (authInFlight.current) return;
     authInFlight.current = true;
-    const t = setTimeout(() => authorize(pin), 150);
-    return () => clearTimeout(t);
-  }, [pin, screen, bioState]);
+    const id = setTimeout(() => authorize(pin), 150);
+    return () => clearTimeout(id);
+  }, [pin, screen]);
 
+  function authExitScreen() {
+    if (flow === "domestic") return domIntent && domIntent.kind === "payrequest" ? "home" : domIntent && domIntent.kind === "topup" ? "compose" : "review";
+    return "quote";
+  }
+
+  // Settlement progress is driven by the REAL request lifecycle: while the
+  // request is in flight the steps advance up to the second-to-last; the final
+  // step completes only when the backend answers. Failure shows the real error
+  // with a retry that goes back through PIN authorization.
   async function authorize(enteredPin) {
-    setScreen("settle");
-    setStep(0);
-    const steps = flow === "send" ? SEND_STEPS : flow === "domestic" ? (domIntent && domIntent.kind === "topup" ? TOPUP_STEPS : DOMESTIC_STEPS) : SETTLE_STEPS;
+    const steps = settleSteps;
+    setSettleError(null);
+    setSettleStepIndex(0);
+    setBusy(true);
+    go("settle");
+    if (settleTimer.current) clearInterval(settleTimer.current);
+    settleTimer.current = setInterval(() => {
+      setSettleStepIndex((i) => Math.min(i + 1, steps.length - 1));
+    }, 600);
     const idem = "idem_" + Date.now() + "_" + Math.random().toString(36).slice(2);
     try {
       let endpoint, body;
@@ -1032,79 +816,67 @@ export default function App() {
         body = { ...built.body, pin: enteredPin };
       } else if (flow === "send") {
         endpoint = "/api/transfers";
-        body = { quoteId: quote.quoteId, pin: enteredPin, recipient: { name: recipientName || "Recipient", country: p2pCurrency } };
+        body = { quoteId: quote.quoteId, pin: enteredPin, recipient: { name: form.payeeName || "Recipient", country: quote.recipientCurrency } };
       } else {
         endpoint = "/api/payments";
-        body = { quoteId: quote.quoteId, pin: enteredPin, merchant: { name: intlMerchant.trim() || "Merchant", country: corridor } };
+        body = { quoteId: quote.quoteId, pin: enteredPin, merchant: { name: (intlMerchant && intlMerchant.name) || "Merchant", country: (intlMerchant && intlMerchant.currency) || quote.currency } };
       }
       const r = await api(endpoint, { method: "POST", idempotencyKey: idem, body });
-      setTimeout(async () => {
+      clearInterval(settleTimer.current);
+      setSettleStepIndex(steps.length); // completed by the real response
+      setPin("");
+      refresh();
+      setTimeout(() => {
         setVerifyResult(null);
         setReceipt(r.receipt);
-        await refresh();
-        setScreen("receipt");
-        maybeOfferNotifications(); // in-context, after a real successful payment
-      }, steps.length * 520 + 300);
+        go("receipt");
+        maybeOfferNotifications();
+      }, 450);
     } catch (e) {
-      authInFlight.current = false; // allow a clean retry after any failure
+      clearInterval(settleTimer.current);
+      authInFlight.current = false;
       setPin("");
       // A 60-second quote can lapse while the user hesitates — recover by
       // fetching a fresh one instead of stranding them on a dead quote.
       if (/expired/i.test(e.message || "") && flow !== "domestic") {
         appAlert("Quote expired", "Rates lock for 60 seconds — fetching you a fresh quote.");
-        if (flow === "send") getTransferQuote();
-        else getQuote();
+        getQuote();
         return;
       }
-      // A mistyped PIN gets an in-place retry (the pad is right there and the
-      // server's lockout counter still applies) — professional apps don't
-      // bounce you back to the form to re-enter everything.
+      // A mistyped PIN gets an in-place retry (the server's lockout counter
+      // still applies) — no bouncing back to re-enter everything.
       if (/incorrect pin/i.test(e.message || "")) {
-        appAlert("Incorrect PIN", e.message + ". Try again — 5 wrong attempts lock your wallet.");
-        setScreen("auth");
+        setAuthError(humanError(e) + " 5 wrong attempts lock your wallet.");
+        go("auth");
         return;
       }
-      appAlert("Could not complete", e.message);
-      setScreen(authExitScreen());
+      setSettleError(humanError(e)); // shown on the settle screen with a retry
+    } finally {
+      setBusy(false);
     }
+  }
+
+  function settleRetry() {
+    setSettleError(null);
+    openAuth();
   }
 
   // Recompute the receipt's Merkle inclusion proof CLIENT-SIDE (pure-JS
   // SHA-256 — no trust in the server for the math).
   async function verifyReceipt() {
     if (!receipt || !receipt.settlement) return;
-    setVerifyResult({ pending: true });
     try {
       const p = await api("/api/ledger/proof/" + receipt.settlement.index);
       if (p.blockHash !== receipt.settlement.hash) throw new Error("ledger block hash does not match this receipt");
       const root = foldMerkleProof(p.blockHash, p.path);
       if (root !== p.anchor.merkleRoot) throw new Error("Merkle path does not reach the anchor root");
-      setVerifyResult({
-        ok: true,
-        message: "Independently verified — committed under anchor " + p.anchor.anchorId + ", published as " + p.anchor.publicTxHash.slice(0, 16) + "…",
-      });
+      setVerifyResult({ ok: true });
     } catch (e) {
-      setVerifyResult({ ok: false, message: "Verification failed: " + e.message });
+      setVerifyResult({ ok: false, error: humanError(e) });
     }
   }
 
-  // Open the hosted policy document, with an inline key-points fallback if
-  // the device can't open it (informed consent either way).
-  async function openPolicy(doc, title, summary) {
-    try {
-      const supported = await Linking.canOpenURL(CONFIG.API_BASE + "/" + doc);
-      if (!supported) throw new Error("unavailable");
-      await Linking.openURL(CONFIG.API_BASE + "/" + doc);
-    } catch {
-      appAlert(title + " (v1.0)", summary);
-    }
-  }
-
-  const PRIVACY_SUMMARY =
-    "We collect only what payments need: your name (and email if you create a login), a hashed device ID for session security, and transaction records. PINs/passwords are stored as scrypt hashes; sensitive fields are AES-256-GCM encrypted. No contacts, location, camera or ad data is collected. You can close your account anytime — profile data is erased; transaction records are kept pseudonymously where law requires. Full policy: privacy.html on the web app.";
-  const TERMS_SUMMARY =
-    "Sandbox phase — money movement is simulated until licensed rails go live, and every receipt is stamped 'sandbox'. ₹0 domestic fee; cross-border at the mid-market rate + flat 0.5% (₹2 min, ₹500 cap), always shown before you confirm. Balances start at ₹0 and are funded only through the audited Add-money flow. Keep your PIN and 2FA codes secret. Full terms: terms.html on the web app.";
-
+  // ---- sign out / close account ----
   function confirmLogout() {
     appAlert("Account", "Log out, or close your account permanently?", [
       { text: "Cancel", style: "cancel" },
@@ -1130,7 +902,7 @@ export default function App() {
       await api("/api/account/close", { method: "POST" });
       appAlert("Account closed", "Your profile data has been erased and all sessions revoked.");
     } catch (e) {
-      appAlert("Could not close account", e.message);
+      appAlert("Could not close account", humanError(e));
       return;
     }
     await resetLocal();
@@ -1139,9 +911,7 @@ export default function App() {
   async function logout() {
     try {
       await api("/api/logout", { method: "POST" });
-    } catch (e) {
-      // best effort — local state is cleared regardless
-    }
+    } catch (e) { /* best effort — local state is cleared regardless */ }
     await resetLocal();
   }
 
@@ -1152,1043 +922,309 @@ export default function App() {
     setHistory([]);
     setRequests([]);
     setContacts([]);
+    setPhoneContacts([]);
     setReceipt(null);
     setQuote(null);
     setVerifyResult(null);
-    setNewPin("");
-    setConfirmPin("");
-    setPinStage("create");
+    setSelectedTxn(null);
     setPin("");
+    setAuthError("");
     setName("");
-    setLoginEmail("");
-    setLoginPassword("");
-    setLoginTotp("");
-    setTotpNeeded(false);
-    setResetStage("none");
-    setResetToken("");
-    setResetNewPassword("");
-    setConsent(false); // a fresh onboarding must re-consent
-    setScreen("welcome");
+    setForm(EMPTY_FORM);
+    setDomIntent(null);
+    setIntlMerchant(null);
+    go("welcome");
   }
 
-  async function verifyLedger() {
-    try {
-      const v = await api("/api/ledger/verify");
-      appAlert(
-        v.ok ? "✓ Ledger intact" : "✗ Tampering detected",
-        v.ok ? v.blocks + " blocks • " + v.anchors + " anchors verified" : String(v.reason)
-      );
-    } catch (e) {
-      appAlert("Error", e.message);
-    }
-  }
+  // Merged metadata for screens: /api/meta + account facts + review-time
+  // payee verification, under one stable object.
+  const mergedMeta = {
+    ...(meta || {}),
+    balance: account ? account.balance : 0,
+    accountLast4: account && account.maskedNumber ? String(account.maskedNumber).replace(/[^0-9]/g, "").slice(-4) : "",
+    bankName: account ? account.bank : "",
+    payeeVerified,
+  };
 
-  useEffect(() => {
-    if (screen !== "settle") return;
-    let i = 0;
-    const id = setInterval(() => {
-      i += 1;
-      setStep(i);
-      if (i >= settleSteps.length) clearInterval(id);
-    }, 520);
-    return () => clearInterval(id);
-  }, [screen]);
+  const backTargetForCtx = (scr, opts) =>
+    routeBackTarget(scr || screen, {
+      flow,
+      domIntentKind: domIntent && domIntent.kind,
+      helpFrom,
+      ...(opts || {}),
+    });
 
-  useEffect(() => {
-    if (screen === "receipt") {
-      checkScale.setValue(0);
-      Animated.spring(checkScale, { toValue: 1, useNativeDriver: true, bounciness: 12, speed: 8 }).start();
-    }
-  }, [screen]);
+  const ctx = {
+    // navigation
+    screen,
+    setScreen: go,
+    backTargetFor: backTargetForCtx,
+    // profile / data
+    name,
+    meta: mergedMeta,
+    account,
+    history,
+    contacts,
+    requests,
+    phoneContacts,
+    // payment flow
+    flow,
+    domIntent,
+    form,
+    updateForm,
+    intlMerchant,
+    corridor: lastSend.current.currency,
+    quote,
+    quoteExpired,
+    getQuote,
+    getTransferQuote,
+    proceedDomestic,
+    // auth + settle
+    openAuth,
+    pin,
+    onPinKey,
+    busy,
+    error: authError,
+    runBiometric,
+    settleSteps,
+    settleStepIndex,
+    settleError,
+    settleRetry,
+    // receipt
+    receipt,
+    verifyResult,
+    verifyReceipt,
+    // activity
+    selectedTxn,
+    openTxnDetail,
+    // help
+    helpFrom,
+    openHelp,
+    // contacts
+    payContact,
+    loadPhoneContacts,
+    payPhoneContact,
+    // onboarding / session
+    handleLogin,
+    handleSignup,
+    handleForgotRequest,
+    handleResetConfirm,
+    handleLink,
+    unlockWithDevice,
+    lockState,
+    confirmLogout,
+    refresh,
+    // home actions
+    startSend,
+    startScanDomestic,
+    startDomRecharge,
+    startDomBill,
+    openContacts,
+    openAddMoney,
+    // domestic scanning (used by ScanDomScreen below)
+    webScan,
+    setWebScan,
+    startWebScan,
+    onWebCamError,
+    onQrScanned,
+    camPerm,
+    requestCamPerm,
+    startDom,
+  };
 
-  const showTabs = ["home", "scan", "scanDom", "send", "compose", "history", "quote", "receipt", "contacts"].includes(screen);
+  const showTabs = ["home", "scanDom", "history", "contacts"].includes(screen);
 
   return (
-    <SafeAreaView style={s.app}>
-      <StatusBar style="light" />
-      <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
-        {screen === "boot" && (
-          <View style={s.bootWrap}>
-            <Brand subtitle="Pay at home & across borders" />
-            <ActivityIndicator color={C.accent} size="large" style={[{ marginTop: 40 }]} />
-          </View>
-        )}
+    <AppContext.Provider value={ctx}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
+        <StatusBar style={C.statusBar === "dark-content" ? "dark" : "light"} />
+        <OfflineBanner visible={offline} />
+        <View style={{ flex: 1, ...CONTENT }}>
+          {screen === "boot" && <BootScreen />}
+          {screen === "welcome" && <WelcomeScreen />}
+          {screen === "signin" && <SigninScreen />}
+          {screen === "signup" && <SignupScreen />}
+          {screen === "forgot" && <ResetScreen />}
+          {screen === "link" && <LinkScreen />}
+          {screen === "lock" && <LockScreen />}
+          {screen === "home" && <HomeScreen />}
+          {screen === "send" && <SendScreen />}
+          {screen === "scanDom" && <ScanDomScreen />}
+          {screen === "compose" && <ComposeScreen />}
+          {screen === "quote" && <QuoteScreen />}
+          {screen === "review" && <ReviewScreen />}
+          {screen === "auth" && <AuthScreen />}
+          {screen === "settle" && <SettleScreen />}
+          {screen === "receipt" && <ReceiptScreen />}
+          {screen === "history" && <ActivityScreen />}
+          {screen === "txnDetail" && <TxnDetailScreen />}
+          {screen === "contacts" && <ContactsScreen />}
+          {screen === "help" && <HelpScreen />}
+        </View>
+        {showTabs && <TabBar screen={screen} go={go} startScanDomestic={startScanDomestic} refresh={refresh} />}
+        <AlertHost />
+      </SafeAreaView>
+    </AppContext.Provider>
+  );
+}
 
-        {screen === "lock" && (
+// ---------------------------------------------------------------------------
+// Domestic QR scanning — real camera on device and on the web build.
+// ---------------------------------------------------------------------------
+function ScanDomScreen() {
+  const C = useTheme();
+  const {
+    setScreen, webScan, setWebScan, startWebScan, onWebCamError, onQrScanned,
+    camPerm, requestCamPerm, startDom,
+  } = useApp();
+
+  const scannerBox = {
+    height: rs(230),
+    borderRadius: 20,
+    backgroundColor: C.bg2,
+    borderWidth: 2,
+    borderColor: C.border,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  };
+  const scanline = { position: "absolute", left: 16, right: 16, top: "20%", height: 2, backgroundColor: C.accent, opacity: 0.7 };
+
+  const fallbackButtons = (
+    <View>
+      <PrimaryButton title="Enter UPI ID instead" secondary onPress={() => startDom("upi")} />
+    </View>
+  );
+
+  const privacyCard = (
+    <Card>
+      <Text style={{ color: C.text, fontWeight: "700", marginBottom: 6 }}>Camera — only while you scan</Text>
+      <Text style={{ color: C.muted, fontSize: rs(13), lineHeight: rs(19) }}>
+        Borderless Pay uses the camera solely to read the payment QR in front of you. No photos or video are
+        captured, stored, or uploaded — the QR is decoded on your device. Deny it and you can still pay by
+        entering a UPI ID.
+      </Text>
+    </Card>
+  );
+
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg, padding: rs(16) }}>
+      <ScreenHeader title="Scan any UPI QR" onBack={() => { setWebScan("idle"); setScreen("home"); }} />
+      {Platform.OS === "web" ? (
+        webScan === "live" ? (
           <View>
-            <Brand subtitle="Locked" />
-            <View style={[{ alignItems: "center", marginTop: 18 }]}>
-              <Avatar initials={initials(name)} size={72} />
-              <Text style={[s.h2, { marginTop: 14, textAlign: "center" }]}>Welcome back{name ? ", " + name.split(" ")[0] : ""}</Text>
+            <View style={scannerBox}>
+              <WebQrScanner onScanned={onQrScanned} onError={onWebCamError} />
+              <View style={scanline} pointerEvents="none" />
             </View>
-            {lockState === "failed" ? (
-              <View>
-                <Text style={[s.sub, { textAlign: "center" }]}>Authentication failed or was cancelled. Your money stays locked until you verify.</Text>
-                <PrimaryButton title="Try again" onPress={() => { setLockState("device"); unlockWithDevice(); }} loading={busy} />
-              </View>
-            ) : (
-              <View>
-                <Text style={[s.sub, { textAlign: "center" }]}>Unlock with Face ID / fingerprint / device PIN</Text>
-                <PrimaryButton title="🔓 Unlock" onPress={unlockWithDevice} loading={busy} />
-              </View>
-            )}
-            <TouchableOpacity onPress={lockLogout} activeOpacity={0.7} style={[{ marginTop: 18 }]}>
-              <Text style={[{ color: C.muted, fontSize: 13, textAlign: "center", fontWeight: "600" }]}>Not you? Sign out</Text>
-            </TouchableOpacity>
-            <Text style={s.buildStamp}>v{APP_VERSION} · {CONFIG.API_BASE}{meta && meta.settlementMode === "sandbox" ? " · 🧪 sandbox rails" : ""}</Text>
-            {!__DEV__ && CONFIG.USING_DEV_FALLBACK ? (
-              <Text style={[s.buildStamp, { color: C.warn }]}>⚠️ Release build without EXPO_PUBLIC_API_BASE — pointing at the local-dev fallback. Set it to your deployed backend URL.</Text>
-            ) : null}
-          </View>
-        )}
-
-        {screen === "signin" && (
-          <View>
-            <ScreenHeader title={resetStage === "none" ? "Sign in" : "Reset your password"} onBack={() => (resetStage === "none" ? setScreen("welcome") : setResetStage("none"))} />
-            {resetStage === "none" ? (
-              <View>
-                <Text style={s.sub}>Sign in with your Borderless Pay email and password — your account works across the app and the web. You stay signed in on this device until you log out.</Text>
-                <Text style={s.label}>Email</Text>
-                <TextInput
-                  style={s.input}
-                  placeholder="you@example.com"
-                  placeholderTextColor={C.muted}
-                  autoCapitalize="none"
-                  autoComplete="email"
-                  keyboardType="email-address"
-                  value={loginEmail}
-                  onChangeText={setLoginEmail}
-                />
-                <Text style={s.label}>Password</Text>
-                <TextInput
-                  style={s.input}
-                  placeholder="••••••••"
-                  placeholderTextColor={C.muted}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  value={loginPassword}
-                  onChangeText={setLoginPassword}
-                />
-                {totpNeeded && (
-                  <View>
-                    <Text style={s.label}>Two-factor code</Text>
-                    <TextInput
-                      style={s.input}
-                      placeholder="123 456"
-                      placeholderTextColor={C.muted}
-                      keyboardType="number-pad"
-                      value={loginTotp}
-                      onChangeText={setLoginTotp}
-                    />
-                  </View>
-                )}
-                <PrimaryButton title="Sign in →" onPress={handleLogin} loading={busy} />
-                <TouchableOpacity onPress={handleForgotRequest} activeOpacity={0.7} style={[{ marginTop: 14 }]}>
-                  <Text style={[{ color: C.accent, fontSize: 13, textAlign: "center", fontWeight: "600" }]}>Forgot password?</Text>
-                </TouchableOpacity>
-                <Text style={s.apiNote}>POST /api/auth/login • lockout-guarded, optional TOTP 2FA</Text>
-              </View>
-            ) : (
-              <View>
-                <Text style={s.sub}>A single-use reset token was issued for {loginEmail.trim().toLowerCase() || "your email"} (valid 30 minutes). Completing the reset signs you out of every device.</Text>
-                <Text style={s.label}>Reset token (from your email)</Text>
-                <TextInput
-                  style={s.input}
-                  placeholder="prt_…"
-                  placeholderTextColor={C.muted}
-                  autoCapitalize="none"
-                  value={resetToken}
-                  onChangeText={setResetToken}
-                />
-                <Text style={s.label}>New password (min 8 characters)</Text>
-                <TextInput
-                  style={s.input}
-                  placeholder="••••••••"
-                  placeholderTextColor={C.muted}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  value={resetNewPassword}
-                  onChangeText={setResetNewPassword}
-                />
-                <PrimaryButton title="Set new password →" onPress={handleResetConfirm} loading={busy} />
-                <TouchableOpacity onPress={() => setResetStage("none")} activeOpacity={0.7} style={[{ marginTop: 14 }]}>
-                  <Text style={[{ color: C.muted, fontSize: 13, textAlign: "center", fontWeight: "600" }]}>← Back to sign in</Text>
-                </TouchableOpacity>
-                <Text style={s.apiNote}>POST /api/auth/password/reset • single-use token • revokes all sessions</Text>
-              </View>
-            )}
-          </View>
-        )}
-
-        {screen === "welcome" && (
-          <View>
-            <Brand subtitle="Pay at home & across borders" />
-            <Text style={s.h1}>Pay anywhere, straight from your bank.</Text>
-            <Text style={s.sub}>
-              Spend at home and abroad at the real mid-market rate with a flat 0.5% fee — ₹0 on
-              domestic UPI. No wallets, no hidden FX markup, no surprises.
+            <Text style={{ color: C.muted2, fontSize: rs(11), textAlign: "center", marginTop: 10 }}>
+              Live camera — point at any UPI QR. Decoded on your device; nothing is photographed, stored, or uploaded.
             </Text>
-            <Card>
-              <Row label="🏦 Direct from your bank" value="✓" accent />
-              <Row label="💱 Mid-market FX rate" value="✓" accent />
-              <Row label="🔒 Triple-secure ledger" value="✓" accent />
-            </Card>
-            <Text style={s.label}>Your name</Text>
-            <TextInput
-              style={s.input}
-              placeholder="Aarav Shah"
-              placeholderTextColor={C.muted}
-              value={name}
-              onChangeText={setName}
-            />
-            <Text style={s.label}>Email</Text>
-            <TextInput
-              style={s.input}
-              placeholder="you@example.com"
-              placeholderTextColor={C.muted}
-              autoCapitalize="none"
-              autoComplete="email"
-              keyboardType="email-address"
-              value={loginEmail}
-              onChangeText={setLoginEmail}
-            />
-            <Text style={s.label}>Password (min 8 characters)</Text>
-            <TextInput
-              style={s.input}
-              placeholder="••••••••"
-              placeholderTextColor={C.muted}
-              secureTextEntry
-              autoCapitalize="none"
-              value={loginPassword}
-              onChangeText={setLoginPassword}
-            />
-            <TouchableOpacity style={s.consentRow} activeOpacity={0.8} onPress={() => setConsent(!consent)}>
-              <View style={[s.consentBox, consent && s.consentBoxOn]}>
-                {consent ? <Text style={[{ color: "#04122b", fontWeight: "800", fontSize: 13 }]}>✓</Text> : null}
-              </View>
-              <Text style={s.consentTxt}>I agree to the Terms of Service and Privacy Policy (v1.0)</Text>
-            </TouchableOpacity>
-            <View style={[{ flexDirection: "row", marginLeft: 32, marginBottom: 6 }]}>
-              <TouchableOpacity onPress={() => openPolicy("terms.html", "Terms of Service", TERMS_SUMMARY)}>
-                <Text style={s.consentLink}>Read the Terms ↗</Text>
-              </TouchableOpacity>
-              <Text style={[{ color: C.muted, marginHorizontal: 6, fontSize: 12 }]}>·</Text>
-              <TouchableOpacity onPress={() => openPolicy("privacy.html", "Privacy Policy", PRIVACY_SUMMARY)}>
-                <Text style={s.consentLink}>Privacy Policy ↗</Text>
-              </TouchableOpacity>
-            </View>
-            <PrimaryButton title="Create your account →" onPress={handleSignup} loading={busy} />
-            <TouchableOpacity onPress={() => setScreen("signin")} activeOpacity={0.7} style={[{ marginTop: 14 }]}>
-              <Text style={[{ color: C.accent, fontSize: 14, textAlign: "center", fontWeight: "700" }]}>
-                Already have an account? Sign in
-              </Text>
-            </TouchableOpacity>
-            <Text style={s.apiNote}>POST /api/auth/signup • scrypt-hashed password • consent recorded & versioned</Text>
-            {meta && meta.settlementMode === "sandbox" ? (
-              <Text style={s.apiNote}>🧪 Sandbox settlement: money movement is simulated until licensed rails go live — every receipt says so.</Text>
-            ) : null}
-            <Text style={s.buildStamp}>v{APP_VERSION} · {CONFIG.API_BASE}{meta && meta.settlementMode === "sandbox" ? " · 🧪 sandbox rails" : ""}</Text>
-            {!__DEV__ && CONFIG.USING_DEV_FALLBACK ? (
-              <Text style={[s.buildStamp, { color: C.warn }]}>⚠️ Release build without EXPO_PUBLIC_API_BASE — pointing at the local-dev fallback. Set it to your deployed backend URL.</Text>
-            ) : null}
-          </View>
-        )}
-
-        {screen === "link" && (
-          <View>
-            <Text style={s.h2}>Link your home bank</Text>
-            <Text style={s.sub}>
-              We connect via secure open-banking consent. Your money stays in your bank until you pay.
-            </Text>
-            <Text style={s.label}>Bank</Text>
-            <Chips
-              value={bank}
-              onChange={setBank}
-              options={[
-                { value: "HDFC Bank", label: "HDFC" },
-                { value: "ICICI Bank", label: "ICICI" },
-                { value: "State Bank of India", label: "SBI" },
-                { value: "Axis Bank", label: "Axis" },
-              ]}
-            />
-            {pinStage === "create" ? (
-              <View>
-                <Text style={s.label}>Create a 4-digit payment PIN</Text>
-                <PinDots filled={newPin.length} />
-              </View>
-            ) : (
-              <View>
-                <Text style={s.label}>Confirm your PIN — enter it once more</Text>
-                <PinDots filled={confirmPin.length} />
-                <TouchableOpacity
-                  onPress={() => { setNewPin(""); setConfirmPin(""); setPinStage("create"); }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[{ color: C.accent, fontSize: 12, textAlign: "center", fontWeight: "600", marginBottom: 4 }]}>Start PIN over</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-            <PinPad onKey={onNewPinKey} />
-            <PrimaryButton
-              title="Link account"
-              onPress={handleLink}
-              loading={busy}
-              disabled={pinStage !== "confirm" || confirmPin.length !== 4 || confirmPin !== newPin}
-            />
-            <Text style={s.apiNote}>POST /api/accounts/link • PIN stored as scrypt hash</Text>
-            <TouchableOpacity
-              onPress={() =>
-                appAlert("Start over?", "This discards your verification and returns to the beginning.", [
-                  { text: "Cancel", style: "cancel" },
-                  { text: "Start over", style: "destructive", onPress: logout },
-                ])
-              }
-              activeOpacity={0.7}
-              style={[{ marginTop: 12 }]}
-            >
-              <Text style={[{ color: C.muted, fontSize: 13, textAlign: "center", fontWeight: "600" }]}>← Start over</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {screen === "home" && (
-          <View>
-            <View style={s.topbar}>
-              <View>
-                <Text style={s.greet}>{greeting()}</Text>
-                <Text style={s.greetName}>{(name ? name.split(" ")[0] : "there") + " 👋"}</Text>
-              </View>
-              <View style={[{ flexDirection: "row", alignItems: "center" }]}>
-                <TouchableOpacity onPress={confirmLogout} activeOpacity={0.7} style={[s.verifyChip, { marginRight: 10 }]}>
-                  <Text style={s.verifyChipTxt}>🚪 Log out</Text>
-                </TouchableOpacity>
-                <Avatar initials={initials(name)} size={46} />
-              </View>
-            </View>
-
-            <Card glow>
-              <Text style={s.muted}>Available to spend</Text>
-              {account ? (
-                <Text style={s.balance}>{fmtINR(account.balance)}</Text>
-              ) : (
-                <TouchableOpacity activeOpacity={0.7} onPress={() => refresh({ quiet: false })} style={[{ flexDirection: "row", alignItems: "center", marginVertical: rs(12) }]}>
-                  <ActivityIndicator color={C.accent} />
-                  <Text style={[{ color: C.muted, fontSize: 13, marginLeft: 10, fontWeight: "600" }]}>Fetching your balance… (tap to retry)</Text>
-                </TouchableOpacity>
-              )}
-              <View style={s.balanceRow}>
-                <Pill>{account ? account.bank + " • " + account.maskedNumber : "Loading account…"}</Pill>
-                <View style={[{ flexDirection: "row", alignItems: "center" }]}>
-                  {meta && meta.settlementMode === "sandbox" ? (
-                    <TouchableOpacity
-                      activeOpacity={0.7}
-                      style={[s.verifyChip, { marginRight: 8 }]}
-                      onPress={() => appAlert("🧪 Sandbox rails", "Money movement is simulated end-to-end while our sponsor-bank and PSP integrations are finalized. Every receipt is cryptographically signed and stamped 'sandbox' — nothing here pretends to be real money.")}
-                    >
-                      <Text style={[s.verifyChipTxt, { color: C.warn }]}>🧪 Sandbox</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  <TouchableOpacity onPress={verifyLedger} activeOpacity={0.7} style={s.verifyChip}>
-                    <Text style={s.verifyChipTxt}>🔎 Verify</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-              <Badges items={["🔐 scrypt PIN", "⛓️ dual ledger", "✍️ HMAC signed"]} />
-            </Card>
-
-            {account && account.balance === 0 && history.length === 0 && (
-              <Card glow>
-                <Text style={[{ color: C.text, fontWeight: "700", marginBottom: 4 }]}>👋 Welcome! Add money to get started</Text>
-                <Text style={[{ color: C.muted, fontSize: 13, marginBottom: 10 }]}>
-                  Your balance starts at ₹0 — every rupee is added explicitly and recorded on the tamper-evident ledger.
-                </Text>
-                <PrimaryButton title="➕ Add money" onPress={() => startDom("topup")} />
-              </Card>
-            )}
-
-            {incomingRequest && (
-              <Card glow>
-                <Text style={[{ color: C.text, fontWeight: "700", marginBottom: 4 }]}>
-                  💰 {incomingRequest.fromName} requested {fmtINR(incomingRequest.amount)}
-                </Text>
-                <Text style={[{ color: C.muted, fontSize: 13, marginBottom: 10 }]}>
-                  {incomingRequest.note || "Payment request"}
-                </Text>
-                <PrimaryButton title={"Pay " + fmtINR(incomingRequest.amount)} onPress={() => payIncomingRequest(incomingRequest)} />
-              </Card>
-            )}
-
-            <SectionHeader title="Money transfer" />
-            <View style={s.grid}>
-              <ActionTile icon="➕" label="Add money" tint={TINTS.mint} onPress={() => startDom("topup")} />
-              <ActionTile icon="📷" label="Scan QR" tint={TINTS.indigo} onPress={startScanDomestic} />
-              <ActionTile icon="📱" label="To phone" tint={TINTS.mint} onPress={() => startDom("phone")} />
-              <ActionTile icon="🆔" label="To UPI ID" tint={TINTS.violet} onPress={() => startDom("upiid")} />
-              <ActionTile icon="🏦" label="To bank" tint={TINTS.slate} onPress={() => startDom("bank")} />
-              <ActionTile icon="🔁" label="Request" tint={TINTS.amber} onPress={() => startDom("request")} />
-            </View>
-
-            <SectionHeader title="Recharge & bills" />
-            <View style={s.grid}>
-              <ActionTile icon="📲" label="Recharge" tint={TINTS.mint} onPress={() => startDom("recharge")} />
-              <ActionTile icon="🧾" label="Pay bills" tint={TINTS.amber} onPress={() => startDom("bill")} />
-              <ActionTile icon="💡" label="Electricity" tint={TINTS.amber} onPress={() => startDom("bill")} />
-              <ActionTile icon="📺" label="DTH" tint={TINTS.violet} onPress={() => startDom("bill")} />
-            </View>
-
-            <SectionHeader title="International 🌍" />
-            <View style={s.grid}>
-              <ActionTile icon="💸" label="Send abroad" tint={TINTS.indigo} onPress={startSend} />
-              <ActionTile icon="🧳" label="Pay abroad" tint={TINTS.indigo} onPress={startScan} />
-              <ActionTile icon="🔎" label="Verify" tint={TINTS.slate} onPress={verifyLedger} />
-            </View>
-
-            {contacts.length > 0 && (
-              <View>
-                <SectionHeader title="People" />
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[{ marginBottom: 8 }]}>
-                  <TouchableOpacity style={s.person} activeOpacity={0.8} onPress={payFromPhoneContacts}>
-                    <View style={[s.personAdd]}><Text style={[{ fontSize: 22, color: C.accent }]}>👤+</Text></View>
-                    <Text style={s.personName} numberOfLines={1}>From phone</Text>
-                  </TouchableOpacity>
-                  {contacts.map((ct) => (
-                    <TouchableOpacity key={ct.vpa || ct.phone} style={s.person} activeOpacity={0.8} onPress={() => payContact(ct)}>
-                      <Avatar initials={ct.initials} size={52} />
-                      <Text style={s.personName} numberOfLines={1}>{ct.name.split(" ")[0]}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-
-            <SectionHeader title="Recent" action={history.length ? "See all" : null} onAction={async () => { await refresh({ quiet: false }); if (hasSession()) setScreen("history"); }} />
-            <HistoryList history={history} />
-          </View>
-        )}
-
-        {screen === "scan" && (
-          <View>
-            <ScreenHeader title="Pay abroad" onBack={() => setScreen("home")} />
-            <Text style={s.sub}>
-              Choose the merchant's currency, enter who you're paying and the amount they charge —
-              the transparent mid-market conversion is shown before you confirm.
-            </Text>
-            <Text style={s.label}>Currency corridor</Text>
-            <Chips
-              value={corridor}
-              onChange={setCorridor}
-              options={Object.keys(CORRIDORS).map((k) => ({ value: k, label: CORRIDORS[k].flag + " " + k }))}
-            />
-            <Text style={s.label}>Merchant name</Text>
-            <TextInput
-              style={s.input}
-              placeholder={c.example}
-              placeholderTextColor={C.muted}
-              value={intlMerchant}
-              onChangeText={setIntlMerchant}
-            />
-            <Text style={s.label}>Amount they charge ({c.sym})</Text>
-            <TextInput
-              style={s.input}
-              placeholder="0"
-              placeholderTextColor={C.muted}
-              keyboardType="decimal-pad"
-              value={intlAmount}
-              onChangeText={setIntlAmount}
-            />
-            <PrimaryButton title="Get quote →" onPress={getQuote} loading={busy} />
-          </View>
-        )}
-
-        {screen === "send" && (
-          <View>
-            <ScreenHeader title="Send money abroad" onBack={() => setScreen("home")} />
-            <Text style={s.sub}>
-              Send to anyone abroad, straight from your bank at the real mid-market rate.
-            </Text>
-            <Text style={s.label}>Recipient name</Text>
-            <TextInput
-              style={s.input}
-              placeholder="e.g. Sara Khan"
-              placeholderTextColor={C.muted}
-              value={recipientName}
-              onChangeText={setRecipientName}
-            />
-            <Text style={s.label}>They receive in</Text>
-            <Chips
-              value={p2pCurrency}
-              onChange={setP2pCurrency}
-              options={P2P_CURRENCIES.map((x) => ({ value: x.code, label: x.flag + " " + x.code }))}
-            />
-            <Text style={s.label}>Amount to send (₹ INR)</Text>
-            <TextInput
-              style={s.input}
-              placeholder="1000"
-              placeholderTextColor={C.muted}
-              keyboardType="decimal-pad"
-              value={sendAmount}
-              onChangeText={setSendAmount}
-            />
-            <PrimaryButton title="Get quote →" onPress={getTransferQuote} loading={busy} />
-          </View>
-        )}
-
-        {screen === "quote" && quote && quote.kind === "p2p" && (
-          <View>
-            <ScreenHeader title="Confirm transfer" onBack={() => setScreen("send")} />
-            <Text style={s.sub}>To {recipientName || "your recipient"}</Text>
-            <Card glow>
-              <Row label="They receive" value={symFor(quote.recipientCurrency) + " " + quote.recipientAmount.toLocaleString()} accent />
-              <Row label="Exchange rate (mid-market)" value={"1 " + quote.recipientCurrency + " = ₹" + quote.rate} />
-              <Row label="You send" value={fmtINR(quote.sendAmount)} />
-              <Row label="FX markup" value="₹0.00" accent />
-              <Row label="Borderless fee (0.5%)" value={fmtINR(quote.fee)} />
-              <Row label="Total from bank" value={fmtINR(quote.total)} accent big />
-            </Card>
-            <Text style={s.savings}>Real rate, no markup — they get every rupee converted fairly.</Text>
-            <QuoteCountdown expiresAt={quote.expiresAt} expired={quoteExpired} onExpire={() => setQuoteExpired(true)} />
-            {account && quote.total > account.balance ? (
-              <View>
-                <Text style={s.shortfall}>Insufficient balance. You have {fmtINR(account.balance)} — this transfer needs {fmtINR(quote.total)}.</Text>
-                <PrimaryButton title="Change amount" secondary onPress={() => setScreen("send")} />
-              </View>
-            ) : quoteExpired ? (
-              <PrimaryButton title="Rate expired — get a fresh quote" onPress={getTransferQuote} loading={busy} />
-            ) : (
-              <PrimaryButton title="Send securely 🔒" onPress={openAuth} />
-            )}
-          </View>
-        )}
-
-        {screen === "quote" && quote && quote.kind !== "p2p" && (
-          <View>
-            <ScreenHeader title="Confirm payment" onBack={() => setScreen("scan")} />
-            <Text style={s.sub}>{(intlMerchant.trim() || "Merchant") + " · " + c.flag + " " + c.country}</Text>
-            <Card glow>
-              <Row label="They charge" value={c.sym + " " + Number(intlAmount).toLocaleString()} />
-              <Row label="Exchange rate (mid-market)" value={"1 " + corridor + " = ₹" + quote.rate} accent />
-              <Row label="Converted amount" value={fmtINR(quote.amount)} />
-              <Row label="FX markup" value="₹0.00" accent />
-              <Row label="Borderless fee (0.5%)" value={fmtINR(quote.fee)} />
-              <Row label="Total from bank" value={fmtINR(quote.total)} accent big />
-            </Card>
-            <Text style={s.savings}>
-              You save ~{fmtINR(quote.amount * 0.035 + 200 - quote.fee)} vs a typical bank card
-            </Text>
-            <QuoteCountdown expiresAt={quote.expiresAt} expired={quoteExpired} onExpire={() => setQuoteExpired(true)} />
-            {account && quote.total > account.balance ? (
-              <View>
-                <Text style={s.shortfall}>Insufficient balance. You have {fmtINR(account.balance)} — this payment needs {fmtINR(quote.total)}.</Text>
-                <PrimaryButton title="Back" secondary onPress={() => setScreen("scan")} />
-              </View>
-            ) : quoteExpired ? (
-              <PrimaryButton title="Rate expired — get a fresh quote" onPress={getQuote} loading={busy} />
-            ) : (
-              <PrimaryButton title="Pay securely 🔒" onPress={openAuth} />
-            )}
-          </View>
-        )}
-
-        {screen === "scanDom" && (IS_WEB ? (
-          <View>
-            <ScreenHeader title="Scan any UPI QR" onBack={() => { setWebScan("idle"); setScreen("home"); }} />
-            {webScan === "live" ? (
-              <View>
-                <View style={s.scanner}>
-                  <WebQrScanner onScanned={onQrScanned} onError={onWebCamError} />
-                  <View style={s.scanline} pointerEvents="none" />
-                </View>
-                <Text style={[s.apiNote, { marginTop: 10 }]}>
-                  Live camera — point at any UPI QR (it encodes upi://pay…). Decoded on your device; nothing is photographed, stored, or uploaded.
-                </Text>
-                <PrimaryButton title="Stop camera" secondary onPress={() => setWebScan("idle")} />
-                <PrimaryButton title="Enter UPI ID instead" secondary onPress={() => startDom("upiid")} />
-                {__DEV__ ? <PrimaryButton title="Use sample QR (dev builds only)" secondary onPress={useSampleQr} /> : null}
-              </View>
-            ) : webScan === "sim" ? (
-              <View>
-                <View style={s.scanner}>
-                  <View style={[{ flex: 1, alignItems: "center", justifyContent: "center" }]}>
-                    <Text style={[{ fontSize: 52 }]}>🎯</Text>
-                    <Text style={[{ color: C.muted, marginTop: 8, fontWeight: "600" }]}>Scanning — hold steady…</Text>
-                  </View>
-                  <View style={s.scanline} pointerEvents="none" />
-                </View>
-                <Text style={[s.apiNote, { marginTop: 10 }]}>
-                  Simulated camera (dev builds only — no camera available here). Detecting the sample UPI QR — it runs through the same upi:// parser as a real scan.
-                </Text>
-              </View>
-            ) : (
-              <View>
-                <Card>
-                  <Text style={[{ color: C.text, fontWeight: "700", marginBottom: 6 }]}>📷 Camera — only while you scan</Text>
-                  <Text style={[{ color: C.muted, fontSize: 13, lineHeight: 19 }]}>
-                    Borderless Pay uses the camera solely to read the payment QR in front of you. No photos or video are
-                    captured, stored, or uploaded — the QR is decoded on your device.
-                    {webCameraCapable()
-                      ? " Your browser will ask for camera access in-context, like the app does on a phone."
-                      : " No camera is available in this browser session, so the scan is simulated."}
-                  </Text>
-                </Card>
-                <PrimaryButton title="Allow camera & scan" onPress={startWebScan} />
-                <PrimaryButton title="Enter UPI ID instead" secondary onPress={() => startDom("upiid")} />
-                {__DEV__ ? <PrimaryButton title="Use sample QR (dev builds only)" secondary onPress={useSampleQr} /> : null}
-              </View>
-            )}
+            <PrimaryButton title="Stop camera" secondary onPress={() => setWebScan("idle")} />
+            {fallbackButtons}
           </View>
         ) : (
           <View>
-            <ScreenHeader title="Scan any UPI QR" onBack={() => setScreen("home")} />
-            {camPerm && camPerm.granted ? (
-              <View>
-                <View style={s.scanner}>
-                  <CameraView
-                    style={[{ flex: 1, alignSelf: "stretch" }]}
-                    facing="back"
-                    barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-                    onBarcodeScanned={onQrScanned}
-                  />
-                  <View style={s.scanline} pointerEvents="none" />
-                </View>
-                <Text style={[s.apiNote, { marginTop: 10 }]}>
-                  Point at any UPI QR — payee and amount fill in automatically. Nothing is photographed or stored.
-                </Text>
-                <PrimaryButton title="Enter UPI ID instead" secondary onPress={() => startDom("upiid")} />
-                {__DEV__ ? <PrimaryButton title="Use sample QR (dev builds only)" secondary onPress={useSampleQr} /> : null}
-              </View>
-            ) : camPerm && !camPerm.canAskAgain ? (
-              <View>
-                <Card>
-                  <Text style={[{ color: C.text, fontWeight: "700", marginBottom: 6 }]}>Camera access is turned off</Text>
-                  <Text style={[{ color: C.muted, fontSize: 13, lineHeight: 19 }]}>
-                    You previously denied camera access, so scanning is unavailable. You can enable it in your device
-                    Settings, or continue without the camera — everything still works.
-                  </Text>
-                </Card>
-                <PrimaryButton title="Open device settings" onPress={() => Linking.openSettings()} />
-                <PrimaryButton title="Enter UPI ID instead" secondary onPress={() => startDom("upiid")} />
-                {__DEV__ ? <PrimaryButton title="Use sample QR (dev builds only)" secondary onPress={useSampleQr} /> : null}
-              </View>
-            ) : (
-              <View>
-                <Card>
-                  <Text style={[{ color: C.text, fontWeight: "700", marginBottom: 6 }]}>📷 Camera — only while you scan</Text>
-                  <Text style={[{ color: C.muted, fontSize: 13, lineHeight: 19 }]}>
-                    Borderless Pay uses the camera solely to read the payment QR in front of you. No photos or video are
-                    captured, stored, or uploaded — the QR is decoded on your device. Deny it and you can still pay by
-                    entering a UPI ID.
-                  </Text>
-                </Card>
-                <PrimaryButton title="Allow camera & scan" onPress={requestCamPerm} />
-                <PrimaryButton title="Enter UPI ID instead" secondary onPress={() => startDom("upiid")} />
-                {__DEV__ ? <PrimaryButton title="Use sample QR (dev builds only)" secondary onPress={useSampleQr} /> : null}
-              </View>
-            )}
+            {privacyCard}
+            <PrimaryButton title="Allow camera & scan" onPress={startWebScan} />
+            {fallbackButtons}
           </View>
-        ))}
-
-        {screen === "compose" && domIntent && (
-          <View>
-            <ScreenHeader title={domIntent.title} onBack={() => setScreen("home")} />
-            {domIntent.sub ? <Text style={s.sub}>{domIntent.sub}</Text> : null}
-
-            {(domIntent.kind === "phone" || domIntent.kind === "request") && (
-              <View>
-                <Text style={s.label}>{domIntent.kind === "request" ? "Request from (name or phone)" : "Phone number"}</Text>
-                <TextInput style={s.input} placeholder="+91 98765 43210" placeholderTextColor={C.muted} keyboardType={domIntent.kind === "request" ? "default" : "phone-pad"} value={form.phone} onChangeText={(v) => setF("phone", v)} />
-              </View>
-            )}
-
-            {domIntent.kind === "upiid" && (
-              <View>
-                <Text style={s.label}>UPI ID</Text>
-                <TextInput style={s.input} placeholder="name@bank" placeholderTextColor={C.muted} autoCapitalize="none" value={form.vpa} onChangeText={(v) => setF("vpa", v)} />
-              </View>
-            )}
-
-            {domIntent.kind === "bank" && (
-              <View>
-                <Text style={s.label}>Account holder name</Text>
-                <TextInput style={s.input} placeholder="e.g. Meera Joshi" placeholderTextColor={C.muted} value={form.payeeName} onChangeText={(v) => setF("payeeName", v)} />
-                <Text style={s.label}>Account number</Text>
-                <TextInput style={s.input} placeholder="00112233445566" placeholderTextColor={C.muted} keyboardType="number-pad" value={form.account} onChangeText={(v) => setF("account", v)} />
-                <Text style={s.label}>IFSC code</Text>
-                <TextInput style={s.input} placeholder="HDFC0001234" placeholderTextColor={C.muted} autoCapitalize="characters" value={form.ifsc} onChangeText={(v) => setF("ifsc", v)} />
-              </View>
-            )}
-
-            {domIntent.kind === "recharge" && (
-              <View>
-                <Text style={s.label}>Operator</Text>
-                <Chips value={form.operator} onChange={(v) => setF("operator", v)} options={OPERATORS.map((o) => ({ value: o, label: o }))} />
-                <Text style={s.label}>Mobile number</Text>
-                <TextInput style={s.input} placeholder="+91 98765 43210" placeholderTextColor={C.muted} keyboardType="phone-pad" value={form.phone} onChangeText={(v) => setF("phone", v)} />
-              </View>
-            )}
-
-            {domIntent.kind === "bill" && (
-              <View>
-                <Text style={s.label}>Category</Text>
-                <Chips value={form.billCategory} onChange={(v) => { setF("billCategory", v); setF("biller", ""); }} options={BILL_CATEGORIES.map((o) => ({ value: o, label: o }))} />
-                <Text style={s.label}>Biller</Text>
-                <Chips value={form.biller} onChange={(v) => setF("biller", v)} options={(BILLERS[form.billCategory] || []).map((o) => ({ value: o, label: o }))} />
-                <Text style={s.label}>Consumer / account number</Text>
-                <TextInput style={s.input} placeholder="Consumer ID" placeholderTextColor={C.muted} value={form.consumerId} onChangeText={(v) => setF("consumerId", v)} />
-              </View>
-            )}
-
-            <Text style={s.label}>Amount (₹)</Text>
-            <TextInput style={s.input} placeholder="0" placeholderTextColor={C.muted} keyboardType="decimal-pad" value={form.amount} onChangeText={(v) => setF("amount", v)} />
-
-            {(domIntent.kind === "phone" || domIntent.kind === "upiid" || domIntent.kind === "contact" || domIntent.kind === "bank" || domIntent.kind === "merchant") && (
-              <View>
-                <Text style={s.label}>Note (optional)</Text>
-                <TextInput style={s.input} placeholder="What's it for?" placeholderTextColor={C.muted} value={form.note} onChangeText={(v) => setF("note", v)} />
-              </View>
-            )}
-
-            <Card>
-              <Row
-                label={domIntent.kind === "request" ? "You request" : domIntent.kind === "topup" ? "You add" : "You pay"}
-                value={fmtINR(Number(form.amount) || 0)}
-                accent
-                big
-              />
-              <Row label="Fee" value="₹0 • Free" accent />
-              {domIntent.kind === "request" ? (
-                <Row label="Status" value="Pending until paid" />
-              ) : domIntent.kind === "topup" ? (
-                <Row label="Settlement" value={meta && meta.settlementMode === "sandbox" ? "🧪 Sandbox (simulated)" : "Live"} />
-              ) : (
-                <Row label="Speed" value="Instant" />
-              )}
-            </Card>
-
-            {domIntent.kind === "request" ? (
-              <PrimaryButton title="Send request" onPress={submitRequest} loading={busy} />
-            ) : domIntent.kind === "topup" ? (
-              <PrimaryButton title={"Add " + fmtINR(Number(form.amount) || 0) + " to balance"} onPress={proceedDomestic} />
-            ) : account && Number(form.amount) > account.balance ? (
-              <Text style={s.shortfall}>Insufficient balance. You have {fmtINR(account.balance)}.</Text>
-            ) : (
-              <PrimaryButton title={"Proceed to pay " + fmtINR(Number(form.amount) || 0)} onPress={proceedDomestic} />
-            )}
+        )
+      ) : camPerm && camPerm.granted ? (
+        <View>
+          <View style={scannerBox}>
+            <CameraView
+              style={{ flex: 1, alignSelf: "stretch" }}
+              facing="back"
+              barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+              onBarcodeScanned={onQrScanned}
+            />
+            <View style={scanline} pointerEvents="none" />
           </View>
-        )}
-
-        {screen === "auth" && (
-          <View>
-            <Text style={[s.h2, { textAlign: "center" }]}>🔒 Authorize</Text>
-            {bioState === "checking" && (
-              <View>
-                <Text style={[s.sub, { textAlign: "center" }]}>Confirm it's you with Face ID / fingerprint…</Text>
-                <Text style={[{ fontSize: 64, textAlign: "center", marginVertical: 10 }]}>👤</Text>
-                <ActivityIndicator color={C.accent} />
-              </View>
-            )}
-            {bioState === "failed" && (
-              <View>
-                <Text style={[s.sub, { textAlign: "center" }]}>Biometric authentication failed or was cancelled. Payments stay locked until you verify.</Text>
-                <Text style={[{ fontSize: 64, textAlign: "center", marginVertical: 10 }]}>🚫</Text>
-                <PrimaryButton title="Try biometrics again" onPress={runBiometric} />
-                <PrimaryButton title="Cancel payment" secondary onPress={() => setScreen(authExitScreen())} />
-              </View>
-            )}
-            {bioState === "passed" && (
-              <View>
-                <Text style={[s.sub, { textAlign: "center" }]}>Now enter your 4-digit payment PIN</Text>
-                <Text style={[{ fontSize: 64, textAlign: "center", marginVertical: 10 }]}>✅</Text>
-                <PinDots filled={pin.length} />
-                <PinPad onKey={onPinKey} />
-                <TouchableOpacity onPress={() => { setPin(""); setScreen(authExitScreen()); }} activeOpacity={0.7} style={[{ marginTop: 12 }]}>
-                  <Text style={[{ color: C.muted, fontSize: 13, textAlign: "center", fontWeight: "600" }]}>Cancel payment</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-        )}
-
-        {screen === "settle" && (
-          <View>
-            <Text style={[s.h2, { textAlign: "center" }]}>Settling securely…</Text>
-            <View style={[{ marginTop: 20 }]}>
-              {settleSteps.map((t, i) => (
-                <View key={i} style={s.stepRow}>
-                  <View style={[s.stepDot, i < step && s.stepDotDone]}>
-                    <Text style={[{ color: i < step ? "#04122b" : C.muted, fontWeight: "700", fontSize: 12 }]}>
-                      {i < step ? "✓" : i + 1}
-                    </Text>
-                  </View>
-                  <Text style={[s.stepTxt, i < step && { color: C.text }]}>{t}</Text>
-                </View>
-              ))}
-            </View>
-            <ActivityIndicator color={C.accent} style={[{ marginTop: 20 }]} />
-          </View>
-        )}
-
-        {screen === "receipt" && receipt && (
-          <View>
-            <Animated.View style={[s.check, { transform: [{ scale: checkScale }] }]}>
-              <Text style={[{ color: "#04122b", fontSize: 44, fontWeight: "800" }]}>✓</Text>
-            </Animated.View>
-            <Text style={[s.h2, { textAlign: "center" }]}>
-              {(receipt.kind === "topup" ? "Added " : receipt.kind === "p2p" ? "Sent " : "Paid ") + fmtINR(receipt.total)}
+          <Text style={{ color: C.muted2, fontSize: rs(11), textAlign: "center", marginTop: 10 }}>
+            Point at any UPI QR — payee and amount fill in automatically. Nothing is photographed or stored.
+          </Text>
+          {fallbackButtons}
+        </View>
+      ) : camPerm && !camPerm.canAskAgain ? (
+        <View>
+          <Card>
+            <Text style={{ color: C.text, fontWeight: "700", marginBottom: 6 }}>Camera access is turned off</Text>
+            <Text style={{ color: C.muted, fontSize: rs(13), lineHeight: rs(19) }}>
+              You previously denied camera access, so scanning is unavailable. You can enable it in your device
+              Settings, or continue without the camera — everything still works.
             </Text>
-            <Text style={[s.sub, { textAlign: "center" }]}>{receiptPayeeName(receipt)}</Text>
-            <Card>
-              {receipt.kind === "p2p" && (
-                <Row label="They received" value={symFor(receipt.currency) + " " + receipt.recipientAmount.toLocaleString()} accent />
-              )}
-              {!receipt.domestic && (
-                <Row label="Rate" value={"1 " + receipt.currency + " = ₹" + receipt.rate} />
-              )}
-              {receipt.domestic && receipt.payee && receipt.payee.category ? (
-                <Row label="Category" value={receipt.payee.category} />
-              ) : null}
-              <Row label="Fee" value={receipt.domestic ? "₹0 • Free" : fmtINR(receipt.fee)} accent={receipt.domestic} />
-              {receipt.settlementMode === "sandbox" ? (
-                <Row label="Settlement" value="🧪 Sandbox (simulated rails)" />
-              ) : null}
-              <Row label="Reference" value={receipt.reference} />
-            </Card>
-            <Card>
-              <Text style={s.hashLbl}>Settlement ledger hash</Text>
-              <Text style={s.hash}>{receipt.settlement.hash}</Text>
-              <Text style={s.hashLbl}>Public anchor (tx)</Text>
-              <Text style={s.hash}>{receipt.anchor ? receipt.anchor.publicTxHash : "(batched next)"}</Text>
-              <Text style={s.hashLbl}>Authorization signature</Text>
-              <Text style={s.hash}>{receipt.signature.slice(0, 40) + "…"}</Text>
-              {verifyResult && (
-                <Text
-                  style={[{
-                    marginTop: 10, fontSize: 13, lineHeight: 19, fontWeight: "600",
-                    color: verifyResult.pending ? C.muted : verifyResult.ok ? C.accent : "#ff6b6b",
-                  }]}
-                >
-                  {verifyResult.pending ? "Verifying…" : (verifyResult.ok ? "✓ " : "✗ ") + verifyResult.message}
-                </Text>
-              )}
-            </Card>
-            <PrimaryButton title="🔎 Verify this receipt independently" secondary onPress={verifyReceipt} />
-            <Text style={s.apiNote}>Recomputes the Merkle proof with on-device SHA-256 — no trust in the app required</Text>
-            <PrimaryButton title="Done" onPress={() => { setVerifyResult(null); setScreen("home"); }} />
-          </View>
-        )}
-
-        {screen === "history" && (
-          <View>
-            <Text style={s.h2}>Activity</Text>
-            {requests.length > 0 && (
-              <View>
-                <SectionHeader title="Requests" />
-                {requests.map((r) => (
-                  <View key={r.id} style={s.txn}>
-                    <View style={[{ flexDirection: "row", alignItems: "center", flex: 1 }]}>
-                      <View style={s.txnIc}>
-                        <Text style={[{ fontSize: 18 }]}>{r.direction === "incoming" ? "📥" : "📤"}</Text>
-                      </View>
-                      <View style={[{ flex: 1, marginRight: 8 }]}>
-                        <Text style={[{ color: C.text, fontWeight: "600" }]} numberOfLines={1}>
-                          {r.direction === "incoming" ? r.fromName + " requested you" : "You requested " + r.fromName}
-                        </Text>
-                        <Text style={[{ color: C.muted, fontSize: 12 }]} numberOfLines={1}>
-                          {(r.note ? r.note + " • " : "") + new Date(r.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
-                        </Text>
-                      </View>
-                    </View>
-                    <View style={[{ alignItems: "flex-end" }]}>
-                      <Text style={[{ color: C.text, fontWeight: "700" }]}>{fmtINR(r.amount)}</Text>
-                      {r.direction === "incoming" && r.status === "pending" ? (
-                        <TouchableOpacity onPress={() => payIncomingRequest(r)} activeOpacity={0.7}>
-                          <Text style={[{ color: C.accent, fontWeight: "800", fontSize: 12, marginTop: 3 }]}>Pay now →</Text>
-                        </TouchableOpacity>
-                      ) : (
-                        <Text style={[{ color: r.status === "paid" ? C.good : C.warn, fontSize: 11, fontWeight: "800", marginTop: 3 }]}>
-                          {r.status === "paid" ? "✓ PAID" : "PENDING"}
-                        </Text>
-                      )}
-                    </View>
-                  </View>
-                ))}
-                <SectionHeader title="Payments" />
-              </View>
-            )}
-            <HistoryList history={history} />
-          </View>
-        )}
-
-        {screen === "contacts" && (
-          <View>
-            <ScreenHeader title="Pay a contact" onBack={() => setScreen("home")} />
-            <Text style={s.sub}>Matched on your device — nothing is uploaded. Pick who to pay.</Text>
-            {phoneContacts.map((c, i) => (
-              <TouchableOpacity key={c.id || i} style={s.txn} activeOpacity={0.8} onPress={() => payPhoneContact(c)}>
-                <View style={[{ flexDirection: "row", alignItems: "center" }]}>
-                  <Avatar initials={initials(c.name)} size={40} />
-                  <View style={[{ marginLeft: 10 }]}>
-                    <Text style={[{ color: C.text, fontWeight: "600" }]}>{c.name}</Text>
-                    <Text style={[{ color: C.muted, fontSize: 12 }]}>{c.phoneNumbers[0].number}</Text>
-                  </View>
-                </View>
-                <Text style={[{ color: C.accent, fontSize: 20 }]}>›</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-      </ScrollView>
-
-      {showTabs && (
-        <View style={s.tabbar}>
-          <View style={s.tabbarInner}>
-          <Tab label="Home" icon="🏠" active={screen === "home"} onPress={() => setScreen("home")} />
-          <Tab label="Scan" icon="📷" active={screen === "scanDom" || screen === "scan"} onPress={startScanDomestic} />
-          <Tab
-            label="Activity"
-            icon="📜"
-            active={screen === "history"}
-            onPress={async () => {
-              await refresh({ quiet: false });
-              if (hasSession()) setScreen("history");
-            }}
-          />
-          </View>
+          </Card>
+          <PrimaryButton title="Open device settings" onPress={() => Linking.openSettings()} />
+          {fallbackButtons}
+        </View>
+      ) : (
+        <View>
+          {privacyCard}
+          <PrimaryButton title="Allow camera & scan" onPress={requestCamPerm} />
+          {fallbackButtons}
         </View>
       )}
-
-      <AlertHost />
-    </SafeAreaView>
+    </View>
   );
 }
 
-// Live countdown for the 60-second rate lock. Professional apps never let a
-// quote silently die under the user's finger — the timer is visible, and at
-// zero the pay button swaps to "get a fresh quote".
-function QuoteCountdown({ expiresAt, expired, onExpire }) {
-  const [left, setLeft] = useState(() => Math.max(0, Math.ceil(((expiresAt || 0) - Date.now()) / 1000)));
-  useEffect(() => {
-    if (!expiresAt) return;
-    const tick = () => {
-      const l = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
-      setLeft(l);
-      if (l <= 0) {
-        clearInterval(id);
-        if (onExpire) onExpire();
-      }
-    };
-    const id = setInterval(tick, 500);
-    tick();
-    return () => clearInterval(id);
-  }, [expiresAt]);
-  if (!expiresAt) return null;
-  const mm = Math.floor(left / 60);
-  const ss = String(left % 60).padStart(2, "0");
+// ---------------------------------------------------------------------------
+// Tab bar — vector icons, accessibility roles/labels/state, ≥48dp targets.
+// ---------------------------------------------------------------------------
+function TabBar({ screen, go, startScanDomestic, refresh }) {
+  const C = useTheme();
+  const tabs = [
+    { key: "home", label: t("home"), icon: "home", onPress: () => go("home"), active: screen === "home" },
+    { key: "scan", label: t("scan"), icon: "scan", onPress: startScanDomestic, active: screen === "scanDom" },
+    {
+      key: "activity",
+      label: t("activity"),
+      icon: "activity",
+      onPress: () => { refresh(); go("history"); },
+      active: screen === "history",
+    },
+  ];
   return (
-    <Text style={[s.rateTimer, (expired || left <= 0) ? { color: C.warn } : left <= 10 ? { color: C.warn } : null]}>
-      {expired || left <= 0 ? "⏳ Rate lock expired" : `🔒 Rate locked · ${mm}:${ss}`}
-    </Text>
-  );
-}
-
-function ActionTile({ icon, label, onPress, tint }) {
-  return (
-    <TouchableOpacity style={s.tile} activeOpacity={0.8} onPress={onPress}>
-      <View style={[s.tileIcon, tint && { backgroundColor: tint }]}>
-        <Text style={[{ fontSize: 23 }]}>{icon}</Text>
-      </View>
-      <Text style={s.tileLbl} numberOfLines={1}>{label}</Text>
-    </TouchableOpacity>
-  );
-}
-
-function Tab({ label, icon, active, onPress }) {
-  return (
-    <TouchableOpacity style={s.tab} onPress={onPress} activeOpacity={0.7}>
-      <View style={[s.tabInner, active && s.tabInnerActive]}>
-        <Text style={[{ fontSize: 20 }]}>{icon}</Text>
-      </View>
-      <Text style={[s.tabTxt, active && { color: C.accent }]}>{label}</Text>
-    </TouchableOpacity>
-  );
-}
-
-function HistoryList({ history }) {
-  if (!history || history.length === 0)
-    return <Text style={[{ color: C.muted, marginTop: 10 }]}>No payments yet.</Text>;
-  return (
-    <View>
-      {history.map((p) => (
-        <View key={p.paymentId} style={s.txn}>
-          <View style={[{ flexDirection: "row", alignItems: "center" }]}>
-            <View style={s.txnIc}>
-              <Text style={[{ fontSize: 18 }]}>{txnIcon(p)}</Text>
-            </View>
-            <View>
-              <Text style={[{ color: C.text, fontWeight: "600" }]}>{txnName(p)}</Text>
-              <Text style={[{ color: C.muted, fontSize: 12 }]}>{p.currency + " • " + p.reference}</Text>
-            </View>
-          </View>
-          <View style={[{ alignItems: "flex-end" }]}>
-            <Text style={[{ color: C.text, fontWeight: "700" }]}>{fmtINR(p.total)}</Text>
-            <Text style={[{ color: C.accent, fontSize: 11 }]}>{p.kind === "p2p" ? "sent" : p.domestic ? "paid" : "settled"}</Text>
-          </View>
-        </View>
+    <View
+      accessibilityRole="tablist"
+      style={{
+        flexDirection: "row",
+        alignItems: "stretch",
+        justifyContent: "space-around",
+        borderTopWidth: 1,
+        borderTopColor: C.line,
+        backgroundColor: C.bg2,
+        paddingBottom: Platform.OS === "ios" ? 14 : 6,
+        paddingTop: 6,
+      }}
+    >
+      {tabs.map((tab) => (
+        <TouchableOpacity
+          key={tab.key}
+          accessibilityRole="tab"
+          accessibilityLabel={tab.label}
+          accessibilityState={{ selected: tab.active }}
+          onPress={tab.onPress}
+          activeOpacity={0.7}
+          style={{ alignItems: "center", justifyContent: "center", minWidth: rs(72), minHeight: rs(48), paddingHorizontal: rs(10) }}
+        >
+          <Icon name={tab.icon} size={rs(22)} color={tab.active ? C.accent : C.muted} />
+          <Text style={{ color: tab.active ? C.accent : C.muted, fontSize: rs(11), marginTop: 2, fontWeight: tab.active ? "700" : "500" }}>
+            {tab.label}
+          </Text>
+        </TouchableOpacity>
       ))}
     </View>
   );
 }
 
-const s = StyleSheet.create({
-  app: { flex: 1, backgroundColor: C.bg },
-  scroll: { padding: rs(22), paddingBottom: rs(110), ...CONTENT },
-  h1: { color: C.text, fontSize: rs(27), fontWeight: "800", marginBottom: 8, letterSpacing: -0.6 },
-  h2: { color: C.text, fontSize: rs(21), fontWeight: "800", marginBottom: 12, letterSpacing: -0.3 },
-  sub: { color: C.muted, fontSize: rs(14), lineHeight: rs(21), marginBottom: 20 },
-  label: { color: C.muted, fontSize: 13, marginBottom: 6, fontWeight: "500" },
-  input: { backgroundColor: C.card2, borderColor: "#2b3a6b", borderWidth: 1, borderRadius: 13, padding: rs(14), color: C.text, fontSize: rs(15), marginBottom: 12 },
-  muted: { color: C.muted, fontSize: 13 },
-  apiNote: { color: C.muted2, fontSize: 11, textAlign: "center", marginTop: 14 },
-  topbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 18 },
-  greet: { color: C.muted, fontSize: 13 },
-  greetName: { color: C.text, fontSize: rs(22), fontWeight: "800", letterSpacing: -0.3 },
-  balance: { color: C.text, fontSize: rs(36), fontWeight: "800", marginVertical: 6, letterSpacing: -1 },
-  balanceRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  verifyChip: { backgroundColor: "#16233f", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
-  verifyChipTxt: { color: C.accent2, fontSize: 12, fontWeight: "700" },
-  savings: { color: C.accent, fontSize: 12, textAlign: "center", marginVertical: 6 },
-  shortfall: { color: "#ff8b8b", fontSize: 13, textAlign: "center", fontWeight: "600", backgroundColor: "rgba(255,107,107,0.1)", borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14, marginVertical: 8, lineHeight: 19 },
-  scanner: { height: rs(230), borderRadius: 20, backgroundColor: "#0e1730", borderWidth: 2, borderColor: C.border, alignItems: "center", justifyContent: "center", overflow: "hidden" },
-  scanline: { position: "absolute", left: 16, right: 16, top: "20%", height: 2, backgroundColor: C.accent, opacity: 0.7 },
-  qr: { width: 124, height: 124, backgroundColor: "#fff", borderRadius: 12, flexDirection: "row", flexWrap: "wrap", padding: 8 },
-  qrCell: { width: "20%", height: "20%", backgroundColor: "#fff" },
-  stepRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12 },
-  stepDot: { width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: "#33406b", alignItems: "center", justifyContent: "center", marginRight: 12 },
-  stepDotDone: { backgroundColor: C.accent, borderColor: C.accent },
-  stepTxt: { color: C.muted, fontSize: 15, flex: 1 },
-  check: { width: rs(84), height: rs(84), borderRadius: rs(42), backgroundColor: C.accent, alignItems: "center", justifyContent: "center", alignSelf: "center", marginVertical: 16, shadowColor: C.accent, shadowOpacity: 0.5, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
-  hashLbl: { color: C.muted, fontSize: 12, marginTop: 8 },
-  hash: { color: C.muted, fontSize: 11, fontFamily: "monospace", backgroundColor: "#0c1430", padding: 9, borderRadius: 9, marginTop: 4 },
-  txn: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#1b2546" },
-  txnIc: { width: 40, height: 40, borderRadius: 12, backgroundColor: C.card2, alignItems: "center", justifyContent: "center", marginRight: 10 },
-  tabbar: { position: "absolute", bottom: 0, left: 0, right: 0, height: rs(78), backgroundColor: "#0a1024", borderTopWidth: 1, borderTopColor: "#1b2546", paddingBottom: 10 },
-  tabbarInner: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-around", ...CONTENT },
-  tab: { alignItems: "center" },
-  tabInner: { width: 44, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
-  tabInnerActive: { backgroundColor: "#16233f" },
-  tabTxt: { color: C.muted, fontSize: 11, marginTop: 2 },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  tile: { width: "22%", alignItems: "center", marginBottom: 8 },
-  tileIcon: { width: rs(56), height: rs(56), borderRadius: rs(18), backgroundColor: C.card2, alignItems: "center", justifyContent: "center", marginBottom: 6 },
-  tileLbl: { color: C.muted, fontSize: 11, textAlign: "center" },
-  person: { alignItems: "center", marginRight: 16, width: 60 },
-  personName: { color: C.muted, fontSize: 12, marginTop: 6 },
-  personAdd: { width: 52, height: 52, borderRadius: 26, borderWidth: 1, borderColor: C.accent, borderStyle: "dashed", alignItems: "center", justifyContent: "center" },
-  consentRow: { flexDirection: "row", alignItems: "flex-start", marginTop: 6, marginBottom: 4 },
-  consentBox: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: "#33406b", alignItems: "center", justifyContent: "center", marginRight: 10, marginTop: 1 },
-  consentBoxOn: { backgroundColor: C.accent, borderColor: C.accent },
-  consentTxt: { color: C.muted, fontSize: 13, lineHeight: 19, flex: 1 },
-  consentLink: { color: C.accent, fontSize: 12, fontWeight: "600" },
-  buildStamp: { color: C.muted2, fontSize: 10, textAlign: "center", marginTop: 6 },
-  bootWrap: { flex: 1, alignItems: "center", justifyContent: "center", minHeight: 420 },
-  rateTimer: { color: C.accent2, fontSize: 12, textAlign: "center", fontWeight: "700", marginBottom: 4 },
-});
+// Safe wrapper for hash parsing on web (routes.js parseHash).
+function parseHashSafe(hash) {
+  try {
+    const { parseHash } = require("./src/routes");
+    return parseHash(hash);
+  } catch {
+    return null;
+  }
+}

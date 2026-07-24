@@ -1,34 +1,51 @@
-// Borderless Pay — design tokens + service catalogs.
-// Palette is intentionally aligned with the web PWA and marketing site so the
-// brand reads as one product across every surface.
-export const C = {
-  // canvas
+// ─── Colour tokens ──────────────────────────────────────────────
+const DARK = {
   bg: "#0b1020",
   bg2: "#070b16",
-  // surfaces
   card: "#121a33",
   card2: "#1a2547",
   surface: "#0f1733",
   elev: "#16203f",
-  // brand
-  accent: "#3ddc97", // mint
-  accent2: "#5b8cff", // indigo
+  accent: "#3ddc97",
+  accent2: "#5b8cff",
   violet: "#8b5cf6",
-  // text
   text: "#eaf0ff",
   muted: "#8b97b8",
   muted2: "#6b7aa3",
-  // status
   good: "#34d399",
   warn: "#f59e0b",
   danger: "#ff6b6b",
-  // lines
   border: "#22305c",
   line: "rgba(255,255,255,0.08)",
   line2: "rgba(255,255,255,0.14)",
+  statusBar: "light-content",
 };
 
-// Soft per-category icon tints for the home action grid.
+const LIGHT = {
+  bg: "#f0f4ff",
+  bg2: "#e4eaf5",
+  card: "#ffffff",
+  card2: "#f7f9ff",
+  surface: "#ffffff",
+  elev: "#f0f4ff",
+  accent: "#1a9e65",
+  accent2: "#3b6fcc",
+  violet: "#6d3fcf",
+  text: "#0d1530",
+  muted: "#4a5578",
+  muted2: "#6b7aa3",
+  good: "#0fa968",
+  warn: "#c47d09",
+  danger: "#d63030",
+  border: "#c5cfe8",
+  line: "rgba(0,0,0,0.07)",
+  line2: "rgba(0,0,0,0.13)",
+  statusBar: "dark-content",
+};
+
+export const C = DARK;
+export const PALETTES = { dark: DARK, light: LIGHT };
+
 export const TINTS = {
   mint: "#14392e",
   indigo: "#15233f",
@@ -38,31 +55,24 @@ export const TINTS = {
   slate: "#1a2547",
 };
 
-// Destination currencies a user can send money to (P2P).
-export const P2P_CURRENCIES = [
-  { code: "AED", flag: "🇦🇪", name: "UAE Dirham", sym: "AED" },
-  { code: "SGD", flag: "🇸🇬", name: "Singapore Dollar", sym: "S$" },
-  { code: "EUR", flag: "🇪🇺", name: "Euro", sym: "€" },
-  { code: "NPR", flag: "🇳🇵", name: "Nepalese Rupee", sym: "Rs" },
-  { code: "USD", flag: "🇺🇸", name: "US Dollar", sym: "$" },
-  { code: "GBP", flag: "🇬🇧", name: "British Pound", sym: "£" },
-];
-
-// Cross-border corridor metadata: flags, currency symbols, and example
-// placeholder text for the merchant field (placeholders only — the user
-// enters the real merchant and amount).
-export const CORRIDORS = {
-  AED: { flag: "🇦🇪", country: "UAE", example: "e.g. Al Masa Restaurant", sym: "AED" },
-  SGD: { flag: "🇸🇬", country: "Singapore", example: "e.g. Maxwell Food Centre", sym: "S$" },
-  EUR: { flag: "🇫🇷", country: "Eurozone", example: "e.g. Café de Flore", sym: "€" },
-  NPR: { flag: "🇳🇵", country: "Nepal", example: "e.g. Himalayan Java", sym: "Rs" },
+export const P2P_CURRENCIES = {
+  AED: { code: "AED", flag: "\uD83C\uDDE6\uD83C\uDDEA", name: "UAE Dirham", sym: "AED" },
+  SGD: { code: "SGD", flag: "\uD83C\uDDF8\uD83C\uDDEC", name: "Singapore Dollar", sym: "S$" },
+  EUR: { code: "EUR", flag: "\uD83C\uDDEB\uD83C\uDDF7", name: "Euro", sym: "\u20ac" },
+  NPR: { code: "NPR", flag: "\uD83C\uDDF3\uD83C\uDDF5", name: "Nepalese Rupee", sym: "Rs" },
+  USD: { code: "USD", flag: "\uD83C\uDDFA\uD83C\uDDF8", name: "US Dollar", sym: "$" },
+  GBP: { code: "GBP", flag: "\uD83C\uDDEC\uD83C\uDDE7", name: "British Pound", sym: "\u00a3" },
 };
 
-// ---- Domestic (India) service catalogs (billers / operators) ----
+export const CORRIDORS = {
+  AED: { flag: "\uD83C\uDDE6\uD83C\uDDEA", country: "UAE", example: "e.g. Al Masa Restaurant", sym: "AED" },
+  SGD: { flag: "\uD83C\uDDF8\uD83C\uDDEC", country: "Singapore", example: "e.g. Maxwell Food Centre", sym: "S$" },
+  EUR: { flag: "\uD83C\uDDEB\uD83C\uDDF7", country: "Eurozone", example: "e.g. Caf\u00e9 de Flore", sym: "\u20ac" },
+  NPR: { flag: "\uD83C\uDDF3\uD83C\uDDF5", country: "Nepal", example: "e.g. Himalayan Java", sym: "Rs" },
+};
+
 export const OPERATORS = ["Airtel", "Jio", "Vi", "BSNL"];
-
 export const BILL_CATEGORIES = ["Electricity", "Water", "Gas", "Broadband", "DTH", "Credit Card"];
-
 export const BILLERS = {
   Electricity: ["Tata Power", "Adani Electricity", "BESCOM"],
   Water: ["Delhi Jal Board", "BWSSB"],
@@ -71,3 +81,26 @@ export const BILLERS = {
   DTH: ["Tata Play", "Airtel Digital TV", "Dish TV"],
   "Credit Card": ["HDFC Card", "ICICI Card", "SBI Card", "Axis Card"],
 };
+
+import React, { createContext, useContext, useMemo } from "react";
+import { useColorScheme } from "react-native";
+
+export const ThemeContext = createContext(DARK);
+
+export function ThemeProvider({ children }) {
+  const scheme = useColorScheme();
+  const palette = useMemo(
+    () => (scheme === "light" ? LIGHT : DARK),
+    [scheme]
+  );
+  return React.createElement(ThemeContext.Provider, { value: palette }, children);
+}
+
+export function useTheme() {
+  return useContext(ThemeContext);
+}
+
+export function useThemedStyles(factory) {
+  const theme = useTheme();
+  return useMemo(() => factory(theme), [theme]); // eslint-disable-line react-hooks/exhaustive-deps
+}
