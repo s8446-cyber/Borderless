@@ -1,0 +1,47 @@
+# Sanctions watchlist ingestion — REAL-DATA verification.
+#
+# Downloads the live UN Security Council Consolidated List (XML) and the US
+# OFAC SDN + ALT lists (CSV), runs the full parse/validate pipeline, and
+# self-checks the produced dataset through the same loader + matcher the
+# server uses. This proves the ingestion tooling works against the actual
+# published formats — not against assumptions.
+#
+# Runs on PRs that touch the pipeline, on demand, and weekly (the lists
+# change; a format change should be noticed within days, not at refresh time).
+# Kept OUT of ci.yml so third-party site downtime can never block unrelated
+# merges.
+name: watchlists
+
+on:
+  pull_request:
+    paths:
+      - "backend/scripts/update-watchlists.mjs"
+      - "backend/scripts/check-watchlists.mjs"
+      - "backend/src/screening.js"
+      - ".github/workflows/watchlists.yml"
+  workflow_dispatch: {}
+  schedule:
+    - cron: "17 3 * * 1" # Mondays 03:17 UTC
+
+jobs:
+  real-data:
+    name: download + parse real UN/OFAC lists
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Build dataset from live sources
+        working-directory: backend
+        run: node scripts/update-watchlists.mjs --out /tmp/watchlists.json
+      - name: Self-check dataset through the server's loader + matcher
+        working-directory: backend
+        run: node scripts/check-watchlists.mjs /tmp/watchlists.json
+      - name: Boot screening module against the dataset (fail-closed path)
+        working-directory: backend
+        env:
+          BP_SCREENING_PROVIDER: watchlist
+          BP_SCREENING_DATA: /tmp/watchlists.json
+        run: node -e "import('./src/screening.js').then((m) => { console.log(JSON.stringify(m.SCREENING_META)); if (m.SCREENING_PROVIDER !== 'watchlist') process.exit(1); })"
