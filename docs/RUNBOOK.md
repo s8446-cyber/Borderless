@@ -83,3 +83,33 @@ The store quarantines unreadable files as `db.json.corrupt.<ts>` and starts fres
 2. Security lead — any SEV-1, any suspected tampering or leak.
 3. Founders — SEV-1, or anything customer-visible for a sustained period.
 4. Post-incident: blameless write-up; new regression test for every root cause (the suite is the institutional memory).
+
+## 7. Sanctions watchlist refresh (screening data)
+
+When `BP_SCREENING_PROVIDER=watchlist`, every outbound payment screens the payee
+against a dataset built from the **real UN Security Council Consolidated List**
+and the **US OFAC SDN list**. The dataset is a file (`BP_SCREENING_DATA`) — the
+server never downloads at boot, and it **refuses to start** if the file is
+missing, malformed, truncated, or older than `BP_SCREENING_MAX_AGE_DAYS`
+(default 45). Full guide: [`WATCHLISTS.md`](./WATCHLISTS.md).
+
+**Refresh procedure (run at least weekly; lists change often):**
+1. `cd backend && node scripts/update-watchlists.mjs --out /tmp/watchlists.json`
+   — downloads both sources, parses, and fail-closed validates (minimum entry
+   counts, alias linkage, parse ratio). Non-zero exit ⇒ do NOT ship; a source
+   format changed or a download was truncated. Nothing is overwritten.
+2. `node scripts/check-watchlists.mjs /tmp/watchlists.json` — self-checks the
+   dataset through the exact loader + matcher the server uses.
+3. Ship the file to the server's data disk and swap it atomically:
+   `mv watchlists.json.new watchlists.json` on the same filesystem.
+4. Restart (graceful) — boot fails loudly if the dataset is unusable.
+
+CI runs this end-to-end against the live sources weekly and on every PR that
+touches the pipeline (`.github/workflows/watchlists.yml`) — investigate any
+red run immediately: it usually means a source format changed, and screening
+refreshes will fail until the parser is updated.
+
+**If the dataset is stale and a refresh is failing:** raising
+`BP_SCREENING_MAX_AGE_DAYS` keeps the service up but screens against
+out-of-date designations — treat as a deliberate, time-boxed compliance
+decision and record who approved it.
