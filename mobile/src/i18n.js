@@ -185,7 +185,7 @@ const STRINGS = {
     set_pin: "PIN सेट करें",
     confirm_pin: "PIN कन्फ़र्म करें",
     pin_mismatch: "PIN मेल नहीं खाते — फिर कोशिश करें।",
-    link_bank: "बैंक खाता जोड़ें",
+    link_bank: "बैंक खाता जोड़ें",
     account_number: "खाता नंबर",
     confirm_account: "खाता नंबर कन्फ़र्म करें",
     account_mismatch: "खाता नंबर मेल नहीं खाते।",
@@ -193,7 +193,7 @@ const STRINGS = {
     account_holder: "खाताधारक का नाम",
     // -- Home
     balance: "शेष",
-    add_money: "पैसे जोड़ें",
+    add_money: "पैसे जोड़ें",
     pay: "भुगतान",
     send: "विदेश भेजें",
     scan: "स्कैन करें",
@@ -201,8 +201,8 @@ const STRINGS = {
     pay_bills: "बिल भुगतान",
     activity: "गतिविधि",
     contacts: "संपर्क",
-    savings: "{{rate}}% प्र.व. की दर से बढ़ रहा",
-    shortfall: "इस भुगतान के लिए ₹{{amount}} जोड़ें",
+    savings: "{{rate}}% प्र.व. की दर से बढ़ रहा",
+    shortfall: "इस भुगतान के लिए ₹{{amount}} जोड़ें",
     // -- Pay abroad
     who_are_you_paying: "किसे भुगतान कर रहे हैं?",
     corridor: "देश",
@@ -254,7 +254,7 @@ const STRINGS = {
     public_anchor: "पब्लिक एंकर",
     signature: "हस्ताक्षर",
     get_help: "मदद लें",
-    report_fraud: "धोखाधड़ी रिपोर्ट करें",
+    report_fraud: "धोखाधड़ी रिपोर्ट करें",
     dispute: "भुगतान विवादित करें",
     // -- Activity
     no_activity: "अभी तक कोई भुगतान नहीं।",

@@ -9,7 +9,7 @@ import { t } from "../i18n.js";
 import { sanitizeAmount, amountIssue, vpaIssue, phoneIssue, ifscIssue, accountIssue, accountsMatch, nameIssue, consumerIdIssue } from "../validation.js";
 import { fmtINR } from "../format.js";
 
-// ── Send (international manual) ─────────────────────────────────────────
+// ── Send (international manual) ─────────────────────────────────────────────────────────
 export function SendScreen() {
   const C = useTheme();
   const { setScreen, form, updateForm, getTransferQuote, account } = useApp();
@@ -64,7 +64,7 @@ export function SendScreen() {
   );
 }
 
-// ── Compose (domestic UPI / account / phone) ────────────────────────────────────
+// ── Compose (domestic UPI / account / phone) ────────────────────────────────────────────
 export function ComposeScreen() {
   const C = useTheme();
   const { setScreen, form, updateForm, proceedDomestic, domIntent } = useApp();
