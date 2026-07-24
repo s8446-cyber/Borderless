@@ -21,8 +21,13 @@ export function checkTxnLimits(store, userId, amountMinor, opts, now = Date.now(
   // velocity-limited in their OWN daily bucket — a day of top-ups must not
   // consume the user's spending allowance, and vice versa.
   const isTopup = o.kind === "topup";
+  // Held / in-doubt payments still consume the allowance (the money is
+  // debited), so velocity counts by settledAt OR createdAt. Returned money
+  // (refunds, reversals, chargebacks) and failed payments never count.
+  const RETURN_KINDS = ["refund", "reversal", "chargeback"];
   const today = Object.values(store.data.payments || {}).filter(
-    (p) => p.userId === userId && (p.settledAt || 0) >= since && ((p.kind === "topup") === isTopup)
+    (p) => p.userId === userId && (p.settledAt || p.createdAt || 0) >= since &&
+      ((p.kind === "topup") === isTopup) && !RETURN_KINDS.includes(p.kind) && p.status !== "failed"
   );
   const dayTotal = today.reduce((sum, p) => sum + (p.totalMinor || 0), 0);
   if (dayTotal + amountMinor > L.dailyTotalMaxMinor) {

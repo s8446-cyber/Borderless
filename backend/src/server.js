@@ -10,7 +10,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, extname, normalize, sep } from "node:path";
-import { randomUUID, randomBytes } from "node:crypto";
+import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
 import { networkInterfaces } from "node:os";
 
 import { config, configSummary } from "./config.js";
@@ -33,6 +33,11 @@ import {
   RateLimiter, LoginGuard, securityHeaders, applyCors, clientIp,
   asString, asPin, asAmount, asEmail, asPassword,
 } from "./security.js";
+import { RiskEngine, maskName } from "./risk.js";
+import { screenParty } from "./screening.js";
+import { AmlMonitor, LRS_PURPOSES } from "./aml.js";
+import { PspConnector, verifyWebhook } from "./psp.js";
+import { OpsService } from "./ops.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -57,7 +62,7 @@ const OPERATORS = ["Airtel", "Jio", "Vi", "BSNL"];
 // policy change can re-prompt users whose accepted version is older.
 const POLICY_VERSIONS = { tos: "1.0", privacy: "1.0" };
 
-export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injectedMailer } = {}) {
+export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injectedMailer, riskOptions, amlOptions, pspTransport } = {}) {
   // Persistence backend: an injected store (e.g. PgStore) wins; otherwise the
   // file-backed reference store.
   const store = injectedStore || new Store(dbPath);
@@ -71,11 +76,23 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
   const ledger = new DualLedger(store.data.ledger);
   const audit = new AuditLog(store.data.audit);
   const guard = new LoginGuard(store, config.lockout);
+  // Payment-domain services: risk engine (payee-name verification,
+  // beneficiary cooling, device caps, fraud scoring), AML monitor (SoF, LRS,
+  // CTR/STR, transaction monitoring) and the PSP connector (settlement state
+  // machine + timeout recovery). riskOptions/amlOptions override policy
+  // thresholds and pspTransport injects a fake PSP — test hooks only.
+  const risk = new RiskEngine(store, { ...config.risk, ...(riskOptions || {}) });
+  const aml = new AmlMonitor(store, audit, { ...config.aml, ...(amlOptions || {}) });
+  const psp = new PspConnector({ ...config.psp, transport: pspTransport });
   const payments = new PaymentService(store, ledger, {
     guard,
     audit,
     limitsCheck: checkTxnLimits,
     settlementMode: config.settlementMode,
+    risk,
+    screening: screenParty,
+    aml,
+    psp,
   });
 
   // persist ledger + audit back into the store on every save
@@ -84,6 +101,42 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
     store.data.audit = audit.toJSON();
     store.persist();
   };
+
+  // Ops back office: maker-checker action queue, dispute resolution,
+  // reconciliation and settlement-break tracking.
+  const ops = new OpsService({ store, payments, ledger, audit, aml, guard });
+
+  // Device risk context: hash the presented device id and track first-seen,
+  // so brand-new devices get tighter caps and fraud-score weight while young.
+  function deviceContext(req, userId) {
+    const presented = req.headers["x-device-id"];
+    if (!presented) return null;
+    const deviceHash = sha256(String(presented));
+    if (!store.data.devices) store.data.devices = {};
+    if (!store.data.devices[userId]) store.data.devices[userId] = {};
+    let rec = store.data.devices[userId][deviceHash];
+    if (!rec) {
+      rec = { firstSeen: Date.now() };
+      store.data.devices[userId][deviceHash] = rec;
+    }
+    return { deviceHash, isNew: Date.now() - rec.firstSeen < risk.newDeviceWindowMs };
+  }
+
+  // Apply an authenticated PSP webhook event (replay-protected by eventId).
+  function applyPspEvent(event) {
+    const eventId = typeof event.eventId === "string" && event.eventId ? event.eventId.slice(0, 80) : null;
+    if (!eventId) throw new ApiError(400, "bad_event", "eventId required");
+    if (!store.data.webhookSeen) store.data.webhookSeen = {};
+    if (store.data.webhookSeen[eventId]) return { ok: true, replayed: true };
+    let outcome = null;
+    if (event.type === "settlement.settled") outcome = "settled";
+    else if (event.type === "settlement.failed") outcome = "failed";
+    else throw new ApiError(400, "bad_event", "Unsupported event type");
+    const out = payments.resolvePsp({ paymentId: String(event.paymentId || ""), outcome, via: "webhook" });
+    store.data.webhookSeen[eventId] = Date.now();
+    persist();
+    return { ok: true, status: out.status, alreadyFinal: Boolean(out.alreadyFinal) };
+  }
 
   // A throwaway scrypt hash used to equalize login work when an email is
   // unknown. Without it, password verification short-circuits for non-existent
@@ -560,6 +613,7 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
     asAmount(body.amount, "amount");
     const out = payments.topup({
       userId, pin: body.pin, amountINR: Number(body.amount),
+      sourceOfFunds: body.sourceOfFunds,
       idempotencyKey: req.headers["idempotency-key"],
     });
     persist();
@@ -590,6 +644,9 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
       quoteId: asString(body.quoteId, "quoteId", { max: 80 }),
       pin: body.pin,
       merchant: body.merchant,
+      purposeCode: body.purposeCode ? asString(body.purposeCode, "purposeCode", { max: 12 }) : undefined,
+      pan: body.pan ? asString(body.pan, "pan", { max: 12 }) : undefined,
+      device: deviceContext(req, userId),
       idempotencyKey: req.headers["idempotency-key"],
     });
     persist();
@@ -618,6 +675,9 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
       quoteId: asString(body.quoteId, "quoteId", { max: 80 }),
       pin: body.pin,
       recipient: body.recipient,
+      purposeCode: body.purposeCode ? asString(body.purposeCode, "purposeCode", { max: 12 }) : undefined,
+      pan: body.pan ? asString(body.pan, "pan", { max: 12 }) : undefined,
+      device: deviceContext(req, userId),
       idempotencyKey: req.headers["idempotency-key"],
     });
     persist();
@@ -632,6 +692,7 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
     const out = payments.payDomestic({
       userId, pin: body.pin, amountINR: Number(body.amount),
       payee: body.payee, kind: (body.payee && body.payee.kind) || "upi",
+      device: deviceContext(req, userId),
       idempotencyKey: req.headers["idempotency-key"],
     });
     persist();
@@ -647,7 +708,8 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
     const out = payments.payDomestic({
       userId, pin: body.pin, amountINR: Number(body.amount),
       payee: { name: biller.name || biller.category || "Biller", type: "bill", category: biller.category, consumerId: biller.consumerId },
-      kind: "bill", idempotencyKey: req.headers["idempotency-key"],
+      kind: "bill", device: deviceContext(req, userId),
+      idempotencyKey: req.headers["idempotency-key"],
     });
     persist();
     return { replayed: out.replayed, receipt: decorate(out.receipt) };
@@ -662,7 +724,8 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
     const out = payments.payDomestic({
       userId, pin: body.pin, amountINR: Number(body.amount),
       payee: { name: (rc.operator || "Operator") + " " + (rc.number || ""), type: "recharge", operator: rc.operator, number: rc.number, plan: rc.plan },
-      kind: "recharge", idempotencyKey: req.headers["idempotency-key"],
+      kind: "recharge", device: deviceContext(req, userId),
+      idempotencyKey: req.headers["idempotency-key"],
     });
     persist();
     return { replayed: out.replayed, receipt: decorate(out.receipt) };
@@ -685,7 +748,7 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
   add("POST", /^\/api\/requests\/pay$/, async (req, body) => {
     const userId = requireAuth(req, store);
     asPin(body.pin);
-    const out = payments.payRequest({ userId, requestId: asString(body.requestId, "requestId", { max: 80 }), pin: body.pin, idempotencyKey: req.headers["idempotency-key"] });
+    const out = payments.payRequest({ userId, requestId: asString(body.requestId, "requestId", { max: 80 }), pin: body.pin, device: deviceContext(req, userId), idempotencyKey: req.headers["idempotency-key"] });
     persist();
     return { replayed: out.replayed, receipt: decorate(out.receipt) };
   });
@@ -718,6 +781,88 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
   });
 
   // Service catalogs (billers / operators) for the domestic flows.
+  // ---- Payment-domain: LRS catalog, payee verification, disputes ----
+
+  // LRS purpose-code catalog + documentation thresholds (cross-border).
+  add("GET", /^\/api\/lrs\/purposes$/, async () => ({
+    purposes: Object.entries(LRS_PURPOSES).map(([code, label]) => ({ code, label })),
+    docThresholdMinor: aml.lrsDocThresholdMinor,
+    annualCapMinor: aml.lrsAnnualCapMinor,
+  }));
+
+  // Payee-name verification ("verify before you pay"). Returns only a MASKED
+  // registered name so the endpoint can't be used to harvest account names.
+  add("POST", /^\/api\/payees\/verify$/, async (req, body) => {
+    requireAuth(req, store);
+    const v = risk.verifyPayeeName(body.payee || {});
+    return { result: v.result, registeredName: v.registeredName ? maskName(v.registeredName) : null };
+  });
+
+  // Customer disputes: open + list own cases. Resolution is ops-only
+  // (maker-checker) through the back office.
+  add("POST", /^\/api\/disputes$/, async (req, body) => {
+    const userId = requireAuth(req, store);
+    const dispute = ops.openDispute({
+      userId,
+      paymentId: asString(body.paymentId, "paymentId", { max: 80 }),
+      reason: asString(body.reason, "reason", { required: false, max: 400 }) || "unspecified",
+    });
+    persist();
+    return { dispute };
+  });
+  add("GET", /^\/api\/disputes$/, async (req) => {
+    const userId = requireAuth(req, store);
+    return { disputes: ops.listDisputes(userId) };
+  });
+
+  // ---- Operations back office (ops-token gated, maker-checker) ----
+  add("GET", /^\/api\/ops\/overview$/, async (req) => { requireOps(req); return ops.overview(); });
+  add("GET", /^\/api\/ops\/alerts$/, async (req) => { requireOps(req); return { alerts: (store.data.aml || {}).alerts || [] }; });
+  add("GET", /^\/api\/ops\/reports$/, async (req) => { requireOps(req); return { reports: (store.data.aml || {}).reports || [] }; });
+  add("GET", /^\/api\/ops\/holds$/, async (req) => {
+    requireOps(req);
+    return { holds: Object.entries(store.data.riskHolds || {}).map(([paymentId, h]) => ({ paymentId, ...h })) };
+  });
+  add("GET", /^\/api\/ops\/disputes$/, async (req) => { requireOps(req); return { disputes: Object.values(store.data.disputes || {}) }; });
+  add("GET", /^\/api\/ops\/actions$/, async (req) => { requireOps(req); return { actions: Object.values((store.data.ops || {}).actions || {}) }; });
+  add("POST", /^\/api\/ops\/actions$/, async (req, body) => {
+    const actor = requireOps(req);
+    const action = ops.createAction({ type: asString(body.type, "type", { max: 40 }), params: body.params || {}, makerId: actor });
+    persist();
+    return { action };
+  });
+  add("POST", /^\/api\/ops\/actions\/approve$/, async (req, body) => {
+    const actor = requireOps(req);
+    const action = ops.approveAction({ actionId: asString(body.actionId, "actionId", { max: 80 }), checkerId: actor });
+    persist();
+    return { action };
+  });
+  add("POST", /^\/api\/ops\/actions\/reject$/, async (req, body) => {
+    const actor = requireOps(req);
+    const action = ops.rejectAction({ actionId: asString(body.actionId, "actionId", { max: 80 }), checkerId: actor, reason: body.reason || body.note });
+    persist();
+    return { action };
+  });
+  add("POST", /^\/api\/ops\/recon\/run$/, async (req) => {
+    requireOps(req);
+    const out = ops.reconcile();
+    persist();
+    return out;
+  });
+  add("GET", /^\/api\/ops\/recon\/breaks$/, async (req) => { requireOps(req); return { breaks: (store.data.recon || {}).breaks || [] }; });
+  add("POST", /^\/api\/ops\/recon\/breaks\/resolve$/, async (req, body) => {
+    const actor = requireOps(req);
+    const resolved = ops.resolveBreak({ breakId: asString(body.breakId, "breakId", { max: 80 }), note: body.note, actor });
+    persist();
+    return { break: resolved };
+  });
+  add("POST", /^\/api\/ops\/psp\/recover$/, async (req) => {
+    requireOps(req);
+    const out = payments.recoverPspPending();
+    persist();
+    return out;
+  });
+
   add("GET", /^\/api\/billers$/, async () => ({ billers: BILLERS }));
   add("GET", /^\/api\/operators$/, async () => ({ operators: OPERATORS }));
 
@@ -789,6 +934,27 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
         if (tier) {
           const tl = tier.check(ip);
           if (!tl.ok) return rateLimited(res, tl.retryAfter, requestId, ip, path, "tier");
+        }
+
+        // PSP settlement webhook. The HMAC signature is verified over the RAW
+        // request bytes BEFORE parsing (re-serialization can't bypass it) and
+        // replays are rejected by eventId. Fail-closed: without a configured
+        // webhook secret the endpoint does not exist.
+        if (path === "/api/webhooks/psp") {
+          if (!config.webhookSecret) return send(res, 404, { error: "not_found" }, requestId);
+          if (req.method !== "POST") { res.setHeader("allow", "POST"); return send(res, 405, { error: "method_not_allowed" }, requestId); }
+          const raw = await readRawBody(req);
+          verifyWebhook({
+            secret: config.webhookSecret,
+            timestamp: req.headers["x-psp-timestamp"],
+            signature: req.headers["x-psp-signature"],
+            rawBody: raw,
+          });
+          let event;
+          try { event = JSON.parse(raw || "{}"); }
+          catch { throw new ApiError(400, "bad_json", "Invalid JSON body"); }
+          routeLabel = "/api/webhooks/psp";
+          return send(res, 200, applyPspEvent(event), requestId);
         }
 
         const matching = routes.filter((r) => r.pattern.test(path));
@@ -866,16 +1032,27 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
     let idem = 0;
     for (const [key, paymentId] of Object.entries(store.data.idempotency || {})) {
       const p = store.data.payments[paymentId];
-      if (!p || (p.settledAt || 0) < now - config.idemTtlMs) {
+      if (!p || (p.settledAt || p.createdAt || 0) < now - config.idemTtlMs) {
         delete store.data.idempotency[key];
         idem++;
       }
     }
+    // Webhook replay-guard entries only need to outlive the signature
+    // tolerance window; GC them after 24h.
+    let webhooks = 0;
+    for (const [eventId, ts] of Object.entries(store.data.webhookSeen || {})) {
+      if (ts < now - 86400000) {
+        delete store.data.webhookSeen[eventId];
+        webhooks++;
+      }
+    }
+    // Re-query the PSP for in-doubt payments whose backoff timer elapsed.
+    const pspSweep = payments.recoverPspPending(now);
     globalLimiter.sweep(now);
     authLimiter.sweep(now);
     paymentLimiter.sweep(now);
-    if (sessions || refresh || resets || quotes || idem) persist();
-    return { sessions, refresh, resets, quotes, idem };
+    if (sessions || refresh || resets || quotes || idem || webhooks) persist();
+    return { sessions, refresh, resets, quotes, idem, webhooks, pspRecovered: pspSweep.recovered };
   }
   const sweepTimer = setInterval(() => {
     const { sessions, refresh, quotes, idem } = sweepExpired();
@@ -884,7 +1061,7 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
   sweepTimer.unref();
   server.on("close", () => clearInterval(sweepTimer));
 
-  return { server, store, ledger, payments, audit, metrics, sweepExpired };
+  return { server, store, ledger, payments, audit, metrics, sweepExpired, ops, risk, aml, psp };
 }
 
 function decorate(r) {
@@ -900,6 +1077,26 @@ function decorate(r) {
 function bearerToken(req) {
   const h = req.headers["authorization"] || "";
   return h.startsWith("Bearer ") ? h.slice(7) : null;
+}
+
+// Constant-time string comparison via hashing (length-independent).
+function timingSafeEqualStr(a, b) {
+  return timingSafeEqual(Buffer.from(sha256(String(a)), "hex"), Buffer.from(sha256(String(b)), "hex"));
+}
+
+// Operations back-office auth. Fail-closed: without a configured ops token
+// the endpoints do not exist (404). Every call must present the ops bearer
+// token AND identify the human operator (x-ops-actor) so maker-checker
+// separation is enforceable and every action is attributable in the audit log.
+function requireOps(req) {
+  if (!config.opsToken) throw new ApiError(404, "not_found", "Not found");
+  const tok = bearerToken(req);
+  if (!tok || !timingSafeEqualStr(tok, config.opsToken)) {
+    throw new ApiError(401, "unauthorized", "Missing or invalid ops token");
+  }
+  const actor = String(req.headers["x-ops-actor"] || "").trim().slice(0, 80);
+  if (!actor) throw new ApiError(400, "ops_actor_required", "x-ops-actor header required");
+  return actor;
 }
 
 function requireAuth(req, store) {
@@ -929,7 +1126,10 @@ function requireAuth(req, store) {
   return userId;
 }
 
-function readBody(req) {
+// Raw request body reader (size-capped). The PSP webhook verifies its HMAC
+// over these exact bytes BEFORE parsing, so the signature check can never be
+// bypassed by JSON re-serialization differences.
+function readRawBody(req) {
   return new Promise((resolve, reject) => {
     let data = "";
     let bytes = 0;
@@ -942,13 +1142,16 @@ function readBody(req) {
       }
       data += c;
     });
-    req.on("end", () => {
-      if (!data) return resolve({});
-      try { resolve(JSON.parse(data)); }
-      catch { reject(new ApiError(400, "bad_json", "Invalid JSON body")); }
-    });
+    req.on("end", () => resolve(data));
     req.on("error", reject);
   });
+}
+
+async function readBody(req) {
+  const data = await readRawBody(req);
+  if (!data) return {};
+  try { return JSON.parse(data); }
+  catch { throw new ApiError(400, "bad_json", "Invalid JSON body"); }
 }
 
 function send(res, status, obj, requestId) {
