@@ -592,7 +592,7 @@ export function buildApp({ dbPath = DB_PATH, store: injectedStore, mailer: injec
     const existing = store.data.accounts[userId];
     store.data.accounts[userId] = {
       bank,
-      maskedNumber: asString(body.maskedNumber, "maskedNumber", { required: false, max: 40 }) || ("\\u2022\\u2022\\u2022\\u2022" + Math.floor(1000 + Math.random() * 9000)),
+      maskedNumber: asString(body.maskedNumber, "maskedNumber", { required: false, max: 40 }) || ("\u2022\u2022\u2022\u2022" + Math.floor(1000 + Math.random() * 9000)),
       currency: "INR",
       balanceMinor: existing ? existing.balanceMinor : 0,
       accountRefEnc: body.accountNumber ? encryptField(String(body.accountNumber)) : (existing ? existing.accountRefEnc : null),
