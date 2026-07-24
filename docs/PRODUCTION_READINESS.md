@@ -18,14 +18,15 @@ or investor can verify status against the code.
 - ✅ Public Merkle inclusion proofs (`GET /api/ledger/proof/:index`, PII-free) — any third party can verify a receipt against a published anchor; anchor publisher is pluggable for a real public-chain writer; standalone public verifier page (`/verify.html`, client-side Web Crypto)
 - ✅ Email+password accounts (scrypt, enumeration-safe login, lockout-guarded), **TOTP 2FA** (RFC 6238, secret AES-256-GCM-encrypted at rest), password reset with full session revocation
 - ✅ Transactional email delivery wired end-to-end (`src/mailer.js`): pluggable zero-dependency providers (Resend / SendGrid via HTTPS, console transport in dev), fail-closed prod config (console refused, API key required), delivery failures audited without becoming response oracles — ⬜ remaining: create the provider account + verify the sending domain (SPF/DKIM), set `BP_EMAIL_PROVIDER`/`BP_EMAIL_API_KEY`
-- ✅ CI: 123 backend + 90 mobile automated tests incl. security, platform-hardening, observability, email delivery, top-up/no-fake-data guarantees, sanctions-watchlist ingestion/matching + Postgres persistence regressions + full HTTP journey
+- ✅ CI: 131 backend + 90 mobile automated tests incl. security, platform-hardening, observability, email delivery, top-up/no-fake-data guarantees, sanctions-watchlist ingestion/matching, DSR export/correction, encryption key rotation + Postgres persistence regressions + full HTTP journey
 - ⬜ Independent third-party penetration test + source audit
 - ⬜ Private bug-bounty program (policy ready in `SECURITY.md`)
-- 🟨 Dependency scanning in CI (`npm audit --omit=dev --audit-level=high` gate on runtime deps); SAST/DAST still pending
+- ✅ Dependency scanning in CI (`npm audit --omit=dev --audit-level=high` gate on runtime deps) + **CodeQL SAST** (security-and-quality suite over all JavaScript on every push/PR to main and weekly — `.github/workflows/codeql.yml`) — ⬜ DAST against a staging deployment still pending
 
 ## Identity, secrets & keys
 - ✅ Env-provided secrets with validation
-- ⬜ Managed **KMS/HSM** for signing + encryption keys; documented **key rotation**
+- ✅ Documented, tooled **encryption key rotation**: dual-key reads (`BP_ENC_KEY` + `BP_ENC_KEY_PREVIOUS`) for a zero-downtime cutover, plus a fail-closed re-encryption tool (`backend/scripts/rotate-enc-key.mjs`, file & Postgres modes, idempotent, backs up first) — procedure in [`RUNBOOK.md`](./RUNBOOK.md) §8
+- ⬜ Managed **KMS/HSM** custody for signing + encryption keys
 - ⬜ Secret manager (no secrets on disk/CI logs); short-lived credentials
 
 ## Data & persistence
@@ -33,7 +34,7 @@ or investor can verify status against the code.
 - ✅ **PostgreSQL persistence adapter** (`backend/src/store-pg.js`): state snapshots + append-only ledger/audit mirrors, exactly-once across restarts, CI-tested against Postgres 16; target schema in [`backend/db/schema.sql`](../backend/db/schema.sql)
 - ⬜ Managed India-region Postgres instance: encryption at rest, RBAC (INSERT+SELECT-only app role on mirror tables), PITR backups + tested restores
 - ⬜ **Redis** for rate-limit/lockout/session state (multi-instance correctness)
-- 🟨 Data retention + deletion (DSR): consent withdrawal + PII erasure implemented (`POST /api/account/close`, pseudonymous PMLA retention); full DSR tooling (access/correction exports) pending
+- ✅ Data-principal rights (DSR, DPDP Act 2023) complete: consent withdrawal + PII erasure (`POST /api/account/close`, pseudonymous PMLA retention), reauthenticated machine-readable **data-access export** (`POST /api/account/export`; AML working data lawfully excluded — PMLA tipping-off prohibition, DPDP §17 exemption), and **profile correction** (`POST /api/account/profile`, re-runs KYC on the corrected identity)
 - ⬜ RBI data-localisation: primary store in India
 
 ## Reliability & operations
@@ -44,7 +45,7 @@ or investor can verify status against the code.
 - ✅ Containerized (Dockerfile, non-root, healthcheck); Fly/Render/Compose configs
 - ⬜ Centralized logging/metrics/tracing infra + alerting (SLOs, on-call) — alert rules drafted in the runbook
 - ⬜ Multi-AZ deployment, autoscaling, DR plan + tested restores
-- ⬜ Status page
+- ✅ Status page (`/status.html`): live liveness, ledger & audit hash-chain integrity, and settlement-mode checks against the same public PII-free endpoints monitoring uses; self-hosted by the deployment it reports on — for out-of-band alerting, point an external uptime monitor at `/api/ready`
 
 ## Payments, KYC & money movement
 - ✅ Transparent FX (mid-market, explicit fee), per-txn + daily velocity limits

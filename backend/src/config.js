@@ -50,6 +50,32 @@ function resolveEncKey() {
 }
 const encKey = resolveEncKey();
 
+// Previous encryption key (rotation support). When set, decryptField() falls
+// back to this key for reads while every new write encrypts under the CURRENT
+// key — a zero-downtime cutover. Remove it once
+// backend/scripts/rotate-enc-key.mjs reports every stored field re-encrypted.
+// Procedure: docs/RUNBOOK.md §8.
+function resolveEncKeyPrevious() {
+  const raw = (process.env.BP_ENC_KEY_PREVIOUS || "").trim();
+  if (!raw) return null;
+  if (/^[0-9a-fA-F]{64}$/.test(raw)) return Buffer.from(raw, "hex");
+  // Passphrase form: derive with the salt that was in force when the OLD key
+  // was active (BP_ENC_SALT_PREVIOUS, falling back to the current BP_ENC_SALT).
+  const salt = (process.env.BP_ENC_SALT_PREVIOUS || process.env.BP_ENC_SALT || "").trim();
+  if (salt && salt.length < 16) {
+    throw new Error("FATAL config: BP_ENC_SALT_PREVIOUS must be at least 16 characters");
+  }
+  if (isProd && !salt) {
+    throw new Error(
+      "FATAL config: BP_ENC_KEY_PREVIOUS is a passphrase but neither BP_ENC_SALT_PREVIOUS " +
+      "nor BP_ENC_SALT is set. Provide the salt the old key was derived with, or pass the " +
+      "old key as 64 hex characters."
+    );
+  }
+  return scryptSync(raw, salt || "borderless-pay:enc:v1", 32);
+}
+const encKeyPrevious = resolveEncKeyPrevious();
+
 // --- transactional email (password reset delivery) ---
 // In production, "console" (which logs message bodies) is refused, and a real
 // provider requires its API key — both fail-closed at boot, like the secrets.
@@ -120,6 +146,7 @@ export const config = {
   pgUrl: (process.env.BP_PG_URL || "").trim() || null, // Postgres persistence (overrides file store)
   signingSecret,
   encKey,
+  encKeyPrevious,
   corsOrigins,
   trustProxy: process.env.BP_TRUST_PROXY === "true",
   metricsToken: (process.env.BP_METRICS_TOKEN || "").trim() || null,
@@ -191,6 +218,7 @@ export function configSummary() {
     trustProxy: config.trustProxy,
     signingSecretSet: Boolean(process.env.BP_SIGNING_SECRET),
     encKeySet: Boolean(process.env.BP_ENC_KEY),
+    encKeyPreviousSet: Boolean(process.env.BP_ENC_KEY_PREVIOUS),
     emailProvider: config.emailProvider || "none",
     kycProvider: config.kycProvider,
     settlementMode: config.settlementMode,

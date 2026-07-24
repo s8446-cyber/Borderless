@@ -63,7 +63,7 @@ The store quarantines unreadable files as `db.json.corrupt.<ts>` and starts fres
 ### 3.5 Secret exposure (signing key / enc key / metrics token) — SEV-1
 1. Rotate the leaked value in the secret manager; restart.
 2. `BP_SIGNING_SECRET` rotated → old receipt signatures no longer verify with the new key: keep the old key available (offline) for historical verification; note rotation timestamp in the audit log.
-3. `BP_ENC_KEY` rotated → re-encrypt stored `accountRefEnc` fields (decrypt with old, encrypt with new) before discarding the old key.
+3. `BP_ENC_KEY` rotated → re-encrypt stored `accountRefEnc` fields (decrypt with old, encrypt with new) before discarding the old key — follow the full procedure in §8.
 4. Revoke all sessions platform-wide.
 
 ### 3.6 Port already in use / instance won't start
@@ -113,3 +113,39 @@ refreshes will fail until the parser is updated.
 `BP_SCREENING_MAX_AGE_DAYS` keeps the service up but screens against
 out-of-date designations — treat as a deliberate, time-boxed compliance
 decision and record who approved it.
+
+## 8. Encryption key rotation (`BP_ENC_KEY`)
+
+Zero-downtime rotation of the AES-256-GCM field-encryption key (linked account
+numbers, TOTP seeds). During the cutover the server reads under BOTH keys
+(`src/crypto.js` tries the current key first, then `BP_ENC_KEY_PREVIOUS`),
+while every new write encrypts under the current key only.
+
+1. Generate the new key: `openssl rand -hex 32`.
+2. Deploy with `BP_ENC_KEY=<new>` and `BP_ENC_KEY_PREVIOUS=<old>`. If the old
+   key was a passphrase (not 64 hex chars), also set `BP_ENC_SALT_PREVIOUS`
+   to the salt it was derived with. The app now reads dual-key and writes
+   new-key only — nothing breaks mid-rotation.
+3. Re-encrypt data at rest with `backend/scripts/rotate-enc-key.mjs`:
+   - **File store** — stop the instance (single writer), then:
+     `BP_ENC_KEY=<new> BP_ENC_KEY_PREVIOUS=<old> node scripts/rotate-enc-key.mjs --db $BP_DB`
+     A timestamped `*.pre-rotation.*` backup is taken first; the write is
+     atomic (tmp + rename, mode `0600`) — same discipline as the store.
+   - **Postgres** — stop the app, then the same command with `--pg` and
+     `BP_PG_URL` set (it loads/persists through the same PgStore the server
+     uses). Rehearse on staging before production.
+   - The tool is **fail-closed**: if even one field cannot be decrypted with
+     either key, it writes NOTHING and exits non-zero. It is idempotent —
+     fields already under the current key stay byte-identical, so a re-run
+     is always safe.
+4. Start the app and verify: `/api/ready` is green and a TOTP login succeeds
+   (TOTP seeds are field-encrypted, so a working 2FA login proves decryption
+   under the new key).
+5. Once a re-run reports `"rotated":0`, remove `BP_ENC_KEY_PREVIOUS` (and
+   `BP_ENC_SALT_PREVIOUS`). Keep the retired key offline until every
+   pre-rotation backup containing old-key ciphertext has expired.
+
+`BP_SIGNING_SECRET` rotation is deliberately different: receipts signed with
+the old key must remain verifiable, so retired signing keys are RETAINED
+(offline) for historical verification instead of being re-applied — see §3.5
+and RELEASE_CHECKLIST B1.
