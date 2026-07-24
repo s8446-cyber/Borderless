@@ -185,4 +185,16 @@ export const config = {
 export function configSummary() {
   return {
     env: config.env,
-    port
+    port: config.port,
+    persistence: config.pgUrl ? "postgres" : (config.dbPath ? "file" : "in-memory"),
+    corsOrigins: config.corsOrigins,
+    trustProxy: config.trustProxy,
+    signingSecretSet: Boolean(process.env.BP_SIGNING_SECRET),
+    encKeySet: Boolean(process.env.BP_ENC_KEY),
+    emailProvider: config.emailProvider || "none",
+    kycProvider: config.kycProvider,
+    settlementMode: config.settlementMode,
+    opsTooling: Boolean(config.opsToken),
+    pspWebhooks: Boolean(config.webhookSecret),
+  };
+}
